@@ -1,0 +1,61 @@
+/* MTI Purchasing Portal — design tokens
+   Extracted verbatim from design/MTI Purchasing Portal.dc.html
+   Navy #1B3A6B, Orange #F26722, Plus Jakarta Sans, IBM Plex Mono. */
+
+:root {
+  color-scheme: light;
+  --bg:#F5F4F0;--surface:#FFFFFF;--surface2:#F8F7F3;--surface3:#EFEDE6;
+  --border:#E6E3DB;--border-strong:#D6D2C7;
+  --text:#17263F;--text-2:#43526C;--text-3:#7C8699;
+  --navy-ink:#1B3A6B;--navy-soft:#E9EFF8;--navy-soft-tx:#2B5AA6;
+  --accent:#F26722;--accent-hv:#DD5613;--accent-soft:#FDEEE2;--accent-tx:#C2540E;--accent-ring:rgba(242,103,34,.18);
+  --link:#C2540E;--link-h:#A34209;
+  --sidebar:#1B3A6B;--sb-line:rgba(255,255,255,.14);--sb-text:#C3D0E7;--sb-group:#8FA5CC;--sb-active:rgba(255,255,255,.12);--sb-hover:rgba(255,255,255,.06);
+  --btn-navy:#1B3A6B;--btn-navy-hv:#142E57;--btn-navy-tx:#FFFFFF;--bar:#1B3A6B;
+  --input:#FFFFFF;--input-bd:#D9D5CB;
+  --st-green-bg:#E2F2E8;--st-green-tx:#1B7A44;
+  --st-amber-bg:#FAF1DC;--st-amber-tx:#8F6205;
+  --st-red-bg:#FBE9E5;--st-red-tx:#B23327;
+  --st-blue-bg:#E7EEF9;--st-blue-tx:#2B5AA6;
+  --st-gray-bg:#EEECE5;--st-gray-tx:#6E7787;
+  --sel-row:rgba(242,103,34,.06);
+  --ph-a:#EDEAE1;--ph-b:#E2DED2;
+  --overlay:rgba(15,21,34,.52);
+  --toast-bg:#17263F;--toast-tx:#F4F6FA;
+  --shadow:0 1px 2px rgba(23,38,63,.05),0 6px 20px rgba(23,38,63,.06);
+  --paper-shadow:0 2px 8px rgba(23,38,63,.10),0 18px 44px rgba(23,38,63,.12);
+  --cell-py:7px;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:#0F1522;--surface:#1A2332;--surface2:#20293B;--surface3:#273246;
+  --border:#273349;--border-strong:#38455F;
+  --text:#EAEEF6;--text-2:#B5C0D4;--text-3:#8090A9;
+  --navy-ink:#A9C0E8;--navy-soft:rgba(139,168,220,.14);--navy-soft-tx:#9FBBEA;
+  --accent:#F26722;--accent-hv:#FF7B33;--accent-soft:rgba(242,103,34,.14);--accent-tx:#FF9159;--accent-ring:rgba(242,103,34,.28);
+  --link:#FF9159;--link-h:#FFAF85;
+  --sidebar:#131C2D;--sb-line:rgba(148,170,208,.12);--sb-text:#9DAECB;--sb-group:#5E7094;--sb-active:rgba(148,170,208,.13);--sb-hover:rgba(148,170,208,.06);
+  --btn-navy:#33456A;--btn-navy-hv:#3D5280;--btn-navy-tx:#E2EAF8;--bar:#46628F;
+  --input:#151E2F;--input-bd:#33415C;
+  --st-green-bg:rgba(74,222,128,.13);--st-green-tx:#63CE8C;
+  --st-amber-bg:rgba(250,204,21,.12);--st-amber-tx:#E3BC55;
+  --st-red-bg:rgba(248,113,113,.13);--st-red-tx:#F2938A;
+  --st-blue-bg:rgba(125,165,230,.15);--st-blue-tx:#9FBFEE;
+  --st-gray-bg:rgba(148,163,184,.13);--st-gray-tx:#A7B2C4;
+  --sel-row:rgba(242,103,34,.10);
+  --ph-a:#223048;--ph-b:#1B2740;
+  --overlay:rgba(3,7,14,.66);
+  --toast-bg:#EAEEF6;--toast-tx:#17263F;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.32);
+  --paper-shadow:0 2px 10px rgba(0,0,0,.45),0 24px 56px rgba(0,0,0,.5);
+}
+
+[data-density="comfortable"] { --cell-py:11px; }
+
+@keyframes mtiFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes mtiPop{from{opacity:0;transform:scale(.965)}to{opacity:1;transform:scale(1)}}
+@keyframes mtiToast{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes mtiSlide{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:none}}
+@keyframes mtiStamp{from{opacity:0;transform:rotate(-12deg) scale(1.5)}to{opacity:.9;transform:rotate(-12deg) scale(1)}}
+@keyframes mtiSpin{to{transform:rotate(360deg)}}

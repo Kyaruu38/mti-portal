@@ -1,0 +1,218 @@
+import { h, pickFiles } from '../core/dom.js';
+import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
+import { t } from '../i18n/index.js';
+import { card, badge, btn, icon, dropzone, modal } from '../ui/components.js';
+import { extractArchive } from '../parsers/archive.js';
+import { parsePpkekPdf } from '../parsers/ppkekPdf.js';
+import { uploadToDrive, ppkekFolder } from '../core/drive.js';
+import { readWorkbook, writeWorkbook, colLetter } from '../core/xlsx.js';
+import { num, fmtDate } from '../core/format.js';
+
+// Report/register column order (2-tab LDP/TLDDP layout, from PPKEK DECEMBER.xlsx).
+const REPORT_COLS = ['Nopen', 'PPKEK Date', 'Contract No.', 'Suplier Name', 'USD', 'IDR', 'Jalur', 'SO', 'JO', 'Costing', 'PO ERP INA NO.', 'PPKEK Status', 'Tanggal Aktual Diterima', '__ROWID'];
+
+export function ppkekScreen() {
+  const st = getState(); const ui = st.ui;
+
+  const dz = dropzone({ title: t('pk_drop'), sub: t('pk_drop_sub'), accept: '.rar,.zip', iconName: 'box', compact: true, onFiles: f => handleArchive(f[0]) });
+
+  const extractCard = ui.pkExtract ? extractStatus(ui.pkExtract) : card([h('div.card-pad', { style: { display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '150px' } }, [h('div.card-title', 'Hasil Ekstraksi'), h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '6px' } }, 'Drop RAR/ZIP untuk mengekstrak & parse dokumen kepabeanan.')])]);
+
+  const parsedCard = ui.pkParsed ? parsedInfo(ui.pkParsed) : card([h('div.card-pad', { style: { minHeight: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, h('span', { style: { fontSize: '12px', color: 'var(--text-3)' } }, 'Belum ada PPKEK diparse'))]);
+
+  const top = h('div.grid', { style: { gridTemplateColumns: '1fr 1fr 1.25fr' } }, [dz, extractCard, parsedCard]);
+
+  const register = registerTable(st);
+
+  return h('div.stack', [top, register, ui.pkDiff ? diffModal() : null]);
+}
+
+function extractStatus(ex) {
+  return card([
+    h('div.card-pad', [
+      h('div.row.gap8', [
+        h('span', { style: { width: '32px', height: '32px', borderRadius: '8px', background: 'var(--navy-soft)', color: 'var(--navy-soft-tx)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8px', fontWeight: 800 } }, (ex.format || 'ZIP').toUpperCase()),
+        h('div.grow', [h('div.mono', { style: { fontSize: '12px', fontWeight: 700 } }, ex.name), h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, `${ex.files.length} dokumen`)]),
+      ]),
+      h('div', { style: { height: '7px', borderRadius: '999px', background: 'var(--surface3)', marginTop: '14px', overflow: 'hidden' } }, h('div', { style: { width: '100%', height: '100%', background: 'var(--st-green-tx)' } })),
+      h('div.row', { style: { justifyContent: 'space-between', marginTop: '7px' } }, [h('span', { style: { fontSize: '11px', fontWeight: 600, color: 'var(--st-green-tx)' } }, t('pk_extract_done')), h('span.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${ex.files.length}/${ex.files.length}`)]),
+      h('div', { style: { borderTop: '1px solid var(--border)', marginTop: '12px', paddingTop: '9px', display: 'flex', flexDirection: 'column', gap: '5px' } }, ex.files.map(f => h('div.row.gap8', { style: { fontSize: '11px', color: 'var(--text-2)' } }, [icon('check', 11, { stroke: 'var(--st-green-tx)', strokeWidth: 2.5 }), h('span.grow', f.name), h('a.link', { href: f.url && !f.url.startsWith('drive-') ? f.url : null, target: '_blank', onClick: e => { if (!f.url || f.url.startsWith('drive-')) e.preventDefault(); } }, 'Drive ↗')]))),
+    ]),
+  ]);
+}
+
+function parsedInfo(p) {
+  return card([
+    h('div.card-pad', [
+      h('div.row.gap8', { style: { marginBottom: '11px' } }, [badge('PARSED', 'green'), h('span.mono', { style: { fontSize: '12.5px', fontWeight: 700 } }, `Nopen ${p.nopen || '—'}`), h('div.mla.row.gap8', [badge(p.asal, 'navy'), badge('Fasilitas KEK', 'green')])]),
+      h('div.grid.g2', { style: { gap: '9px 16px' } }, [
+        kv('Tgl Pendaftaran', p.ppkekDate || '—'), kv('Supplier', p.supplier || '—'),
+        kv('Kurs NDPBM', p.kursNDPBM ? num(p.kursNDPBM) : '—'), kv('Nilai ' + p.valuta, p.valueForeign ? num(p.valueForeign, 2) : '—'),
+        kv('Nilai IDR', p.valueIDR ? num(p.valueIDR) : '—'), kv('No. Kontrak', p.contractNo || '—'),
+      ]),
+      h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', borderTop: '1px dashed var(--border)', marginTop: '11px', paddingTop: '9px' } }, 'Nilai IDR = CIF × kurs NDPBM tanggal pendaftaran'),
+    ]),
+  ]);
+}
+function kv(l, v) { return h('div', [h('div', { style: { fontSize: '9.5px', fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-3)' } }, l), h('div.mono', { style: { fontSize: '12px', marginTop: '2px', color: 'var(--text)' } }, v)]); }
+
+function registerTable(st) {
+  const rows = st.ppkek;
+  const head = h('thead', h('tr', ['Nopen', 'Tanggal', 'Supplier', 'USD', 'IDR', 'Jalur', 'SO ✎', 'JO ✎', 'Costing ✎', 'PO ERP INA ✎', 'Status ✎'].map((c, i) =>
+    h('th' + (i === 3 || i === 4 ? '.r' : ''), { style: /✎/.test(c) ? { color: 'var(--accent-tx)' } : {} }, c))));
+  const body = h('tbody', rows.map(r => h('tr', [
+    h('td.mono.cell-strong', r.nopen),
+    h('td.mono', fmtDate(r.date)),
+    h('td', r.supplier),
+    h('td.mono.r', r.usd ? num(r.usd, 2) : '—'),
+    h('td.mono.r', num(r.idr)),
+    h('td', badge(r.jalur, r.jalur === 'LDP' ? 'navy' : 'gray')),
+    editCell(r, 'so'), editCell(r, 'jo'), editCell(r, 'costing'), editCell(r, 'poErpIna', 96),
+    h('td', statusSelect(r)),
+  ])));
+  return h('div.card', [
+    h('div.card-head', [
+      h('div.card-title', `${t('pk_register')} — ${new Date().getFullYear()}`),
+      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, [h('span.mono', String(rows.length)), ' dokumen']),
+      h('div.mla.row.gap8', [
+        btn(t('pk_export'), { iconName: 'download', onClick: () => exportRegister() }),
+        btn(t('pk_import'), { variant: 'primary', iconName: 'upload', onClick: () => importUpdates() }),
+      ]),
+    ]),
+    h('div.tbl-wrap', h('table.tbl', [head, body])),
+    h('div.tbl-foot', t('pk_manual_note')),
+  ]);
+}
+
+function editCell(r, key, width = 84) {
+  const inp = h('input.cell-edit' + (r[key] ? '.filled' : ''), { value: r[key] || '', placeholder: '—', style: { width: width + 'px' }, onInput: e => { r[key] = e.target.value; inp.classList.toggle('filled', !!e.target.value); } });
+  return h('td', { style: { padding: '4px 6px' } }, inp);
+}
+function statusSelect(r) {
+  const sel = h('select.input.mono', { style: { padding: '5px 7px', fontSize: '11px', width: 'auto' }, onChange: e => (r.status = e.target.value) },
+    ['Open', 'Costed', 'Closed'].map(o => h('option', { value: o, selected: r.status === o }, o)));
+  return h('td', { style: { padding: '4px 6px' } }, sel);
+}
+
+async function handleArchive(file) {
+  if (!file) return;
+  toast(t('loading'));
+  try {
+    const { files, format } = await extractArchive(file);
+    // Upload each extracted file to Drive (graceful).
+    const year = new Date().getFullYear(), month = new Date().getMonth() + 1;
+    const sppb = (file.name.match(/SPPB\s*(\d+)/i) || [])[1] || '000000';
+    const shipment = (file.name.match(/\b(\d{2}ID\d{4})\b/i) || [])[1] || 'SHIP';
+    const folder = ppkekFolder(year, month, sppb, shipment);
+    for (const f of files) { const up = await uploadToDrive(f, folder, f.name); f.url = up.url; }
+    // Parse the PPKEK PDF if present.
+    const pdf = files.find(f => /ppkek/i.test(f.name) && /\.pdf$/i.test(f.name)) || files.find(f => /\.pdf$/i.test(f.name));
+    let parsed = null;
+    if (pdf) { try { parsed = await parsePpkekPdf(pdf); } catch (e) { console.warn(e); } }
+    setUI({ pkExtract: { name: file.name, format, files }, pkParsed: parsed });
+    if (parsed && parsed.nopen) addRegisterRow(parsed, folder);
+    logAudit({ entity: 'ppkek', target: file.name, action: 'import', detail: `${files.length} docs (${format})` });
+    toast(`Ekstraksi ${format.toUpperCase()} selesai — ${files.length} dokumen`);
+  } catch (e) {
+    if (e.code === 'RAR_UNSUPPORTED') { toast('RAR belum bisa diekstrak di browser ini — unzip manual atau gunakan .zip'); return; }
+    console.error(e); toast('Ekstraksi gagal: ' + e.message);
+  }
+}
+
+function addRegisterRow(p, folder) {
+  const st = getState();
+  st.ppkek.unshift({
+    id: uid('pk'), nopen: p.nopen, date: new Date(), supplier: p.supplier || '—',
+    usd: p.valuta === 'USD' ? p.valueForeign : 0, idr: p.valueIDR, jalur: p.asal, contractNo: p.contractNo,
+    kurs: p.kursNDPBM, so: '', jo: '', costing: '', poErpIna: '', status: 'Open', driveFolder: folder,
+  });
+  setState({});
+}
+
+async function exportRegister() {
+  const st = getState();
+  const toAoa = (rows) => [REPORT_COLS, ...rows.map(r => [r.nopen, fmtDate(r.date), r.contractNo || '-', r.supplier, r.usd || '', r.idr, r.jalur, r.so, r.jo, r.costing, r.poErpIna, r.status, r.receivedDate || '', r.id])];
+  const ldp = st.ppkek.filter(r => r.jalur === 'LDP');
+  const tlddp = st.ppkek.filter(r => r.jalur === 'TLDDP');
+  const hyperlinks = [];
+  // Live Drive hyperlink example in the Nopen cell where a Drive folder exists.
+  [{ name: 'LDP', rows: ldp }, { name: 'TLDDP', rows: tlddp }].forEach(tab => {
+    tab.rows.forEach((r, i) => { if (r.driveFolder) hyperlinks.push({ sheet: tab.name, cell: `A${i + 2}`, url: driveUrlOf(r), text: r.nopen }); });
+  });
+  await writeWorkbook(`PPKEK_${new Date().getFullYear()}.xlsx`, [
+    { name: 'LDP', aoa: toAoa(ldp) }, { name: 'TLDDP', aoa: toAoa(tlddp) },
+  ], hyperlinks);
+  toast('Export Excel (2-tab LDP/TLDDP + hidden row-ID) — hyperlink Drive aktif');
+}
+function driveUrlOf(r) { return r.driveUrl && !r.driveUrl.startsWith('drive-') ? r.driveUrl : 'https://drive.google.com/'; }
+
+async function importUpdates() {
+  const files = await pickFiles({ accept: '.xlsx,.xls' });
+  if (!files || !files[0]) return;
+  toast(t('loading'));
+  try {
+    const wb = await readWorkbook(files[0]);
+    const changes = [];
+    const st = getState();
+    for (const sheet of wb.sheetNames) {
+      const rows = wb.rows(sheet);
+      if (!rows.length) continue;
+      const header = rows[0];
+      const idIdx = header.indexOf('__ROWID');
+      if (idIdx < 0) continue;
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i]; const id = row[idIdx];
+        const existing = st.ppkek.find(r => r.id === id);
+        const nopen = row[0];
+        if (!existing) {
+          changes.push({ type: 'new', nopen, fields: { supplier: row[3], usd: row[4], idr: row[5], jalur: row[6] } });
+          continue;
+        }
+        [['SO', 'so', 7], ['JO', 'jo', 8], ['Costing', 'costing', 9], ['PO ERP INA', 'poErpIna', 10], ['Status', 'status', 11]].forEach(([label, key, idx]) => {
+          const nv = String(row[idx] ?? '').trim(); const ov = String(existing[key] ?? '').trim();
+          if (nv !== ov) changes.push({ type: 'update', id, nopen, label, key, old: ov || '—', neu: nv || '—' });
+        });
+      }
+    }
+    setUI({ pkDiff: { changes, file: files[0].name } });
+  } catch (e) { console.error(e); toast('Import gagal: ' + e.message); }
+}
+
+function diffModal() {
+  const st = getState(); const d = st.ui.pkDiff;
+  const updates = d.changes.filter(c => c.type === 'update');
+  const news = d.changes.filter(c => c.type === 'new');
+  const rowsEl = d.changes.map(c => c.type === 'update'
+    ? h('div', { style: { display: 'grid', gridTemplateColumns: '1.1fr 1fr 1fr', gap: '1px', background: 'var(--border)' } }, [
+        h('div', { style: { background: 'var(--surface)', padding: '9px 11px' } }, [h('div.mono', { style: { fontSize: '11px', fontWeight: 700 } }, c.nopen), h('div', { style: { fontSize: '10px', color: 'var(--text-3)' } }, c.label)]),
+        h('div.mono', { style: { background: 'var(--surface)', padding: '9px 11px', fontSize: '11px', color: 'var(--text-3)', textDecoration: 'line-through' } }, c.old),
+        h('div.mono', { style: { background: 'var(--st-green-bg)', padding: '9px 11px', fontSize: '11px', fontWeight: 700, color: 'var(--st-green-tx)' } }, c.neu),
+      ])
+    : h('div', { style: { display: 'grid', gridTemplateColumns: '1.1fr 1fr 1fr', gap: '1px', background: 'var(--border)' } }, [
+        h('div', { style: { background: 'var(--surface)', padding: '9px 11px' } }, [h('div.mono', { style: { fontSize: '11px', fontWeight: 700 } }, c.nopen), h('div', { style: { fontSize: '10px', color: 'var(--accent-tx)', fontWeight: 700 } }, 'baris baru')]),
+        h('div', { style: { background: 'var(--surface)', padding: '9px 11px', fontSize: '11px', color: 'var(--text-3)' } }, '—'),
+        h('div.mono', { style: { background: 'var(--accent-soft)', padding: '9px 11px', fontSize: '11px', fontWeight: 700, color: 'var(--accent-tx)' } }, `${c.fields.supplier || ''}`),
+      ]));
+  return modal({
+    title: t('pk_diff_title'), subtitle: `${d.file} · ${d.changes.length} perubahan`, width: 600, onClose: () => setUI({ pkDiff: null }),
+    body: [
+      h('div.row.gap8', { style: { fontSize: '11px' } }, [badge(`${updates.length} update`, 'green'), badge(`${news.length} baris baru`, 'accent')]),
+      h('div', { style: { border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' } }, [
+        h('div', { style: { display: 'grid', gridTemplateColumns: '1.1fr 1fr 1fr', gap: '1px', background: 'var(--border)' } }, ['Nopen · Field', t('pk_old'), t('pk_new')].map(x => h('div', { style: { background: 'var(--surface2)', padding: '7px 11px', fontSize: '9.5px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-3)' } }, x))),
+        ...rowsEl,
+      ]),
+    ],
+    footer: [btn(t('cancel'), { onClick: () => setUI({ pkDiff: null }) }), btn(`${t('pk_apply_changes')} (${d.changes.length})`, { variant: 'primary', onClick: () => applyDiff() })],
+  });
+}
+
+function applyDiff() {
+  const st = getState(); const d = st.ui.pkDiff;
+  for (const c of d.changes) {
+    if (c.type === 'update') { const r = st.ppkek.find(x => x.id === c.id); if (r) r[c.key] = c.neu === '—' ? '' : c.neu; }
+    else st.ppkek.push({ id: uid('pk'), nopen: c.nopen, date: new Date(), supplier: c.fields.supplier || '—', usd: Number(c.fields.usd) || 0, idr: Number(c.fields.idr) || 0, jalur: c.fields.jalur || 'LDP', so: '', jo: '', costing: '', poErpIna: '', status: 'Open' });
+  }
+  logAudit({ entity: 'ppkek', target: d.file, action: 'import_apply', detail: `${d.changes.length} changes` });
+  setUI({ pkDiff: null });
+  toast(`${d.changes.length} perubahan diterapkan ke register PPKEK`);
+}

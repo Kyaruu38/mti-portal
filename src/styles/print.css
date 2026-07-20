@@ -1,0 +1,30 @@
+/* Print styling for generated documents (Surat Jalan, PO / Purchase Contract, PRF).
+   Printed documents are ALWAYS white paper regardless of theme (per spec). */
+
+.paper {
+  background:#FFFFFF; color:#1F2937; border:1px solid #E5E7EB; border-radius:4px;
+  box-shadow:var(--paper-shadow); padding:38px 42px; box-sizing:border-box;
+}
+.paper * { color-scheme: light; }
+.paper .p-title { font-size:19px; font-weight:800; color:#111827; }
+.paper table { width:100%; border-collapse:collapse; }
+.paper td, .paper th { border:1px solid #D1D5DB; }
+.paper .p-muted { color:#6B7280; }
+.paper .p-hd { color:#374151; background:#F9FAFB; }
+
+.paper-scroll { display:flex; justify-content:center; }
+
+@media print {
+  @page { margin:12mm; }
+  body { background:#FFFFFF !important; }
+  .sidebar, .topbar, .no-print { display:none !important; }
+  .content { padding:0 !important; }
+  .app-shell { min-width:0 !important; }
+  .paper { box-shadow:none !important; border:none !important; border-radius:0 !important; padding:0 !important; }
+  .paper-scroll { display:block !important; }
+  /* Force light palette on printed paper */
+  .paper { background:#fff !important; color:#1F2937 !important; }
+}
+
+.print-only { display:none; }
+@media print { .print-only { display:block; } }

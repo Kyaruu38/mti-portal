@@ -1,0 +1,25 @@
+# Dependencies (this project has no build step and currently ships with none
+# committed — `npm run start`/`dev` run `serve` via npx, no local install —
+# but ignored defensively in case that ever changes).
+node_modules/
+
+# Environment / secrets — none exist in this repo today (verified before
+# writing this file), ignored defensively so one never gets committed by accident.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+service-account*.json
+*credentials*.json
+*secret*.json
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+
+# Internal tooling - not for public web
+supabase_*.sql
+supabase_schema.sql
+CLAUDE.md
+SETUP.md

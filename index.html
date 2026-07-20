@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MTI Purchasing Portal</title>
+  <meta name="description" content="Internal purchasing portal — PT Matahari Tire Indonesia (KEK Kendal)." />
+
+  <!-- Fonts: Plus Jakarta Sans, IBM Plex Mono, Caveat (signature) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Caveat:wght@600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="./src/styles/tokens.css" />
+  <link rel="stylesheet" href="./src/styles/app.css" />
+  <link rel="stylesheet" href="./src/styles/print.css" />
+
+  <!-- No build step. Bare module specifiers resolve to CDN ESM builds.
+       Swap these for self-hosted copies if you prefer offline/air-gapped use. -->
+  <script type="importmap">
+  {
+    "imports": {
+      "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.45.4",
+      "xlsx": "https://esm.sh/xlsx@0.18.5",
+      "pdfjs-dist": "https://esm.sh/pdfjs-dist@4.7.76",
+      "jszip": "https://esm.sh/jszip@3.10.1",
+      "libarchive.js": "https://esm.sh/libarchive.js@2.0.2"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="./src/main.js"></script>
+  <noscript>Aktifkan JavaScript untuk menggunakan MTI Purchasing Portal.</noscript>
+</body>
+</html>

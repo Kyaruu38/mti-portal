@@ -1,0 +1,85 @@
+// Payment-proof parser REGISTRY.
+// Each template has: id, label, detect(text) -> boolean fingerprint, parse(text) -> fields.
+// Add more banks by pushing to REGISTRY (a clean slot for USD telegraphic transfer
+// is included below). Unknown formats fall back to manual 3-field entry.
+
+import { extractPdf } from './pdf.js';
+
+const toNum = v => Number(String(v).replace(/[,\s]/g, '')) || 0;
+
+function firstMatch(text, res) {
+  for (const re of res) { const m = text.match(re); if (m) return m; }
+  return null;
+}
+
+// ---- Template 1: Standard Chartered "Payment Transaction Details" ----
+// Grounded in the real sample (#006-WSR-CGDD… .pdf). Reads the CGDD PO no from
+// the "Notes to Beneficiary" field for triple-match.
+const STANDARD_CHARTERED = {
+  id: 'sc',
+  label: 'Standard Chartered — Payment Transaction Details',
+  detect: (t) => /Payment Transaction Details/i.test(t),
+  parse: (t) => {
+    const amt = firstMatch(t, [
+      /Credit Amount\s+(IDR|USD|SGD|CNY|EUR)\s+([\d.,]+)/i,
+      /(IDR|USD|SGD|CNY|EUR)\s+([\d.,]+)\.\d{2}\s+Debit Amount/i,
+      /(IDR|USD|SGD|CNY|EUR)\s+([\d.,]+)/i,
+    ]);
+    const currency = amt ? amt[1].toUpperCase() : 'IDR';
+    const amount = amt ? toNum(amt[2]) : 0;
+    // Beneficiary: name line inside "Beneficiary Details".
+    let beneficiary = '';
+    const bd = t.split(/Beneficiary Details/i)[1] || t;
+    const bm = bd.match(/\b(PT|CV)\s+[A-Z][A-Z .,&'-]{3,}/);
+    if (bm) beneficiary = bm[0].replace(/\s*-\s*(IDR|USD).*/i, '').trim();
+    const date = (t.match(/Value Date\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/i) ||
+                  t.match(/(\d{1,2}\/\d{1,2}\/\d{4})/) || [])[1] || '';
+    const po = (t.match(/CGDD\d{8,}/i) || [])[0] || '';
+    const ref = (t.match(/End to End ID[^\n]*?\b([A-Z]{2,}[A-Z0-9]*\d[A-Z0-9]{4,})\b/i) || [])[1] || '';
+    return { currency, amount, beneficiary, date, poNo: po, reference: ref, method: 'Standard Chartered', confidence: 0.95 };
+  },
+};
+
+// ---- Template 2: ICBC "Cek Status BI-FAST" ----
+// Indonesian BI-FAST receipt. Fields: nominal / penerima / tanggal.
+const ICBC_BIFAST = {
+  id: 'icbc_bifast',
+  label: 'ICBC — Cek Status BI-FAST',
+  detect: (t) => /Cek Status BI-?FAST/i.test(t) || (/BI-?FAST/i.test(t) && /ICBC/i.test(t)),
+  parse: (t) => {
+    const amt = firstMatch(t, [
+      /Nominal[^\d]*(?:IDR|Rp)?\s*([\d.,]+)/i,
+      /Jumlah[^\d]*(?:IDR|Rp)?\s*([\d.,]+)/i,
+      /(?:IDR|Rp)\s*([\d.,]+)/i,
+    ]);
+    const amount = amt ? toNum(amt[1]) : 0;
+    const ben = firstMatch(t, [
+      /Nama Penerima[^\n:：]*[:：]?\s*([A-Z][A-Za-z0-9 .,&'-]{3,})/i,
+      /Rekening Tujuan[^\n]*\n?\s*([A-Z][A-Za-z0-9 .,&'-]{3,})/i,
+      /Penerima[^\n:：]*[:：]?\s*([A-Z][A-Za-z0-9 .,&'-]{3,})/i,
+    ]);
+    const beneficiary = ben ? ben[1].trim() : '';
+    const date = (t.match(/Tanggal[^\d]*(\d{1,2}[\/\- ][A-Za-z0-9]{2,}[\/\- ]\d{2,4})/i) || [])[1] || '';
+    const ref = (t.match(/(?:No\.?\s*Referensi|Reference|Ref)[^\n]*?([A-Z0-9]{8,})/i) || [])[1] || '';
+    const po = (t.match(/CGDD\d{8,}/i) || [])[0] || '';
+    return { currency: 'IDR', amount, beneficiary, date, poNo: po, reference: ref, method: 'ICBC BI-FAST', confidence: 0.9 };
+  },
+};
+
+// ---- Clean slot for additional banks (e.g. USD telegraphic transfer) ----
+// TODO(you): add a template object like the ones above and push it into REGISTRY.
+// const MANDIRI_TT_USD = { id:'mandiri_tt', label:'Mandiri — TT Valas (USD)',
+//   detect:(t)=>/Telegraphic Transfer/i.test(t), parse:(t)=>({ ... }) };
+
+export const REGISTRY = [STANDARD_CHARTERED, ICBC_BIFAST /*, MANDIRI_TT_USD */];
+
+// Parse a payment-proof PDF. Returns { matchedTemplate, fields, manual, text }.
+export async function parsePaymentProof(file) {
+  const pdf = await extractPdf(file);
+  const text = pdf.text;
+  const tmpl = REGISTRY.find(x => x.detect(text));
+  if (!tmpl) {
+    return { matchedTemplate: null, manual: true, fields: { currency: 'IDR', amount: 0, beneficiary: '', date: '', poNo: '' }, text };
+  }
+  return { matchedTemplate: tmpl.id, templateLabel: tmpl.label, manual: false, fields: tmpl.parse(text), text };
+}
