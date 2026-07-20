@@ -93,7 +93,7 @@ function wilbertBody(st) {
       ]),
       activityCard(st.audit.slice(0, 6)),
     ]),
-    h('div.grid', { style: { gridTemplateColumns: '1.55fr 1fr', alignItems: 'start' } }, [chartCard(), dueCard(st, dueSoon)]),
+    h('div.grid', { style: { gridTemplateColumns: '1.55fr 1fr', alignItems: 'start' } }, [chartCard(st), dueCard(st, dueSoon)]),
   ];
 }
 
@@ -193,19 +193,45 @@ function dueCard(st, dueSoon) {
   ]);
 }
 
-function chartCard() {
-  const bars = [['Feb', 78, 3.1], ['Mar', 64, 2.6], ['Apr', 94, 3.8], ['Mei', 84, 3.4], ['Jun', 104, 4.2], ['Jul', 120, 4.8]];
+const MONTHS_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+
+// Real last-6-calendar-months IDR PO totals, derived from st.pos — this used
+// to be a hardcoded literal array (never wired to any data, seed or real).
+// Only sums IDR POs, matching the chart's own "IDR miliar" axis label; this
+// doesn't attempt multi-currency aggregation (out of scope here — see B1's
+// sumByCurrency/moneyMulti for the pattern this would follow if that's ever
+// wanted for this chart specifically).
+function chartCard(st) {
+  const now = new Date();
+  const months = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ label: MONTHS_ID[d.getMonth()], year: d.getFullYear(), month: d.getMonth() });
+  }
+  const totals = months.map(m => st.pos
+    .filter(p => p.currency === 'IDR')
+    .filter(p => { const d = new Date(p.createdAt); return !isNaN(d) && d.getMonth() === m.month && d.getFullYear() === m.year; })
+    .reduce((s, p) => s + (p.total || 0), 0) / 1e9);
+  const max = Math.max(...totals, 0);
+  const hasData = totals.some(v => v > 0);
+
   return card([
     h('div.card-pad', [
       h('div.row', { style: { justifyContent: 'space-between', alignItems: 'baseline' } }, [
         h('div.card-title', t('dash_po_value')),
         h('div.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, 'IDR miliar'),
       ]),
-      h('div.row', { style: { alignItems: 'flex-end', gap: '26px', height: '150px', marginTop: '16px', padding: '0 8px' } }, bars.map((b, i) => h('div', { style: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' } }, [
-        h('span.mono', { style: { fontSize: '10px', color: i === 5 ? 'var(--accent-tx)' : 'var(--text-3)' } }, String(b[2])),
-        h('div', { style: { width: '100%', maxWidth: '46px', height: b[1] + 'px', background: i === 5 ? 'var(--accent)' : 'var(--bar)', opacity: i === 5 ? 1 : 0.55, borderRadius: '5px 5px 2px 2px' } }),
-        h('span', { style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-3)' } }, b[0]),
-      ]))),
+      hasData
+        ? h('div.row', { style: { alignItems: 'flex-end', gap: '26px', height: '150px', marginTop: '16px', padding: '0 8px' } }, months.map((m, i) => {
+            const barPx = max > 0 ? Math.max(4, Math.round((totals[i] / max) * 120)) : 4;
+            const isLast = i === months.length - 1;
+            return h('div', { style: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' } }, [
+              h('span.mono', { style: { fontSize: '10px', color: isLast ? 'var(--accent-tx)' : 'var(--text-3)' } }, totals[i].toFixed(1)),
+              h('div', { style: { width: '100%', maxWidth: '46px', height: barPx + 'px', background: isLast ? 'var(--accent)' : 'var(--bar)', opacity: isLast ? 1 : 0.55, borderRadius: '5px 5px 2px 2px' } }),
+              h('span', { style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-3)' } }, m.label),
+            ]);
+          }))
+        : h('div', { style: { padding: '48px 0', textAlign: 'center', fontSize: '12px', color: 'var(--text-3)' } }, 'Belum ada data PO'),
     ]),
   ]);
 }
