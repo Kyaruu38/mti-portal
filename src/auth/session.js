@@ -16,6 +16,7 @@ import { fetchUnits } from '../core/unitsApi.js';
 import { fetchInvoices } from '../core/invoicesApi.js';
 import { fetchPrfs } from '../core/prfsApi.js';
 import { fetchPayments } from '../core/paymentsApi.js';
+import { fetchPpkek } from '../core/ppkekApi.js';
 
 // Log in by username. Uses Supabase Auth when configured; otherwise a demo check.
 export async function login(username, password) {
@@ -105,6 +106,13 @@ export async function login(username, password) {
 
   const paymentsFromServer = await fetchPayments();
   if (paymentsFromServer) getState().payments = paymentsFromServer;
+
+  // Batch 3 (PPKEK): same wholesale-replace pattern. Only sekar/wilbert have
+  // ppkek_rw, so this returns null (not []) for every other role and their
+  // seeded/local st.ppkek is left untouched — consistent with fetchInvoices
+  // et al returning null on any non-visible/failed fetch.
+  const ppkekFromServer = await fetchPpkek();
+  if (ppkekFromServer) getState().ppkek = ppkekFromServer;
 
   // Dashboard "Aktivitas Terbaru": pull the real, trigger-written audit_log
   // (item 4) instead of leaving it to seed fixtures. RLS scopes this per

@@ -7,6 +7,7 @@ import { parsePpkekPdf } from '../parsers/ppkekPdf.js';
 import { uploadToDrive, ppkekFolder } from '../core/drive.js';
 import { readWorkbook, writeWorkbook, colLetter } from '../core/xlsx.js';
 import { num, fmtDate } from '../core/format.js';
+import { insertPpkek, updatePpkek } from '../core/ppkekApi.js';
 
 // Report/register column order (2-tab LDP/TLDDP layout, from PPKEK DECEMBER.xlsx).
 const REPORT_COLS = ['Nopen', 'PPKEK Date', 'Contract No.', 'Suplier Name', 'USD', 'IDR', 'Jalur', 'SO', 'JO', 'Costing', 'PO ERP INA NO.', 'PPKEK Status', 'Tanggal Aktual Diterima', '__ROWID'];
@@ -84,14 +85,29 @@ function registerTable(st) {
   ]);
 }
 
+// Mirrors suratJalan.js's qtyInput lesson: mutate the row + DOM directly on
+// every keystroke (no setState/setUI — mount() has no diffing and would drop
+// characters mid-type or eat a blur-then-click), and only sync to Supabase
+// on blur, once the value has settled.
 function editCell(r, key, width = 84) {
-  const inp = h('input.cell-edit' + (r[key] ? '.filled' : ''), { value: r[key] || '', placeholder: '—', style: { width: width + 'px' }, onInput: e => { r[key] = e.target.value; inp.classList.toggle('filled', !!e.target.value); } });
+  const inp = h('input.cell-edit' + (r[key] ? '.filled' : ''), {
+    value: r[key] || '', placeholder: '—', style: { width: width + 'px' },
+    onInput: e => { r[key] = e.target.value; inp.classList.toggle('filled', !!e.target.value); },
+    onBlur: e => commitPpkekField(r, key, e.target.value),
+  });
   return h('td', { style: { padding: '4px 6px' } }, inp);
 }
 function statusSelect(r) {
-  const sel = h('select.input.mono', { style: { padding: '5px 7px', fontSize: '11px', width: 'auto' }, onChange: e => (r.status = e.target.value) },
-    ['Open', 'Costed', 'Closed'].map(o => h('option', { value: o, selected: r.status === o }, o)));
+  const sel = h('select.input.mono', {
+    style: { padding: '5px 7px', fontSize: '11px', width: 'auto' },
+    onChange: e => { r.status = e.target.value; commitPpkekField(r, 'status', e.target.value); },
+  }, ['Open', 'Costed', 'Closed'].map(o => h('option', { value: o, selected: r.status === o }, o)));
   return h('td', { style: { padding: '4px 6px' } }, sel);
+}
+
+async function commitPpkekField(r, key, value) {
+  try { await updatePpkek(r.id, { [key]: value }); }
+  catch (e) { console.error('Supabase ppkek update failed', e); toast(`Gagal sync ${key} ke server: ` + (e.message || e)); }
 }
 
 async function handleArchive(file) {
@@ -99,18 +115,25 @@ async function handleArchive(file) {
   toast(t('loading'));
   try {
     const { files, format } = await extractArchive(file);
-    // Upload each extracted file to Drive (graceful).
+    // Upload each extracted file to Drive (graceful — see core/drive.js:
+    // returns a drive-pending://... placeholder while useDrive=false, a real
+    // webViewLink once Drive is configured, same call site either way).
     const year = new Date().getFullYear(), month = new Date().getMonth() + 1;
     const sppb = (file.name.match(/SPPB\s*(\d+)/i) || [])[1] || '000000';
     const shipment = (file.name.match(/\b(\d{2}ID\d{4})\b/i) || [])[1] || 'SHIP';
     const folder = ppkekFolder(year, month, sppb, shipment);
-    for (const f of files) { const up = await uploadToDrive(f, folder, f.name); f.url = up.url; }
+    const fileRecords = [];
+    for (const f of files) {
+      const up = await uploadToDrive(f, folder, f.name);
+      f.url = up.url;
+      fileRecords.push({ name: f.name, url: up.url, placeholder: !!up.placeholder });
+    }
     // Parse the PPKEK PDF if present.
     const pdf = files.find(f => /ppkek/i.test(f.name) && /\.pdf$/i.test(f.name)) || files.find(f => /\.pdf$/i.test(f.name));
     let parsed = null;
     if (pdf) { try { parsed = await parsePpkekPdf(pdf); } catch (e) { console.warn(e); } }
     setUI({ pkExtract: { name: file.name, format, files }, pkParsed: parsed });
-    if (parsed && parsed.nopen) addRegisterRow(parsed, folder);
+    if (parsed && parsed.nopen) await addRegisterRow(parsed, folder, fileRecords);
     logAudit({ entity: 'ppkek', target: file.name, action: 'import', detail: `${files.length} docs (${format})` });
     toast(`Ekstraksi ${format.toUpperCase()} selesai — ${files.length} dokumen`);
   } catch (e) {
@@ -119,13 +142,25 @@ async function handleArchive(file) {
   }
 }
 
-function addRegisterRow(p, folder) {
-  const st = getState();
-  st.ppkek.unshift({
-    id: uid('pk'), nopen: p.nopen, date: new Date(), supplier: p.supplier || '—',
+async function addRegisterRow(p, folder, files) {
+  const local = {
+    nopen: p.nopen, date: new Date(), eta: p.eta || '', supplier: p.supplier || '—',
+    address: p.address || '', invoiceNo: p.invoiceNo || '', plNo: p.plNo || '',
     usd: p.valuta === 'USD' ? p.valueForeign : 0, idr: p.valueIDR, jalur: p.asal, contractNo: p.contractNo,
-    kurs: p.kursNDPBM, so: '', jo: '', costing: '', poErpIna: '', status: 'Open', driveFolder: folder,
-  });
+    kurs: p.kursNDPBM, so: '', jo: '', costing: '', poErpIna: '', status: 'Open',
+    driveFolder: folder, files: files || [],
+  };
+  try {
+    const saved = await insertPpkek(local);
+    Object.assign(local, saved);
+  } catch (e) {
+    console.error('Supabase ppkek insert failed', e);
+    toast('PPKEK terparse tapi gagal simpan ke server: ' + (e.message || e));
+    return;
+  }
+  if (!local.id) local.id = uid('pk'); // demo mode: insertPpkek no-ops, keep a local id
+  const st = getState();
+  st.ppkek.unshift(local);
   setState({});
 }
 
@@ -206,11 +241,23 @@ function diffModal() {
   });
 }
 
-function applyDiff() {
+async function applyDiff() {
   const st = getState(); const d = st.ui.pkDiff;
   for (const c of d.changes) {
-    if (c.type === 'update') { const r = st.ppkek.find(x => x.id === c.id); if (r) r[c.key] = c.neu === '—' ? '' : c.neu; }
-    else st.ppkek.push({ id: uid('pk'), nopen: c.nopen, date: new Date(), supplier: c.fields.supplier || '—', usd: Number(c.fields.usd) || 0, idr: Number(c.fields.idr) || 0, jalur: c.fields.jalur || 'LDP', so: '', jo: '', costing: '', poErpIna: '', status: 'Open' });
+    if (c.type === 'update') {
+      const r = st.ppkek.find(x => x.id === c.id);
+      if (!r) continue;
+      const value = c.neu === '—' ? '' : c.neu;
+      r[c.key] = value;
+      try { await updatePpkek(c.id, { [c.key]: value }); }
+      catch (e) { console.error('Supabase ppkek update failed', e); toast(`Gagal sync ${c.nopen} ke server: ` + (e.message || e)); }
+    } else {
+      const local = { nopen: c.nopen, date: new Date(), supplier: c.fields.supplier || '—', usd: Number(c.fields.usd) || 0, idr: Number(c.fields.idr) || 0, jalur: c.fields.jalur || 'LDP', so: '', jo: '', costing: '', poErpIna: '', status: 'Open', files: [] };
+      try { const saved = await insertPpkek(local); Object.assign(local, saved); }
+      catch (e) { console.error('Supabase ppkek insert failed', e); toast(`Gagal simpan baris baru ${c.nopen}: ` + (e.message || e)); continue; }
+      if (!local.id) local.id = uid('pk'); // demo mode: insertPpkek no-ops, keep a local id
+      st.ppkek.push(local);
+    }
   }
   logAudit({ entity: 'ppkek', target: d.file, action: 'import_apply', detail: `${d.changes.length} changes` });
   setUI({ pkDiff: null });
