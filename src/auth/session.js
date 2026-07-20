@@ -13,6 +13,9 @@ import { fetchItems } from '../core/itemsApi.js';
 import { fetchBrandMap } from '../core/brandMapApi.js';
 import { fetchDesigns } from '../core/designsApi.js';
 import { fetchUnits } from '../core/unitsApi.js';
+import { fetchInvoices } from '../core/invoicesApi.js';
+import { fetchPrfs } from '../core/prfsApi.js';
+import { fetchPayments } from '../core/paymentsApi.js';
 
 // Log in by username. Uses Supabase Auth when configured; otherwise a demo check.
 export async function login(username, password) {
@@ -88,6 +91,20 @@ export async function login(username, password) {
 
   const unitsFromServer = await fetchUnits();
   if (unitsFromServer) getState().units = unitsFromServer;
+
+  // Batch 2 (Finance): invoices -> prfs -> payments, same wholesale-replace
+  // fetch pattern. Dependency order matters for reasoning about the data
+  // (a PRF references invoice numbers, a payment references a PRF), but the
+  // fetches themselves are independent reads — order here doesn't matter
+  // functionally, kept in the same order as the dependency for readability.
+  const invoicesFromServer = await fetchInvoices();
+  if (invoicesFromServer) getState().invoices = invoicesFromServer;
+
+  const prfsFromServer = await fetchPrfs();
+  if (prfsFromServer) getState().prfs = prfsFromServer;
+
+  const paymentsFromServer = await fetchPayments();
+  if (paymentsFromServer) getState().payments = paymentsFromServer;
 
   // Dashboard "Aktivitas Terbaru": pull the real, trigger-written audit_log
   // (item 4) instead of leaving it to seed fixtures. RLS scopes this per

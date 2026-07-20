@@ -6,6 +6,9 @@ import { money, num, fmtDate, fmtDateTime, daysUntil, similarity, normalize, sum
 import { parsePaymentProof } from '../parsers/bankProof.js';
 import { uploadToDrive } from '../core/drive.js';
 import { can } from '../auth/roles.js';
+import { updatePrfStage } from '../core/prfsApi.js';
+import { confirmPrfPaid } from '../core/paymentsApi.js';
+import { isConfigured } from '../core/supabase.js';
 
 export function financeScreen() {
   const st = getState(); const ui = st.ui;
@@ -66,9 +69,27 @@ function receiveModal(prfId) {
     footer: [
       h('span', { style: { fontSize: '12px', fontWeight: 700, color: 'var(--text-2)', marginRight: 'auto' } }, [t('fn_completeness') + ' ', h('span.mono', { style: { color: 'var(--accent-tx)' } }, `${count}/4`)]),
       btn(t('cancel'), { onClick: () => setUI({ receiveModal: null }) }),
-      btn(t('fn_receive_btn'), { variant: 'primary', disabled: !ok, onClick: () => { prf.stage = 'Diterima Finance'; prf.receivedAt = new Date().toISOString(); logAudit({ entity: 'prf', target: prf.no, action: 'finance_receive', detail: '4/4' }); setUI({ receiveModal: null }); toast(`${prf.no} diterima Finance — kelengkapan 4/4`); } }),
+      btn(t('fn_receive_btn'), { variant: 'primary', disabled: !ok, onClick: () => receivePrf(prf) }),
     ],
   });
+}
+
+// Single-table stage advance (Diproses Wilbert -> Diterima Finance). No
+// atomicity concern — only touches prfs — so a plain update is correct here,
+// unlike confirmPaid() below.
+async function receivePrf(prf) {
+  prf.stage = 'Diterima Finance'; prf.receivedAt = new Date().toISOString();
+  try {
+    await updatePrfStage(prf.id, { stage: prf.stage, receivedAt: prf.receivedAt, receiveChecklist: prf.receiveChecklist });
+  } catch (e) {
+    console.error('Supabase PRF receive sync failed', e);
+    toast('Tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e));
+    setUI({ receiveModal: null });
+    return;
+  }
+  logAudit({ entity: 'prf', target: prf.no, action: 'finance_receive', detail: '4/4' });
+  setUI({ receiveModal: null });
+  toast(`${prf.no} diterima Finance — kelengkapan 4/4`);
 }
 
 async function handleProof(file) {
@@ -134,11 +155,31 @@ function manualCard(m) {
   ])]);
 }
 
+// This is the one operation in Batch 2 that touches 3 tables in one business
+// action (payments insert + prfs.stage + every linked invoice.status). In
+// production that's the confirm_prf_paid() Postgres RPC — one transaction,
+// all-or-nothing by Postgres's own guarantee, not by convention here. Local
+// state is only mutated AFTER the RPC confirms success; if it throws,
+// nothing below runs and nothing local changes — matching what actually
+// happened server-side (everything rolled back).
 async function confirmPaid(m) {
   const st = getState(); const prf = m.prf;
+  const method = m.template || 'transfer';
+  const driveUrl = m.driveUrl || '';
+
+  let paymentId = uid('pay'); // demo mode fallback id
+  if (isConfigured()) {
+    try {
+      paymentId = await confirmPrfPaid(prf.id, method, driveUrl);
+    } catch (e) {
+      console.error('confirm_prf_paid RPC failed — nothing changed (transaction rolled back)', e);
+      toast('Gagal konfirmasi pembayaran: ' + (e.message || e));
+      return;
+    }
+  }
+
   prf.stage = 'Paid'; prf.paidAt = new Date().toISOString();
-  st.payments.unshift({ id: uid('pay'), date: new Date().toISOString(), prf: prf.no, supplier: prf.supplier, amount: prf.amount, currency: prf.currency, method: m.template || 'transfer', driveUrl: m.driveUrl || '' });
-  // Mark linked invoices paid.
+  st.payments.unshift({ id: paymentId, date: prf.paidAt, prf: prf.no, supplier: prf.supplier, amount: prf.amount, currency: prf.currency, method, driveUrl });
   (prf.invoices || []).forEach(no => { const inv = st.invoices.find(i => i.no === no); if (inv) inv.status = 'Paid'; });
   logAudit({ entity: 'prf', target: prf.no, action: 'mark_paid', detail: money(prf.amount, prf.currency) });
   setUI({ proofMatch: null, proofManual: null });

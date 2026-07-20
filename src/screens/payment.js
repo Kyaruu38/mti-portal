@@ -1,13 +1,16 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t } from '../i18n/index.js';
-import { card, badge, btn, icon, dropzone, modal, statusTone } from '../ui/components.js';
+import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, statusTone } from '../ui/components.js';
 import { money, num, fmtDate, romanMonth, daysUntil, topDays, addDays } from '../core/format.js';
 import { prfPaper } from '../ui/documents.js';
 import { can } from '../auth/roles.js';
 import { wrapPrintable } from './approval.js';
 import { downloadBlob } from '../core/dom.js';
 import { nextPrfNo } from '../core/docSeqApi.js';
+import { insertInvoice, updateInvoice } from '../core/invoicesApi.js';
+import { insertPrf } from '../core/prfsApi.js';
+import { insertDescDict } from '../core/descDictApi.js';
 
 const STAGES = ['Diterima Purchasing', 'Diproses Wilbert', 'Diterima Finance', 'Paid'];
 
@@ -24,11 +27,17 @@ export function paymentScreen() {
   const needFaktur = st.invoices.filter(i => !i.faktur && poPpnPaid(i) && i.status !== 'Paid');
   const banner = (ui.pfBannerClosed ? [] : needFaktur.slice(0, 1)).map(inv => h('div.cfg-banner', { style: { justifyContent: 'flex-start' } }, [
     icon('warn', 17), h('div.grow', [h('b', t('pay_faktur_warn'))]),
-    btn(t('pay_upload_faktur'), { sm: true, onClick: () => { inv.faktur = '010.005-26.' + Math.floor(Math.random() * 1e8); toast('Faktur pajak terupload'); setState({}); } }),
+    btn(t('pay_upload_faktur'), { sm: true, onClick: () => uploadFaktur(inv) }),
     btn(t('pay_continue_anyway'), { sm: true, variant: 'primary', onClick: () => { setUI({ pfBannerClosed: true }); toast('Diproses tanpa faktur pajak — ditandai follow-up'); } }),
   ]));
 
-  const dz = dropzone({ title: t('pay_drop_inv'), sub: t('pay_faktur_reminder'), accept: '.pdf', iconName: 'upload', compact: true, onFiles: f => handleInvoice(f[0]) });
+  // No PDF invoice parser exists (unlike PO Converter's zcPoPdf.js) — the
+  // dropzone here is a drop target for a feature that was never built; its
+  // onFiles used to call a function (handleInvoice) that didn't exist
+  // anywhere in the codebase, so dropping a file threw a ReferenceError.
+  // Fixed minimally: dropping a file explains that and opens manual entry,
+  // same modal as the explicit "Add Invoice" button.
+  const dz = dropzone({ title: t('pay_drop_inv'), sub: t('pay_faktur_reminder'), accept: '.pdf', iconName: 'upload', compact: true, onFiles: () => { toast('Auto-extract PDF invoice belum tersedia — isi manual'); openInvoiceModal(); } });
 
   const flow = card([h('div.card-pad', [
     h('div.row.gap8', [h('div.card-title', t('pay_flow')), readonly ? badge(t('pay_readonly'), 'gray', { iconName: 'eye' }) : null]),
@@ -45,6 +54,7 @@ export function paymentScreen() {
     invoiceTable(st),
     prfBuilder(st),
     ui.prfModal ? prfModal() : null,
+    ui.invoiceModal ? invoiceModal() : null,
   ]);
 }
 
@@ -68,11 +78,88 @@ function invoiceTable(st) {
       h('td', inv.faktur ? h('span', { style: { fontSize: '11px', fontWeight: 600, color: 'var(--st-green-tx)' } }, [icon('check', 11, { strokeWidth: 2.5 }), ' ', inv.faktur]) : badge(t('pay_faktur_missing'), 'amber', { iconName: 'warn' })),
       h('td', h('div.row.gap8', [
         badge(trStage(inv.status), statusTone(inv.status)),
-        canAdvance ? btn(t('handed_wilbert'), { sm: true, onClick: () => { inv.status = 'Diproses Wilbert'; logAudit({ entity: 'invoice', target: inv.no, action: 'handed_wilbert' }); toast(`${inv.no} → Diproses Wilbert`); setState({}); } }) : null,
+        canAdvance ? btn(t('handed_wilbert'), { sm: true, onClick: () => handToWilbert(inv) }) : null,
       ])),
     ]);
   }));
-  return h('div.card', [h('div.card-head', [h('div.card-title', t('pay_inv_in')), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${st.invoices.length} invoice`)]), h('div.tbl-wrap', h('table.tbl', [head, body]))]);
+  return h('div.card', [
+    h('div.card-head', [h('div.card-title', t('pay_inv_in')), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${st.invoices.length} invoice`), h('div.mla', btn('Add Invoice', { sm: true, variant: 'primary', iconName: 'plus', onClick: () => openInvoiceModal() }))]),
+    h('div.tbl-wrap', h('table.tbl', [head, body])),
+  ]);
+}
+
+async function uploadFaktur(inv) {
+  // Faktur number is still simulated (no real OCR/upload pipeline) — this
+  // fix is scoped to persistence, not to building real faktur-pajak intake.
+  inv.faktur = '010.005-26.' + Math.floor(Math.random() * 1e8);
+  try {
+    await updateInvoice(inv.id, { faktur: inv.faktur });
+  } catch (e) {
+    console.error('Supabase invoice faktur sync failed', e);
+    toast('Faktur tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e));
+    setState({});
+    return;
+  }
+  toast('Faktur pajak terupload');
+  setState({});
+}
+
+async function handToWilbert(inv) {
+  inv.status = 'Diproses Wilbert';
+  try {
+    await updateInvoice(inv.id, { status: inv.status });
+  } catch (e) {
+    console.error('Supabase invoice status sync failed', e);
+    toast('Status tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e));
+    setState({});
+    return;
+  }
+  logAudit({ entity: 'invoice', target: inv.no, action: 'handed_wilbert' });
+  toast(`${inv.no} → Diproses Wilbert`);
+  setState({});
+}
+
+function openInvoiceModal() {
+  const st = getState();
+  setUI({ invoiceModal: true, invoiceForm: { no: '', supplierId: (st.suppliers[0] || {}).id || '', poRef: '', currency: 'IDR', amount: 0, due: '', ppnPaid: false } });
+}
+
+function invoiceModal() {
+  const st = getState(); const f = st.ui.invoiceForm;
+  return modal({
+    title: 'Add Invoice', width: 480, onClose: () => setUI({ invoiceModal: false }),
+    body: [
+      field('No. Invoice', inputEl({ value: f.no, mono: true, onInput: v => (f.no = v) })),
+      field(t('col_supplier'), selectEl(st.suppliers.map(s => ({ value: s.id, label: s.name })), { value: f.supplierId, onChange: v => (f.supplierId = v) })),
+      field('PO Ref', inputEl({ value: f.poRef, onInput: v => (f.poRef = v) })),
+      h('div.grid.g2', [
+        field('Currency', selectEl(['IDR', 'USD', 'CNY', 'EUR'], { value: f.currency, onChange: v => (f.currency = v) })),
+        field(t('col_amount'), inputEl({ mono: true, value: f.amount || '', onInput: v => (f.amount = Number(String(v).replace(/[,\s]/g, '')) || 0) })),
+      ]),
+      field(t('col_due'), h('input.input', { type: 'date', value: f.due, onInput: e => (f.due = e.target.value) })),
+    ],
+    footer: [btn(t('cancel'), { onClick: () => setUI({ invoiceModal: false }) }), btn(t('save'), { variant: 'primary', onClick: () => saveInvoiceModal() })],
+  });
+}
+
+async function saveInvoiceModal() {
+  const st = getState(); const f = st.ui.invoiceForm;
+  const supplier = st.suppliers.find(s => s.id === f.supplierId);
+  if (!f.no || !supplier || !f.due) { toast('No. Invoice, supplier, dan tanggal jatuh tempo wajib diisi'); return; }
+  const local = { no: f.no, supplier: supplier.name, poRef: f.poRef, currency: f.currency, amount: f.amount, due: f.due, faktur: '', ppnPaid: f.ppnPaid, status: 'Diterima Purchasing' };
+  try {
+    const saved = await insertInvoice(local);
+    local.id = saved.id;
+  } catch (e) {
+    console.error('Supabase invoice insert failed', e);
+    toast('Gagal simpan invoice ke server: ' + (e.message || e));
+    return;
+  }
+  if (!local.id) local.id = uid('inv'); // demo mode: insertInvoice no-ops, keep a local id
+  st.invoices.unshift(local);
+  logAudit({ entity: 'invoice', target: local.no, action: 'create', detail: `${supplier.name} · ${money(local.amount, local.currency)}` });
+  setUI({ invoiceModal: false });
+  toast(`Invoice ${local.no} ditambahkan`);
 }
 
 function prfBuilder(st) {
@@ -159,12 +246,35 @@ function prfModal() {
   });
 }
 
-function submitPrf() {
+async function submitPrf() {
   const st = getState(); const d = st.ui.prfDraft;
-  // Learn descriptions.
-  d.lines.forEach(l => { const parts = String(l.desc).split('/').map(s => s.trim()); if (parts.length === 2 && !st.descDict.some(x => x.en === parts[0])) st.descDict.push({ en: parts[0], zh: parts[1] }); });
-  const prf = { id: uid('prf'), ...d, supplier: d.supplierName, stage: 'Diproses Wilbert' };
+  // Learn descriptions — sync to Supabase too (desc_dict is wired since
+  // Batch 1) so this PRF-side side-effect doesn't silently stay local-only
+  // while the Master Data tab for the same table is fully persisted.
+  for (const l of d.lines) {
+    const parts = String(l.desc).split('/').map(s => s.trim());
+    if (parts.length === 2 && !st.descDict.some(x => x.en === parts[0])) {
+      const entry = { en: parts[0], zh: parts[1] };
+      try {
+        const saved = await insertDescDict(entry);
+        entry.id = saved.id;
+      } catch (e) {
+        console.error('Supabase desc_dict learn-sync failed', e);
+      }
+      st.descDict.push(entry);
+    }
+  }
+  const prf = { ...d, supplier: d.supplierName, stage: 'Diproses Wilbert' };
   delete prf.supplierName;
+  try {
+    const saved = await insertPrf(prf);
+    prf.id = saved.id;
+  } catch (e) {
+    console.error('Supabase PRF insert failed', e);
+    toast('Gagal simpan PRF ke server: ' + (e.message || e));
+    return;
+  }
+  if (!prf.id) prf.id = uid('prf'); // demo mode: insertPrf no-ops, keep a local id
   st.prfs.unshift(prf);
   logAudit({ entity: 'prf', target: prf.no, action: 'create', detail: `${prf.invoices.length} invoices · ${money(prf.amount, prf.currency)}` });
   setUI({ prfModal: false, prfSel: {} });
