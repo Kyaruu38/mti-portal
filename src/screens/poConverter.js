@@ -44,6 +44,8 @@ export function poConverterScreen() {
           h('div.field-label', `${t('cv_line_items')} · ${res.items.length}`),
           ...res.items.map(li => h('div.row.gap8', { style: { marginBottom: '6px' } }, [
             inputEl({ value: li.descEn || li.desc, onInput: v => (li.descEn = v) }),
+            h('select.input', { style: { width: '86px', fontSize: '11px', borderColor: li.unit ? '' : 'var(--st-amber-tx)' }, onChange: e => (li.unit = e.target.value) },
+              unitOptions(st, li.unit).map(o => h('option', { value: o.value, selected: o.value === (li.unit || '') }, o.label))),
             h('span.mono', { style: { width: '70px', textAlign: 'right', fontSize: '11px', color: 'var(--text-2)' } }, num(li.qty)),
             h('span.mono', { style: { width: '80px', textAlign: 'right', fontSize: '11px', color: 'var(--text-2)' } }, num(li.amount, res.currency === 'USD' ? 2 : 0)),
           ])),
@@ -80,6 +82,21 @@ function genPreview(res) {
   ]);
 }
 
+// Unit is unconstrained here (unlike Label Request's fixed 张) — PO Converter
+// handles arbitrary goods, not just tires, so the picker reads from the units
+// master with a blank placeholder rather than defaulting to any one value.
+// `current` (the item's already-parsed unit, if any) is injected as an extra
+// option when it isn't already a master code — the parser's recognized
+// tokens (KGM/PCE/ROLL/PC/…) don't all have a matching units-master entry by
+// default, and silently dropping a genuinely-parsed value because it's not
+// in the master would be worse than the bug this whole fix is closing.
+function unitOptions(st, current) {
+  const codes = st.units.length ? st.units.map(u => u.code) : ['张', '条', '千克kg', 'set'];
+  const opts = [{ value: '', label: '— pilih —' }, ...codes.map(c => ({ value: c, label: c }))];
+  if (current && !codes.includes(current)) opts.push({ value: current, label: `${current} (dari PDF)` });
+  return opts;
+}
+
 function editField(label, value, onInput, mono) { return field(label, inputEl({ value: value || '', mono, onInput })); }
 function row2(a, b, strong) { return h('div.row', { style: { justifyContent: 'space-between', fontSize: strong ? '12.5px' : '11.5px', fontWeight: strong ? 800 : 400, color: strong ? 'var(--text)' : 'var(--text-2)' } }, [h('span', a), h('span.mono', b)]); }
 
@@ -95,6 +112,10 @@ async function handlePdf(file) {
 
 function openPopup() {
   const res = getState().ui.cvResult;
+  // Checked here, before the modal opens — the modal is a full-screen
+  // overlay, so blocking inside it would strand the user unable to reach the
+  // unit dropdowns in the Extracted panel behind it.
+  if (res.items.some(li => !li.unit)) { toast('Unit belum dipilih untuk salah satu item — lengkapi dulu di panel Extracted'); return; }
   setUI({ cvPopup: true, cvForm: { no: res.cgdd || res.contractNo || '', terms: 'TOP 45', contract: res.contractNo || res.cgdd || '', ppn: res.ppnSuspended || !res.ppnPresent ? 'kek' : 'bayar' } });
 }
 
@@ -115,13 +136,14 @@ function popup() {
 async function genConverterPO() {
   const st = getState(); const res = st.ui.cvResult; const f = st.ui.cvForm;
   if (!f.no || !f.no.trim()) { toast('No. PO wajib diisi'); return; }
+  if (res.items.some(li => !li.unit)) { toast('Unit belum dipilih untuk salah satu item — lengkapi dulu di panel Extracted'); return; }
   const no = f.no.trim();
   const contract = f.contract || '';
   const isWilbert = st.user.role === 'wilbert';
-  const items = res.items.map((li, idx) => ({ erp: li.erp, d: li.descEn || li.desc, dimension: li.spec || '', cn: '', qty: li.qty, u: li.price, a: li.amount, unit: li.unit || '条', lineId: '' }));
+  const items = res.items.map((li, idx) => ({ erp: li.erp, d: li.descEn || li.desc, dimension: li.spec || '', cn: '', qty: li.qty, u: li.price, a: li.amount, unit: li.unit, lineId: '' }));
   const po = {
     id: uid('po'), no, contract, supplier: res.supplierEn || res.supplierZh, supplierZh: res.supplierZh,
-    address: res.supplierAddress || '', currency: res.currency, unit: (items[0] && items[0].unit) || '条',
+    address: res.supplierAddress || '', currency: res.currency, unit: (items[0] && items[0].unit) || '',
     subtotal: res.subtotal, ppn: f.ppn === 'bayar' ? Math.round(res.subtotal * 0.11) : 0,
     ppnMode: f.ppn === 'bayar' ? 'paid' : 'suspended',
     total: res.total, amount: res.total, terms: f.terms.replace('TOP ', '') + ' days after B/L — ref ' + (contract || no),

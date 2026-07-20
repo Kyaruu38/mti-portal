@@ -94,7 +94,12 @@ export async function parseZcPo(file) {
     else if (tail.length === 2) { [qty, amount] = tail; price = amount && qty ? amount / qty : 0; }
     else if (tail.length === 1) { amount = tail[0]; }
     out.items.push({
-      erp: m[0], desc, descEn: englishFirst(desc, desc), unit: unit || '条',
+      // No forced fallback here — PO Converter is used for goods generally,
+      // not just tires, so guessing '条' when the source text has no
+      // recognizable unit token would silently mislabel anything priced in
+      // kg/roll/set/etc. Leave it empty; poConverter.js surfaces a picker
+      // (backed by the units master) for the user to fill in instead.
+      erp: m[0], desc, descEn: englishFirst(desc, desc), unit,
       qty, price, amount,
     });
   }
