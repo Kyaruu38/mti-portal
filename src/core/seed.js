@@ -121,6 +121,8 @@ export function seedIfEmpty() {
     { en: 'Stretch film', zh: '缠绕膜' },
   ];
 
+  const units = ['张', '条', '千克kg', 'set'].map(code => ({ id: uid('unit'), code }));
+
   const audit = [
     { id: uid('aud'), at: daysFromNow(-1), user: 'visca', entity: 'supplier', target: 'CV LANCAR JAYA PACKINDO', action: 'bank_change', detail: 'BCA ····8841 (dari BRI ····2290)', status: 'menunggu review' },
     { id: uid('aud'), at: daysFromNow(-47), user: 'cania', entity: 'supplier', target: 'CV LANCAR JAYA PACKINDO', action: 'top_change', detail: '30 hari (dari 45 hari)', status: 'disetujui wilbert' },
@@ -142,7 +144,7 @@ export function seedIfEmpty() {
   });
 
   setState({
-    suppliers, designs, items, pos, invoices, prfs, payments, ppkek, descDict, audit,
+    suppliers, designs, items, units, pos, invoices, prfs, payments, ppkek, descDict, audit,
     brandMap: DEFAULT_BRAND_MAP.slice(),
     labelBatches: [],
     suratJalan: [],

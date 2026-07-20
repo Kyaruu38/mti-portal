@@ -2,19 +2,20 @@ import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t } from '../i18n/index.js';
 import { card, badge, btn, icon, modal, field, inputEl, selectEl, toggle } from '../ui/components.js';
-import { fmtDateTime } from '../core/format.js';
+import { fmtDateTime, TOP_OPTIONS } from '../core/format.js';
 import { can } from '../auth/roles.js';
 import { insertSupplier, updateSupplier } from '../core/suppliersApi.js';
 import { fetchAuditLog } from '../core/auditApi.js';
 import { insertDescDict, updateDescDict, deleteDescDict } from '../core/descDictApi.js';
 import { insertItem, updateItem, deleteItem } from '../core/itemsApi.js';
 import { insertBrandMap, updateBrandMap, deleteBrandMap } from '../core/brandMapApi.js';
+import { insertUnit, updateUnit, deleteUnit } from '../core/unitsApi.js';
 import { UUID_RE } from '../core/supabase.js';
 
 export function masterDataScreen() {
   const st = getState(); const ui = st.ui;
   const tab = ui.mdTab || 'suppliers';
-  const tabs = [['suppliers', t('md_suppliers')], ['brands', 'Brand Mapping'], ['dict', 'Description Dictionary'], ['items', 'Item Master']];
+  const tabs = [['suppliers', t('md_suppliers')], ['brands', 'Brand Mapping'], ['dict', 'Description Dictionary'], ['items', 'Item Master'], ['units', 'Unit']];
 
   const tabBar = h('div.row.gap8', tabs.map(([id, label]) => h('button.btn' + (tab === id ? '.btn-navy' : ''), { onClick: () => setUI({ mdTab: id }) }, label)));
 
@@ -22,6 +23,7 @@ export function masterDataScreen() {
   if (tab === 'brands') content = brandsTab(st);
   else if (tab === 'dict') content = dictTab(st);
   else if (tab === 'items') content = itemsTab(st);
+  else if (tab === 'units') content = unitsTab(st);
   else content = suppliersTab(st);
 
   return h('div.stack', [tabBar, content, ui.supModal ? supModal() : null, ui.itemModal ? itemModal() : null, ui.auditFor ? auditDrawer(ui.auditFor) : null]);
@@ -96,7 +98,7 @@ function supModal() {
         h('div.grow', [h('div', { style: { fontSize: '12px', fontWeight: 700 } }, t('md_pkp')), h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, t('md_pkp_d'))]),
         toggle(f.pkp, v => { f.pkp = v; setState({}); }),
       ]),
-      field(t('md_top'), selectEl(['30 hari', '45 hari', '60 hari', 'T/T 45 days B/L'], { value: f.top, onChange: v => (f.top = v) })),
+      field(t('md_top'), selectEl(TOP_OPTIONS, { value: f.top, onChange: v => (f.top = v) })),
       h('div.cfg-banner', [icon('warn', 14), t('md_bank_review_note')]),
     ],
     footer: [btn(t('cancel'), { onClick: () => setUI({ supModal: false }) }), btn(t('md_save_supplier'), { variant: 'primary', onClick: () => saveSup() })],
@@ -197,19 +199,44 @@ function actLabel(a) { const m = { bank_change: 'Rekening bank diubah', top_chan
 // ---------- Brand Mapping ----------
 function brandsTab(st) {
   const editable = can(st.user.role, 'editMaster');
-  return card([
-    h('div.card-head', [h('div.card-title', 'Brand Mapping (Mandarin → Canonical)'), editable ? h('div.mla', btn('Add', { sm: true, variant: 'primary', iconName: 'plus', onClick: () => { const zh = prompt('Mandarin brand?'); const en = zh && prompt('Canonical English?'); if (zh && en) addBrandMap(zh, en.toUpperCase()); } })) : null]),
+  return h('div.stack', [card([
+    h('div.card-head', [h('div.card-title', 'Brand Mapping (Mandarin → Canonical)'), editable ? h('div.mla', btn('Add', { sm: true, variant: 'primary', iconName: 'plus', onClick: () => openBrandModal() })) : null]),
     h('div.tbl-wrap', h('table.tbl', [
       h('thead', h('tr', ['Mandarin', 'Canonical', editable ? t('col_action') : ''].map(c => h('th', c)))),
       h('tbody', st.brandMap.map((b, i) => h('tr', [
         h('td.cell-strong', b.zh), h('td.mono', b.canonical),
         h('td', editable ? h('div.row.gap8', [
-          btn(t('edit'), { sm: true, onClick: () => { const zh = prompt('Mandarin brand?', b.zh); const en = zh && prompt('Canonical English?', b.canonical); if (zh && en) editBrandMap(b, zh, en.toUpperCase()); } }),
+          btn(t('edit'), { sm: true, onClick: () => openBrandModal(b) }),
           confirmDeleteBtn('brand:' + (b.id || i), () => deleteBrandMapRow(b)),
         ]) : null),
       ]))),
     ])),
-  ]);
+  ]), st.ui.brandModal ? brandModal() : null]);
+}
+
+function openBrandModal(existing) {
+  setUI({ brandModal: true, brandForm: existing ? { editingRef: existing, zh: existing.zh, canonical: existing.canonical } : { zh: '', canonical: '' } });
+}
+
+function brandModal() {
+  const st = getState(); const f = st.ui.brandForm;
+  const isEdit = !!f.editingRef;
+  return modal({
+    title: isEdit ? 'Edit Brand Mapping' : 'Add Brand Mapping', width: 420, onClose: () => setUI({ brandModal: false }),
+    body: [
+      field('Mandarin', inputEl({ value: f.zh, onInput: v => (f.zh = v) })),
+      field('Canonical (English)', inputEl({ mono: true, value: f.canonical, onInput: v => (f.canonical = v.toUpperCase()) })),
+    ],
+    footer: [btn(t('cancel'), { onClick: () => setUI({ brandModal: false }) }), btn(t('save'), { variant: 'primary', onClick: () => saveBrandModal() })],
+  });
+}
+
+function saveBrandModal() {
+  const st = getState(); const f = st.ui.brandForm;
+  if (!f.zh || !f.canonical) { toast('Mandarin dan Canonical wajib diisi'); return; }
+  if (f.editingRef) editBrandMap(f.editingRef, f.zh, f.canonical);
+  else addBrandMap(f.zh, f.canonical);
+  setUI({ brandModal: false });
 }
 
 async function addBrandMap(zh, canonical) {
@@ -260,19 +287,63 @@ async function deleteBrandMapRow(b) {
 // ---------- Description Dictionary ----------
 function dictTab(st) {
   const editable = can(st.user.role, 'editMaster');
-  return card([
-    h('div.card-head', [h('div.card-title', 'Learning Description Dictionary (EN ↔ ZH)'), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, 'diisi otomatis saat membuat PRF — bisa dikoreksi manual')]),
+  return h('div.stack', [card([
+    h('div.card-head', [
+      h('div', [h('div.card-title', 'Learning Description Dictionary (EN ↔ ZH)'), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, 'diisi otomatis saat membuat PRF — bisa dikoreksi manual')]),
+      editable ? h('div.mla', btn('Add', { sm: true, variant: 'primary', iconName: 'plus', onClick: () => openDictModal() })) : null,
+    ]),
     h('div.tbl-wrap', h('table.tbl', [
       h('thead', h('tr', ['English', '中文', editable ? t('col_action') : ''].map(c => h('th', c)))),
       h('tbody', st.descDict.map((d, i) => h('tr', [
         h('td', d.en), h('td', d.zh),
         h('td', editable ? h('div.row.gap8', [
-          btn(t('edit'), { sm: true, onClick: () => { const en = prompt('English?', d.en); const zh = en != null && prompt('中文?', d.zh); if (en && zh) editDictEntry(d, en, zh); } }),
+          btn(t('edit'), { sm: true, onClick: () => openDictModal(d) }),
           confirmDeleteBtn('dict:' + (d.id || i), () => deleteDictEntry(d)),
         ]) : null),
       ]))),
     ])),
-  ]);
+  ]), st.ui.dictModal ? dictModal() : null]);
+}
+
+function openDictModal(existing) {
+  setUI({ dictModal: true, dictForm: existing ? { editingRef: existing, en: existing.en, zh: existing.zh } : { en: '', zh: '' } });
+}
+
+function dictModal() {
+  const st = getState(); const f = st.ui.dictForm;
+  const isEdit = !!f.editingRef;
+  return modal({
+    title: isEdit ? 'Edit Dictionary Entry' : 'Add Dictionary Entry', width: 420, onClose: () => setUI({ dictModal: false }),
+    body: [
+      field('English', inputEl({ value: f.en, onInput: v => (f.en = v) })),
+      field('中文', inputEl({ value: f.zh, onInput: v => (f.zh = v) })),
+    ],
+    footer: [btn(t('cancel'), { onClick: () => setUI({ dictModal: false }) }), btn(t('save'), { variant: 'primary', onClick: () => saveDictModal() })],
+  });
+}
+
+function saveDictModal() {
+  const st = getState(); const f = st.ui.dictForm;
+  if (!f.en || !f.zh) { toast('English dan 中文 wajib diisi'); return; }
+  if (f.editingRef) editDictEntry(f.editingRef, f.en, f.zh);
+  else addDictEntry(f.en, f.zh);
+  setUI({ dictModal: false });
+}
+
+async function addDictEntry(en, zh) {
+  const st = getState();
+  const local = { en, zh };
+  try {
+    const saved = await insertDescDict(local);
+    local.id = saved.id;
+  } catch (e) {
+    console.error('Supabase desc_dict insert failed', e);
+    toast('Gagal simpan dictionary ke server: ' + (e.message || e));
+    return;
+  }
+  st.descDict.push(local);
+  toast('Dictionary ditambah');
+  setState({});
 }
 
 async function editDictEntry(d, en, zh) {
@@ -345,7 +416,7 @@ function itemModal() {
     body: [
       h('div.grid.g2', [field(t('col_erp'), inputEl({ mono: true, value: f.erp, onInput: v => (f.erp = v) })), field(t('col_spec'), inputEl({ value: f.spec, onInput: v => (f.spec = v) }))]),
       h('div.grid.g2', [field(t('col_brand'), inputEl({ value: f.brand, onInput: v => (f.brand = v) })), field('Market', inputEl({ value: f.market, onInput: v => (f.market = v) }))]),
-      h('div.grid.g2', [field('Unit', selectEl(['张', '条', '千克kg', 'set'], { value: f.unit, onChange: v => (f.unit = v) })), field('EAN', inputEl({ mono: true, value: f.ean, onInput: v => (f.ean = v) }))]),
+      h('div.grid.g2', [field('Unit', selectEl(st.units.length ? st.units.map(u => u.code) : ['张', '条', '千克kg', 'set'], { value: f.unit, onChange: v => (f.unit = v) })), field('EAN', inputEl({ mono: true, value: f.ean, onInput: v => (f.ean = v) }))]),
       h('div.grid.g2', [field('Name EN', inputEl({ value: f.nameEn, onInput: v => (f.nameEn = v) })), field('Name ZH', inputEl({ value: f.nameZh, onInput: v => (f.nameZh = v) }))]),
       h('div.grid.g2', [field('MS', inputEl({ value: f.ms, onInput: v => (f.ms = v) })), field('RR', inputEl({ value: f.rr, onInput: v => (f.rr = v) }))]),
       field('Noise', inputEl({ value: f.noise, onInput: v => (f.noise = v) })),
@@ -400,4 +471,89 @@ async function deleteItemRow(i) {
   st.items = st.items.filter(x => x.id !== i.id);
   toast('Item dihapus');
   setState({ items: st.items });
+}
+
+// ---------- Unit ----------
+function unitsTab(st) {
+  const editable = can(st.user.role, 'editMaster');
+  return h('div.stack', [card([
+    h('div.card-head', [h('div.card-title', 'Unit'), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${st.units.length} unit`), editable ? h('div.mla', btn('Add', { sm: true, variant: 'primary', iconName: 'plus', onClick: () => openUnitModal() })) : null]),
+    h('div.tbl-wrap', h('table.tbl', [
+      h('thead', h('tr', ['Kode', editable ? t('col_action') : ''].map(c => h('th', c)))),
+      h('tbody', st.units.map((u, i) => h('tr', [
+        h('td.cell-strong.mono', u.code),
+        h('td', editable ? h('div.row.gap8', [
+          btn(t('edit'), { sm: true, onClick: () => openUnitModal(u) }),
+          confirmDeleteBtn('unit:' + (u.id || i), () => deleteUnitRow(u)),
+        ]) : null),
+      ]))),
+    ])),
+  ]), st.ui.unitModal ? unitModal() : null]);
+}
+
+function openUnitModal(existing) {
+  setUI({ unitModal: true, unitForm: existing ? { editingRef: existing, code: existing.code } : { code: '' } });
+}
+
+function unitModal() {
+  const st = getState(); const f = st.ui.unitForm;
+  const isEdit = !!f.editingRef;
+  return modal({
+    title: isEdit ? 'Edit Unit' : 'Add Unit', width: 380, onClose: () => setUI({ unitModal: false }),
+    body: [field('Kode Unit', inputEl({ value: f.code, onInput: v => (f.code = v) }))],
+    footer: [btn(t('cancel'), { onClick: () => setUI({ unitModal: false }) }), btn(t('save'), { variant: 'primary', onClick: () => saveUnitModal() })],
+  });
+}
+
+function saveUnitModal() {
+  const st = getState(); const f = st.ui.unitForm;
+  if (!f.code) { toast('Kode unit wajib diisi'); return; }
+  if (f.editingRef) editUnit(f.editingRef, f.code);
+  else addUnit(f.code);
+  setUI({ unitModal: false });
+}
+
+async function addUnit(code) {
+  const st = getState();
+  const local = { code };
+  try {
+    const saved = await insertUnit(local);
+    local.id = saved.id;
+  } catch (e) {
+    console.error('Supabase unit insert failed', e);
+    toast('Gagal simpan unit ke server: ' + (e.message || e));
+    return;
+  }
+  st.units.push(local);
+  toast('Unit ditambah');
+  setState({});
+}
+
+async function editUnit(u, code) {
+  u.code = code;
+  try {
+    if (UUID_RE.test(u.id)) await updateUnit(u.id, u);
+    else { const saved = await insertUnit(u); u.id = saved.id; }
+  } catch (e) {
+    console.error('Supabase unit sync failed', e);
+    toast('Unit diperbarui lokal, tapi gagal sync ke server: ' + (e.message || e));
+    setState({});
+    return;
+  }
+  toast('Unit diperbarui');
+  setState({});
+}
+
+async function deleteUnitRow(u) {
+  const st = getState();
+  try {
+    if (UUID_RE.test(u.id)) await deleteUnit(u.id);
+  } catch (e) {
+    console.error('Supabase unit delete failed', e);
+    toast('Gagal hapus dari server: ' + (e.message || e));
+    return;
+  }
+  st.units = st.units.filter(x => x !== u);
+  toast('Unit dihapus');
+  setState({ units: st.units });
 }

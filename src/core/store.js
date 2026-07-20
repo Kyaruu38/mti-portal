@@ -14,6 +14,7 @@ const state = {
 
   // domain data (seeded in core/seed.js). Kept flat & simple.
   suppliers: [],
+  units: [],           // unit master (张/条/千克kg/set/…)
   items: [],           // item master (by ERP code)
   brandMap: [],        // { zh, canonical }
   designs: [],         // label design library

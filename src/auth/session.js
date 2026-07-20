@@ -12,6 +12,7 @@ import { fetchDescDict } from '../core/descDictApi.js';
 import { fetchItems } from '../core/itemsApi.js';
 import { fetchBrandMap } from '../core/brandMapApi.js';
 import { fetchDesigns } from '../core/designsApi.js';
+import { fetchUnits } from '../core/unitsApi.js';
 
 // Log in by username. Uses Supabase Auth when configured; otherwise a demo check.
 export async function login(username, password) {
@@ -84,6 +85,9 @@ export async function login(username, password) {
 
   const designsFromServer = await fetchDesigns();
   if (designsFromServer) getState().designs = designsFromServer;
+
+  const unitsFromServer = await fetchUnits();
+  if (unitsFromServer) getState().units = unitsFromServer;
 
   // Dashboard "Aktivitas Terbaru": pull the real, trigger-written audit_log
   // (item 4) instead of leaving it to seed fixtures. RLS scopes this per

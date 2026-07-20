@@ -84,6 +84,11 @@ export function addDays(d, days) {
   return dt;
 }
 
+// Supplier default-TOP options — single source of truth (Master Data's
+// supplier form is the only place this list is used; keep it that way rather
+// than retyping it anywhere else that might need a TOP value).
+export const TOP_OPTIONS = ['Bayar di muka', '3 hari', '14 hari', '30 hari', '45 hari', '60 hari', 'T/T 45 days B/L'];
+
 // Parse a TOP string ("30 hari", "45 days", "T/T 45 days B/L", "60") -> integer days.
 export function topDays(top) {
   if (top == null) return 30;
