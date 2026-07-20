@@ -8,6 +8,10 @@ import { fetchSuratJalan } from '../core/suratJalanApi.js';
 import { fetchPOs, UUID_RE } from '../core/posApi.js';
 import { fetchSuppliers } from '../core/suppliersApi.js';
 import { fetchAuditLog } from '../core/auditApi.js';
+import { fetchDescDict } from '../core/descDictApi.js';
+import { fetchItems } from '../core/itemsApi.js';
+import { fetchBrandMap } from '../core/brandMapApi.js';
+import { fetchDesigns } from '../core/designsApi.js';
 
 // Log in by username. Uses Supabase Auth when configured; otherwise a demo check.
 export async function login(username, password) {
@@ -64,6 +68,22 @@ export async function login(username, password) {
   // supplier cania creates now shows up for wilbert in a separate session.
   const suppliersFromServer = await fetchSuppliers();
   if (suppliersFromServer) getState().suppliers = suppliersFromServer;
+
+  // Batch 1 (Group A — light CRUD, no cross-module dependency): same
+  // wholesale-replace fetch pattern as suppliers/pos above, now covering the
+  // 4 remaining tables that already had both a schema table and RLS policies
+  // ready (see the recon) — only the frontend wiring was missing.
+  const descDictFromServer = await fetchDescDict();
+  if (descDictFromServer) getState().descDict = descDictFromServer;
+
+  const itemsFromServer = await fetchItems();
+  if (itemsFromServer) getState().items = itemsFromServer;
+
+  const brandMapFromServer = await fetchBrandMap();
+  if (brandMapFromServer) getState().brandMap = brandMapFromServer;
+
+  const designsFromServer = await fetchDesigns();
+  if (designsFromServer) getState().designs = designsFromServer;
 
   // Dashboard "Aktivitas Terbaru": pull the real, trigger-written audit_log
   // (item 4) instead of leaving it to seed fixtures. RLS scopes this per

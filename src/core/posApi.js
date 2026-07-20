@@ -4,9 +4,9 @@
 // any PO whose insert failed to sync) by partitioning on UUID_RE: the two
 // live in disjoint id spaces, so seed data can never be shadowed by a real
 // PO and a real PO can never be wiped by an empty/failing fetch (A3).
-import { getClient, isConfigured } from './supabase.js';
+import { getClient, isConfigured, UUID_RE } from './supabase.js';
 
-export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export { UUID_RE };
 
 function toRow(po) {
   return {

@@ -3,6 +3,7 @@ import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.j
 import { t } from '../i18n/index.js';
 import { badge, btn, icon, driveLink, selectEl, inputEl } from '../ui/components.js';
 import { uploadToDrive } from '../core/drive.js';
+import { insertDesign } from '../core/designsApi.js';
 
 export function labelLibraryScreen() {
   const st = getState(); const ui = st.ui;
@@ -57,7 +58,18 @@ async function uploadDesign() {
   const localUrl = URL.createObjectURL(file);
   const erp = prompt('ERP code untuk desain ini?', 'LBL-NEW-XX') || 'LBL-NEW-' + Date.now().toString(36).slice(-3).toUpperCase();
   const st = getState();
-  st.designs.unshift({ id: uid('dsg'), erp, spec: '—', brand: 'BARU', market: '—', ver: 'v1', updated: 'hari ini', driveUrl: url, designUrl: localUrl, color: '#F26722', status: 'draft' });
+  // color/designUrl are local-only display fields — not persisted (see
+  // designsApi.js header comment): color is a swatch fallback derivable from
+  // brand, designUrl is a browser-session-only blob: URL.
+  const design = { id: uid('dsg'), erp, spec: '—', brand: 'BARU', market: '—', ver: 'v1', updated: 'hari ini', driveUrl: url, designUrl: localUrl, color: '#F26722', status: 'draft' };
+  try {
+    const saved = await insertDesign(design);
+    design.id = saved.id;
+  } catch (e) {
+    console.error('Supabase design insert failed', e);
+    toast('Desain tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e));
+  }
+  st.designs.unshift(design);
   logAudit({ entity: 'design', target: erp, action: 'upload', detail: file.name });
   toast(up.placeholder ? `Desain ${erp} tersimpan (${t('drive_unconfigured')})` : `Desain ${erp} diupload ke Drive`);
   setState({});

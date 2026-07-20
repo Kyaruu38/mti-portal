@@ -9,6 +9,12 @@ let initTried = false;
 
 export function isConfigured() { return FEATURES.useSupabase; }
 
+// Shared test for "this id came from a real Supabase row" vs. a local-only
+// placeholder (uid() prefix_timestamp_seq, or a seed literal like po_seed_xxx)
+// — used by every *Api.js module's lazy-upsert (INSERT if not yet a UUID,
+// UPDATE if it already is) and by fetch-on-login merges (A3's pattern).
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function getClient() {
   if (!isConfigured()) return null;
   if (client || initTried) return client;

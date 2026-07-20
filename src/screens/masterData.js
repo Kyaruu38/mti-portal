@@ -6,6 +6,10 @@ import { fmtDateTime } from '../core/format.js';
 import { can } from '../auth/roles.js';
 import { insertSupplier, updateSupplier } from '../core/suppliersApi.js';
 import { fetchAuditLog } from '../core/auditApi.js';
+import { insertDescDict, updateDescDict, deleteDescDict } from '../core/descDictApi.js';
+import { insertItem, updateItem, deleteItem } from '../core/itemsApi.js';
+import { insertBrandMap, updateBrandMap, deleteBrandMap } from '../core/brandMapApi.js';
+import { UUID_RE } from '../core/supabase.js';
 
 export function masterDataScreen() {
   const st = getState(); const ui = st.ui;
@@ -98,8 +102,6 @@ function supModal() {
     footer: [btn(t('cancel'), { onClick: () => setUI({ supModal: false }) }), btn(t('md_save_supplier'), { variant: 'primary', onClick: () => saveSup() })],
   });
 }
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function saveSup() {
   const st = getState(); const f = st.ui.supForm;
@@ -196,18 +198,63 @@ function actLabel(a) { const m = { bank_change: 'Rekening bank diubah', top_chan
 function brandsTab(st) {
   const editable = can(st.user.role, 'editMaster');
   return card([
-    h('div.card-head', [h('div.card-title', 'Brand Mapping (Mandarin → Canonical)'), editable ? h('div.mla', btn('Add', { sm: true, variant: 'primary', iconName: 'plus', onClick: () => { const zh = prompt('Mandarin brand?'); const en = zh && prompt('Canonical English?'); if (zh && en) { st.brandMap.push({ zh, canonical: en.toUpperCase() }); toast('Brand mapping ditambah'); setState({}); } } })) : null]),
+    h('div.card-head', [h('div.card-title', 'Brand Mapping (Mandarin → Canonical)'), editable ? h('div.mla', btn('Add', { sm: true, variant: 'primary', iconName: 'plus', onClick: () => { const zh = prompt('Mandarin brand?'); const en = zh && prompt('Canonical English?'); if (zh && en) addBrandMap(zh, en.toUpperCase()); } })) : null]),
     h('div.tbl-wrap', h('table.tbl', [
       h('thead', h('tr', ['Mandarin', 'Canonical', editable ? t('col_action') : ''].map(c => h('th', c)))),
       h('tbody', st.brandMap.map((b, i) => h('tr', [
         h('td.cell-strong', b.zh), h('td.mono', b.canonical),
         h('td', editable ? h('div.row.gap8', [
-          btn(t('edit'), { sm: true, onClick: () => { const zh = prompt('Mandarin brand?', b.zh); const en = zh && prompt('Canonical English?', b.canonical); if (zh && en) { b.zh = zh; b.canonical = en.toUpperCase(); toast('Brand mapping diperbarui'); setState({}); } } }),
-          confirmDeleteBtn('brand:' + i, () => { st.brandMap.splice(i, 1); toast('Brand mapping dihapus'); setState({}); }),
+          btn(t('edit'), { sm: true, onClick: () => { const zh = prompt('Mandarin brand?', b.zh); const en = zh && prompt('Canonical English?', b.canonical); if (zh && en) editBrandMap(b, zh, en.toUpperCase()); } }),
+          confirmDeleteBtn('brand:' + (b.id || i), () => deleteBrandMapRow(b)),
         ]) : null),
       ]))),
     ])),
   ]);
+}
+
+async function addBrandMap(zh, canonical) {
+  const st = getState();
+  const local = { zh, canonical };
+  try {
+    const saved = await insertBrandMap(local);
+    local.id = saved.id;
+  } catch (e) {
+    console.error('Supabase brand_map insert failed', e);
+    toast('Gagal simpan brand mapping ke server: ' + (e.message || e));
+    return;
+  }
+  st.brandMap.push(local);
+  toast('Brand mapping ditambah');
+  setState({});
+}
+
+async function editBrandMap(b, zh, canonical) {
+  b.zh = zh; b.canonical = canonical;
+  try {
+    if (UUID_RE.test(b.id)) await updateBrandMap(b.id, b);
+    else { const saved = await insertBrandMap(b); b.id = saved.id; }
+  } catch (e) {
+    console.error('Supabase brand_map sync failed', e);
+    toast('Brand mapping diperbarui lokal, tapi gagal sync ke server: ' + (e.message || e));
+    setState({});
+    return;
+  }
+  toast('Brand mapping diperbarui');
+  setState({});
+}
+
+async function deleteBrandMapRow(b) {
+  const st = getState();
+  try {
+    if (UUID_RE.test(b.id)) await deleteBrandMap(b.id);
+  } catch (e) {
+    console.error('Supabase brand_map delete failed', e);
+    toast('Gagal hapus dari server: ' + (e.message || e));
+    return;
+  }
+  st.brandMap = st.brandMap.filter(x => x !== b);
+  toast('Brand mapping dihapus');
+  setState({ brandMap: st.brandMap });
 }
 
 // ---------- Description Dictionary ----------
@@ -220,12 +267,41 @@ function dictTab(st) {
       h('tbody', st.descDict.map((d, i) => h('tr', [
         h('td', d.en), h('td', d.zh),
         h('td', editable ? h('div.row.gap8', [
-          btn(t('edit'), { sm: true, onClick: () => { const en = prompt('English?', d.en); const zh = en != null && prompt('中文?', d.zh); if (en && zh) { d.en = en; d.zh = zh; toast('Dictionary diperbarui'); setState({}); } } }),
-          confirmDeleteBtn('dict:' + i, () => { st.descDict.splice(i, 1); toast('Dictionary dihapus'); setState({}); }),
+          btn(t('edit'), { sm: true, onClick: () => { const en = prompt('English?', d.en); const zh = en != null && prompt('中文?', d.zh); if (en && zh) editDictEntry(d, en, zh); } }),
+          confirmDeleteBtn('dict:' + (d.id || i), () => deleteDictEntry(d)),
         ]) : null),
       ]))),
     ])),
   ]);
+}
+
+async function editDictEntry(d, en, zh) {
+  d.en = en; d.zh = zh;
+  try {
+    if (UUID_RE.test(d.id)) await updateDescDict(d.id, d);
+    else { const saved = await insertDescDict(d); d.id = saved.id; }
+  } catch (e) {
+    console.error('Supabase desc_dict sync failed', e);
+    toast('Dictionary diperbarui lokal, tapi gagal sync ke server: ' + (e.message || e));
+    setState({});
+    return;
+  }
+  toast('Dictionary diperbarui');
+  setState({});
+}
+
+async function deleteDictEntry(d) {
+  const st = getState();
+  try {
+    if (UUID_RE.test(d.id)) await deleteDescDict(d.id);
+  } catch (e) {
+    console.error('Supabase desc_dict delete failed', e);
+    toast('Gagal hapus dari server: ' + (e.message || e));
+    return;
+  }
+  st.descDict = st.descDict.filter(x => x !== d);
+  toast('Dictionary dihapus');
+  setState({ descDict: st.descDict });
 }
 
 // ---------- Item Master ----------
@@ -245,7 +321,7 @@ function itemsTab(st) {
         h('td.mono.cell-strong', i.erp || '—'), h('td', i.spec || '—'), h('td', i.brand || '—'), h('td', i.market || '—'), h('td.mono', i.unit || '—'), h('td', i.nameEn || '—'),
         h('td', editable ? h('div.row.gap8', [
           btn(t('edit'), { sm: true, onClick: () => openItem(i) }),
-          confirmDeleteBtn('item:' + i.id, () => { st.items = st.items.filter(x => x.id !== i.id); setState({ items: st.items }); toast('Item dihapus'); }),
+          confirmDeleteBtn('item:' + i.id, () => deleteItemRow(i)),
         ]) : null),
       ]))),
     ]))),
@@ -278,17 +354,50 @@ function itemModal() {
   });
 }
 
-function saveItem() {
+async function saveItem() {
   const st = getState(); const f = st.ui.itemForm;
   if (!f.erp) { toast('Kode ERP wajib'); return; }
   if (f.id) {
     const it = st.items.find(x => x.id === f.id);
     if (it) Object.assign(it, f);
+    try {
+      if (UUID_RE.test(f.id)) await updateItem(f.id, it || f);
+      else { const saved = await insertItem(it || f); if (it) it.id = saved.id; }
+    } catch (e) {
+      console.error('Supabase item sync failed', e);
+      toast('Item diperbarui lokal, tapi gagal sync ke server: ' + (e.message || e));
+      setUI({ itemModal: false });
+      setState({});
+      return;
+    }
     toast('Item diperbarui');
   } else {
-    st.items.unshift({ ...f, id: uid('itm') });
+    const localItem = { ...f, id: uid('itm') };
+    try {
+      const saved = await insertItem(localItem);
+      localItem.id = saved.id;
+    } catch (e) {
+      console.error('Supabase item insert failed', e);
+      toast('Gagal simpan item ke server: ' + (e.message || e));
+      return;
+    }
+    st.items.unshift(localItem);
     toast('Item ditambah');
   }
   setUI({ itemModal: false });
   setState({});
+}
+
+async function deleteItemRow(i) {
+  const st = getState();
+  try {
+    if (UUID_RE.test(i.id)) await deleteItem(i.id);
+  } catch (e) {
+    console.error('Supabase item delete failed', e);
+    toast('Gagal hapus dari server: ' + (e.message || e));
+    return;
+  }
+  st.items = st.items.filter(x => x.id !== i.id);
+  toast('Item dihapus');
+  setState({ items: st.items });
 }
