@@ -6,7 +6,7 @@ import { money, num, fmtDate, romanMonth, daysUntil, topDays, addDays } from '..
 import { prfPaper } from '../ui/documents.js';
 import { can } from '../auth/roles.js';
 import { wrapPrintable } from './approval.js';
-import { downloadBlob } from '../core/dom.js';
+import { downloadBlob, downloadDocPdf } from '../core/dom.js';
 import { nextPrfNo } from '../core/docSeqApi.js';
 import { uploadToDrive } from '../core/drive.js';
 import { insertInvoice, updateInvoice } from '../core/invoicesApi.js';
@@ -256,7 +256,12 @@ function prfModal() {
     ],
     footer: [
       btn(t('close'), { onClick: () => setUI({ prfModal: false }) }),
-      btn('PDF', { iconName: 'download', onClick: () => { const html = wrapPrintable(prfPaper(d, d.supplier, d.lines).outerHTML, d.no); downloadBlob(new Blob([html], { type: 'text/html' }), `${d.no.replace(/\//g, '-')}.html`); toast('PRF diunduh (HTML siap print → PDF)'); } }),
+      btn('PDF', { iconName: 'download', onClick: async () => {
+        toast('Membuat PDF…');
+        const el = prfPaper(d, d.supplier, d.lines);
+        try { await downloadDocPdf(el, d.no.replace(/\//g, '-'), 'portrait'); toast('PRF PDF diunduh'); }
+        catch (e) { console.error('PRF PDF gagal:', e); downloadBlob(new Blob([wrapPrintable(prfPaper(d, d.supplier, d.lines).outerHTML, d.no)], { type: 'text/html' }), `${d.no.replace(/\//g, '-')}.html`); toast('PDF gagal — unduh HTML cadangan'); }
+      } }),
       btn(t('prf_send_wilbert'), { variant: 'primary', onClick: () => submitPrf() }),
     ],
   });

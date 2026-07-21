@@ -120,3 +120,37 @@ export function downloadBlob(blob, filename) {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
+
+// Lazy-loads html2pdf.js as a UMD bundle via a <script> tag rather than an
+// esm.sh dynamic import — esm.sh fails to bundle its jsPDF/html2canvas deps
+// correctly ("x is not a function"), while the jsdelivr UMD bundle just
+// attaches window.html2pdf directly. Cached across calls (module-level
+// promise) so the CDN script tag is only ever injected once per session.
+let _h2pPromise = null;
+export function loadHtml2Pdf() {
+  if (window.html2pdf) return Promise.resolve(window.html2pdf);
+  if (_h2pPromise) return _h2pPromise;
+  _h2pPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js';
+    s.onload = () => window.html2pdf ? resolve(window.html2pdf) : reject(new Error('html2pdf tak tersedia'));
+    s.onerror = () => reject(new Error('gagal load html2pdf dari CDN'));
+    document.head.appendChild(s);
+  });
+  return _h2pPromise;
+}
+
+// Render a print-ready element to PDF. Throws on failure — callers should
+// catch and fall back to an HTML download (see approval.js/payment.js/suratJalan.js).
+export async function downloadDocPdf(el, filename, orientation = 'portrait') {
+  const html2pdf = await loadHtml2Pdf();
+  el.style.background = '#fff';
+  await html2pdf().set({
+    filename: filename.endsWith('.pdf') ? filename : filename + '.pdf',
+    margin: [8, 8, 8, 8],
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+    jsPDF: { unit: 'mm', format: 'a4', orientation },
+    pagebreak: { mode: ['css', 'legacy', 'avoid-all'] },
+  }).from(el).save();
+}

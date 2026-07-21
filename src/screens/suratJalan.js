@@ -6,7 +6,7 @@ import { suratJalanPaper } from '../ui/documents.js';
 import { romanMonth, nextMonthlySeq, fmtDate, num } from '../core/format.js';
 import { outstandingPOs, closeFullyReceivedPOs } from '../core/outstanding.js';
 import { wrapPrintable } from './approval.js';
-import { downloadBlob } from '../core/dom.js';
+import { downloadBlob, downloadDocPdf } from '../core/dom.js';
 import { fetchSuratJalan, insertSuratJalan, updateSuratJalan } from '../core/suratJalanApi.js';
 import { isConfigured } from '../core/supabase.js';
 import { nextSjNo } from '../core/docSeqApi.js';
@@ -235,10 +235,17 @@ function previewCard(st, id) {
   const sj = st.suratJalan.find(s => s.id === id);
   if (!sj) return null;
   const doPrint = () => window.print();
-  const doPdf = () => {
-    const html = wrapPrintable(suratJalanPaper(sj).outerHTML, sj.no);
-    downloadBlob(new Blob([html], { type: 'text/html' }), `${sj.no.replace(/\//g, '-')}.html`);
-    toast('Surat Jalan diunduh (HTML siap print → PDF)');
+  const doPdf = async () => {
+    toast('Membuat PDF…');
+    try {
+      await downloadDocPdf(suratJalanPaper(sj), sj.no.replace(/\//g, '-'), 'portrait');
+      toast('Surat Jalan PDF diunduh');
+    } catch (e) {
+      console.error('Surat Jalan PDF gagal:', e);
+      const html = wrapPrintable(suratJalanPaper(sj).outerHTML, sj.no);
+      downloadBlob(new Blob([html], { type: 'text/html' }), `${sj.no.replace(/\//g, '-')}.html`);
+      toast('PDF gagal — unduh HTML cadangan');
+    }
   };
   const bar = h('div.card.no-print', { style: { padding: '12px 18px', display: 'flex', alignItems: 'center', gap: '10px' } }, [
     h('span.mono', { style: { fontSize: '12px', fontWeight: 700 } }, sj.no),

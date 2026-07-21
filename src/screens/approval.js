@@ -5,7 +5,7 @@ import { card, badge, btn, icon } from '../ui/components.js';
 import { money, fmtDate } from '../core/format.js';
 import { poDocument } from '../ui/documents.js';
 import { can } from '../auth/roles.js';
-import { downloadBlob } from '../core/dom.js';
+import { downloadBlob, downloadDocPdf } from '../core/dom.js';
 import { requestPoDelete, approvePoDelete, rejectPoDelete, updatePoStatus, UUID_RE } from '../core/posApi.js';
 
 // Only POs mirrored to Supabase (real UUID id, see labelRequest.js/poConverter.js
@@ -79,22 +79,12 @@ export function approvalScreen() {
   const downloadPdf = async () => {
     toast('Membuat PDF…');
     try {
-      const { default: html2pdf } = await import('https://esm.sh/html2pdf.js@0.10.2');
-      const el = poDocument(po);
-      el.style.background = '#fff';
-      el.style.padding = '10px';
-      await html2pdf().set({
-        filename: `${po.no.replace(/\//g, '-')}-final.pdf`,
-        margin: [8, 8, 8, 8],
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
-        pagebreak: { mode: ['css', 'legacy', 'avoid-all'] },
-      }).from(el).save();
+      await downloadDocPdf(poDocument(po), `${po.no.replace(/\//g, '-')}-final`, 'landscape');
       toast('PDF diunduh');
     } catch (e) {
-      console.error('PDF gen failed', e);
-      toast('Gagal buat PDF: ' + (e.message || e) + ' — pakai tombol HTML sebagai cadangan');
+      console.error('PO PDF gagal:', e);
+      toast('PDF gagal — unduh HTML sebagai cadangan');
+      downloadFinal();
     }
   };
 
