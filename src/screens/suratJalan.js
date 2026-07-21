@@ -1,15 +1,16 @@
 import { h } from '../core/dom.js';
 import { getState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t } from '../i18n/index.js';
-import { card, badge, btn, checkRow, selectEl, icon } from '../ui/components.js';
+import { card, badge, btn, checkRow, selectEl, icon, driveLink } from '../ui/components.js';
 import { suratJalanPaper } from '../ui/documents.js';
 import { romanMonth, nextMonthlySeq, fmtDate, num } from '../core/format.js';
 import { outstandingPOs, closeFullyReceivedPOs } from '../core/outstanding.js';
 import { wrapPrintable } from './approval.js';
 import { downloadBlob } from '../core/dom.js';
-import { fetchSuratJalan, insertSuratJalan } from '../core/suratJalanApi.js';
+import { fetchSuratJalan, insertSuratJalan, updateSuratJalan } from '../core/suratJalanApi.js';
 import { isConfigured } from '../core/supabase.js';
 import { nextSjNo } from '../core/docSeqApi.js';
+import { uploadToDrive } from '../core/drive.js';
 
 function rowKey(poId, lineId) { return `${poId}::${lineId}`; }
 
@@ -206,8 +207,28 @@ async function createSuratJalan(rows) {
   st.suratJalan.unshift(sj);
   logAudit({ entity: 'suratJalan', target: sj.no, action: 'create', detail: `${poIds.length} PO · ${sj.items.length} item` });
   closeFullyReceivedPOs(st, poIds, logAudit);
+  await archiveSuratJalanToDrive(sj);
   setUI({ sjPoSel: {}, sjItemSel: {}, sjQty: {}, sjLastId: sj.id });
   toast(`Surat jalan ${sj.no} dibuat`);
+}
+
+// Auto-archives the just-generated document to Drive as the same print-ready
+// HTML the "PDF" button already produces (Opsi A — no PDF-rendering lib in
+// this codebase; see suratJalanPaper()/wrapPrintable()). Must NEVER throw —
+// a Drive outage or useDrive=false must still leave the surat jalan fully
+// generated and usable, just without a Drive link yet. uploadToDrive() itself
+// already degrades to a placeholder on failure instead of throwing; the only
+// other failure mode here is updateSuratJalan() (Supabase write), caught below.
+async function archiveSuratJalanToDrive(sj) {
+  try {
+    const html = wrapPrintable(suratJalanPaper(sj).outerHTML, sj.no);
+    const blob = new Blob([html], { type: 'text/html' });
+    const up = await uploadToDrive(blob, '', `${sj.no.replace(/\//g, '-')}.html`, 'Surat Jalan');
+    sj.driveUrl = up.url;
+    if (!up.placeholder) await updateSuratJalan(sj.id, { driveUrl: up.url });
+  } catch (e) {
+    console.warn('Surat jalan Drive auto-archive failed (non-fatal, doc already generated):', e);
+  }
 }
 
 function previewCard(st, id) {
@@ -235,10 +256,11 @@ function historyCard(st) {
   return card([
     h('div.card-head', [h('div.card-title', 'Riwayat Surat Jalan'), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${st.suratJalan.length} dokumen`)]),
     list.length ? h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', ['No.', t('col_supplier'), 'PO', t('col_date'), t('col_action')].map(c => h('th', c)))),
+      h('thead', h('tr', ['No.', t('col_supplier'), 'PO', t('col_date'), 'File', t('col_action')].map(c => h('th', c)))),
       h('tbody', list.map(sj => h('tr', [
         h('td.mono.cell-strong', sj.no), h('td', sj.supplier), h('td.mono', { style: { color: 'var(--text-3)' } }, sj.poNo),
         h('td.mono', fmtDate(sj.date)),
+        h('td', driveLink(sj.driveUrl || '')),
         h('td', btn('Lihat', { sm: true, onClick: () => setUI({ sjLastId: sj.id }) })),
       ]))),
     ])) : h('div', { style: { padding: '16px', fontSize: '12px', color: 'var(--text-3)' } }, 'Belum ada surat jalan dibuat.'),

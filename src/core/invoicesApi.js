@@ -3,10 +3,10 @@
 import { getClient, isConfigured } from './supabase.js';
 
 function fromRow(row) {
-  return { id: row.id, no: row.no, supplier: row.supplier, poRef: row.po_ref, currency: row.currency, amount: row.amount, due: row.due, faktur: row.faktur, ppnPaid: row.ppn_paid, status: row.status };
+  return { id: row.id, no: row.no, supplier: row.supplier, poRef: row.po_ref, currency: row.currency, amount: row.amount, due: row.due, faktur: row.faktur, ppnPaid: row.ppn_paid, status: row.status, files: row.files || [] };
 }
 function toRow(inv) {
-  return { no: inv.no, supplier: inv.supplier || null, po_ref: inv.poRef || null, currency: inv.currency || 'IDR', amount: inv.amount || 0, due: inv.due || null, faktur: inv.faktur || null, ppn_paid: !!inv.ppnPaid, status: inv.status || 'Diterima Purchasing' };
+  return { no: inv.no, supplier: inv.supplier || null, po_ref: inv.poRef || null, currency: inv.currency || 'IDR', amount: inv.amount || 0, due: inv.due || null, faktur: inv.faktur || null, ppn_paid: !!inv.ppnPaid, status: inv.status || 'Diterima Purchasing', files: inv.files || [] };
 }
 
 export async function fetchInvoices() {
@@ -35,6 +35,7 @@ export async function updateInvoice(id, patch) {
   const row = {};
   if ('status' in patch) row.status = patch.status;
   if ('faktur' in patch) row.faktur = patch.faktur;
+  if ('files' in patch) row.files = patch.files;
   const { error } = await c.from('invoices').update(row).eq('id', id);
   if (error) throw error;
 }

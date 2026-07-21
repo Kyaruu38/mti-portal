@@ -1,13 +1,14 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t } from '../i18n/index.js';
-import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, statusTone } from '../ui/components.js';
+import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, statusTone, driveLink } from '../ui/components.js';
 import { money, num, fmtDate, romanMonth, daysUntil, topDays, addDays } from '../core/format.js';
 import { prfPaper } from '../ui/documents.js';
 import { can } from '../auth/roles.js';
 import { wrapPrintable } from './approval.js';
 import { downloadBlob } from '../core/dom.js';
 import { nextPrfNo } from '../core/docSeqApi.js';
+import { uploadToDrive } from '../core/drive.js';
 import { insertInvoice, updateInvoice } from '../core/invoicesApi.js';
 import { insertPrf } from '../core/prfsApi.js';
 import { insertDescDict } from '../core/descDictApi.js';
@@ -31,13 +32,11 @@ export function paymentScreen() {
     btn(t('pay_continue_anyway'), { sm: true, variant: 'primary', onClick: () => { setUI({ pfBannerClosed: true }); toast('Diproses tanpa faktur pajak — ditandai follow-up'); } }),
   ]));
 
-  // No PDF invoice parser exists (unlike PO Converter's zcPoPdf.js) — the
-  // dropzone here is a drop target for a feature that was never built; its
-  // onFiles used to call a function (handleInvoice) that didn't exist
-  // anywhere in the codebase, so dropping a file threw a ReferenceError.
-  // Fixed minimally: dropping a file explains that and opens manual entry,
-  // same modal as the explicit "Add Invoice" button.
-  const dz = dropzone({ title: t('pay_drop_inv'), sub: t('pay_faktur_reminder'), accept: '.pdf', iconName: 'upload', compact: true, onFiles: () => { toast('Auto-extract PDF invoice belum tersedia — isi manual'); openInvoiceModal(); } });
+  // No PDF invoice parser exists (unlike PO Converter's zcPoPdf.js) — dropping
+  // a file here can't auto-fill invoice fields. It does carry the file itself
+  // through as an attachment though: opens the same "Add Invoice" modal with
+  // the dropped file pre-attached, uploaded to Drive (category "Invoice") on save.
+  const dz = dropzone({ title: t('pay_drop_inv'), sub: t('pay_faktur_reminder'), accept: '.pdf', iconName: 'upload', compact: true, onFiles: f => { toast('File dilampirkan — lengkapi detail invoice'); openInvoiceModal(f[0]); } });
 
   const flow = card([h('div.card-pad', [
     h('div.row.gap8', [h('div.card-title', t('pay_flow')), readonly ? badge(t('pay_readonly'), 'gray', { iconName: 'eye' }) : null]),
@@ -62,7 +61,7 @@ function poPpnPaid(inv) { const po = getState().pos.find(p => p.no.includes(inv.
 function trStage(s) { const m = { 'Diterima Purchasing': t('st_diterima_purchasing'), 'Diproses Wilbert': t('st_diproses_wilbert'), 'Diterima Finance': t('st_diterima_finance'), 'Paid': t('st_paid') }; return m[s] || s; }
 
 function invoiceTable(st) {
-  const head = h('thead', h('tr', ['Invoice', t('col_supplier'), 'PO Ref', t('col_amount'), t('col_due'), t('pay_faktur'), t('col_status')].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c))));
+  const head = h('thead', h('tr', ['Invoice', t('col_supplier'), 'PO Ref', t('col_amount'), t('col_due'), t('pay_faktur'), 'File', t('col_status')].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c))));
   const body = h('tbody', st.invoices.map(inv => {
     const d = daysUntil(inv.due);
     const dueTone = inv.status === 'Paid' ? '' : d < 0 ? 'red' : d <= 1 ? 'amber' : '';
@@ -76,6 +75,7 @@ function invoiceTable(st) {
       h('td.mono.r', money(inv.amount, inv.currency)),
       h('td.mono', { style: dueTone ? { color: `var(--st-${dueTone}-tx)`, fontWeight: 700 } : {} }, inv.status === 'Paid' ? 'paid' : fmtDate(inv.due) + (d < 0 ? ` · overdue ${-d}h` : '')),
       h('td', inv.faktur ? h('span', { style: { fontSize: '11px', fontWeight: 600, color: 'var(--st-green-tx)' } }, [icon('check', 11, { strokeWidth: 2.5 }), ' ', inv.faktur]) : badge(t('pay_faktur_missing'), 'amber', { iconName: 'warn' })),
+      h('td', driveLink((inv.files && inv.files[0] && inv.files[0].url) || '')),
       h('td', h('div.row.gap8', [
         badge(trStage(inv.status), statusTone(inv.status)),
         canAdvance ? btn(t('handed_wilbert'), { sm: true, onClick: () => handToWilbert(inv) }) : null,
@@ -119,13 +119,20 @@ async function handToWilbert(inv) {
   setState({});
 }
 
-function openInvoiceModal() {
+function openInvoiceModal(file) {
   const st = getState();
-  setUI({ invoiceModal: true, invoiceForm: { no: '', supplierId: (st.suppliers[0] || {}).id || '', poRef: '', currency: 'IDR', amount: 0, due: '', ppnPaid: false } });
+  setUI({ invoiceModal: true, invoiceForm: { no: '', supplierId: (st.suppliers[0] || {}).id || '', poRef: '', currency: 'IDR', amount: 0, due: '', ppnPaid: false, file: file || null } });
 }
 
 function invoiceModal() {
   const st = getState(); const f = st.ui.invoiceForm;
+  const attachment = f.file
+    ? h('div.row.gap8', { style: { alignItems: 'center' } }, [
+        icon('file', 14, { stroke: 'var(--text-3)' }),
+        h('span.mono', { style: { fontSize: '12px' } }, f.file.name),
+        btn('Hapus', { sm: true, onClick: () => { f.file = null; setUI({}); } }),
+      ])
+    : dropzone({ title: 'Upload file invoice (opsional)', sub: 'PDF/gambar scan invoice supplier', accept: '.pdf,.jpg,.jpeg,.png', iconName: 'upload', compact: true, onFiles: files => { f.file = files[0]; setUI({}); } });
   return modal({
     title: 'Add Invoice', width: 480, onClose: () => setUI({ invoiceModal: false }),
     body: [
@@ -137,6 +144,7 @@ function invoiceModal() {
         field(t('col_amount'), inputEl({ mono: true, value: f.amount || '', onInput: v => (f.amount = Number(String(v).replace(/[,\s]/g, '')) || 0) })),
       ]),
       field(t('col_due'), h('input.input', { type: 'date', value: f.due, onInput: e => (f.due = e.target.value) })),
+      field('Lampiran', attachment),
     ],
     footer: [btn(t('cancel'), { onClick: () => setUI({ invoiceModal: false }) }), btn(t('save'), { variant: 'primary', onClick: () => saveInvoiceModal() })],
   });
@@ -146,7 +154,15 @@ async function saveInvoiceModal() {
   const st = getState(); const f = st.ui.invoiceForm;
   const supplier = st.suppliers.find(s => s.id === f.supplierId);
   if (!f.no || !supplier || !f.due) { toast('No. Invoice, supplier, dan tanggal jatuh tempo wajib diisi'); return; }
-  const local = { no: f.no, supplier: supplier.name, poRef: f.poRef, currency: f.currency, amount: f.amount, due: f.due, faktur: '', ppnPaid: f.ppnPaid, status: 'Diterima Purchasing' };
+  // uploadToDrive() never throws — it degrades to a drive-error:// placeholder
+  // internally on failure, same graceful-degradation contract as every other
+  // upload site (ppkek.js, finance.js).
+  let files = [];
+  if (f.file) {
+    const up = await uploadToDrive(f.file, '', f.file.name, 'Invoice');
+    files = [{ name: f.file.name, url: up.url, placeholder: !!up.placeholder }];
+  }
+  const local = { no: f.no, supplier: supplier.name, poRef: f.poRef, currency: f.currency, amount: f.amount, due: f.due, faktur: '', ppnPaid: f.ppnPaid, status: 'Diterima Purchasing', files };
   try {
     const saved = await insertInvoice(local);
     local.id = saved.id;

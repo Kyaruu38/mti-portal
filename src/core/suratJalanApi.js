@@ -23,6 +23,7 @@ function fromRow(row) {
     createdBy: row.created_by,
     createdAt: row.created_at,
     items,
+    driveUrl: row.drive_url || '',
   };
 }
 
@@ -51,4 +52,16 @@ export async function insertSuratJalan(sj) {
   const { data, error } = await c.from('surat_jalan').insert(toRow(sj)).select().single();
   if (error) throw error;
   return fromRow(data);
+}
+
+// Sets the Drive archive link after the document is generated and uploaded
+// (see createSuratJalan() in screens/suratJalan.js). No-ops in demo mode.
+export async function updateSuratJalan(id, patch) {
+  if (!isConfigured()) return;
+  const c = await getClient();
+  if (!c) throw new Error('Supabase client unavailable');
+  const row = {};
+  if ('driveUrl' in patch) row.drive_url = patch.driveUrl;
+  const { error } = await c.from('surat_jalan').update(row).eq('id', id);
+  if (error) throw error;
 }
