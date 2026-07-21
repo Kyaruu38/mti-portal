@@ -32,8 +32,15 @@ async function extractRar(buf, orig) {
   try {
     const mod = await import('libarchive.js');
     const { Archive } = mod;
+    // Self-hosted, not CDN — libarchive.js's worker+wasm loaded cross-origin
+    // from jsdelivr was the most common cause of it silently failing to init
+    // (worker cross-origin restrictions). A plain relative path here works
+    // in both `npm start` (served from repo root at :5173) and GitHub Pages
+    // project-site deploy (served under /<repo>/): relative URLs inherit
+    // whatever base path the current page is actually running under, so
+    // there's no need to hardcode the Pages subpath.
     Archive.init({
-      workerUrl: 'https://cdn.jsdelivr.net/npm/libarchive.js@2.0.2/dist/worker-bundle.js',
+      workerUrl: './vendor/libarchive/worker-bundle.js',
     });
     const archive = await Archive.open(new File([buf], orig.name));
     const flat = await archive.extractFiles();
