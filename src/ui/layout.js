@@ -1,15 +1,16 @@
-import { h, svg } from '../core/dom.js';
+import { h, svg, clear } from '../core/dom.js';
 import { ICONS } from '../core/icons.js';
 import { getState, setState, setUI } from '../core/store.js';
 import { t } from '../i18n/index.js';
 import { LANGS } from '../i18n/index.js';
 import { allowedScreens, USERS } from '../auth/roles.js';
 import { logout } from '../auth/session.js';
-import { icon, iconBtn } from './components.js';
+import { icon, iconBtn, badge, btn } from './components.js';
 import { COMPANY } from '../config.js';
 import { LOGO_MTI } from '../assets/images.js';
 import { notificationsFor, unreadCount, notifTargetScreen, notifMessage } from '../core/notifications.js';
 import { fmtDateTime } from '../core/format.js';
+import { globalSearch } from '../core/globalSearch.js';
 
 const NAV = [
   { label: 'nav_overview', items: [
@@ -91,6 +92,83 @@ function langSwitch(st) {
   }, l.label)));
 }
 
+// Global search: input stays a single, never-replaced DOM node — the
+// dropdown is built/torn down via direct DOM writes on every keystroke, NOT
+// via setState()/setUI(). mount() has no diffing (main.js's render() rebuilds
+// the WHOLE app tree on every store change), so calling setState() per
+// keystroke here would replace this very input out from under the user's
+// cursor and drop keyboard focus after every character typed — the same bug
+// class documented in suratJalan.js's qtyInput and approval.js's poEditModal.
+// setState()/setUI() only ever fire from here inside navigateTo(), i.e. on
+// an explicit "Buka"/"Drive ↗" click, never from the input's own oninput.
+function globalSearchBox() {
+  const dropdown = h('div', {
+    style: {
+      display: 'none', position: 'absolute', top: '38px', left: 0, right: 0,
+      background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '10px',
+      boxShadow: 'var(--paper-shadow)', zIndex: 60, maxHeight: '360px', overflowY: 'auto',
+    },
+  });
+
+  const close = () => { clear(dropdown); dropdown.style.display = 'none'; };
+
+  const navigateTo = (r) => {
+    // Screen ids per main.js's SCREENS map — 'surat-jalan' (hyphenated), not
+    // camelCase; getting this wrong silently falls back to the dashboard
+    // (main.js: `SCREENS[st.screen] || dashboardScreen`) instead of erroring.
+    if (r.type === 'PO') { setState({ screen: 'approval' }); setUI({ selPO: r.ref.id }); }
+    else if (r.type === 'Invoice') { setState({ screen: 'payment' }); }
+    else if (r.type === 'Surat Jalan') { setState({ screen: 'surat-jalan' }); }
+    else if (r.type === 'PRF') { setState({ screen: 'payment' }); }
+    else if (r.type === 'PPKEK') {
+      setState({ screen: 'ppkek' });
+      setUI({ pkExtract: { name: r.ref.name || `PPKEK ${r.ref.nopen}`, files: r.ref.files || [] }, pkParsed: r.ref });
+    }
+    input.value = '';
+    close();
+  };
+
+  const resultRow = (r) => h('div', {
+    style: { display: 'flex', alignItems: 'center', gap: '9px', padding: '9px 12px', borderTop: '1px solid var(--border)' },
+  }, [
+    badge(r.type, 'gray'),
+    h('div.grow', { style: { minWidth: 0 } }, [
+      h('div.mono', { style: { fontSize: '12px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, r.id),
+      h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, r.sub || '—'),
+    ]),
+    r.drive ? h('a.link', { href: r.drive, target: '_blank', style: { fontSize: '11px', fontWeight: 600, flexShrink: 0 } }, 'Drive ↗') : h('span'),
+    btn('Buka', { sm: true, onClick: () => navigateTo(r) }),
+  ]);
+
+  const renderResults = (q) => {
+    const results = globalSearch(getState(), q);
+    clear(dropdown);
+    if (!q.trim()) { dropdown.style.display = 'none'; return; }
+    if (!results.length) {
+      dropdown.appendChild(h('div', { style: { padding: '12px', fontSize: '11.5px', color: 'var(--text-3)' } }, 'Tidak ada hasil'));
+    } else {
+      results.forEach(r => dropdown.appendChild(resultRow(r)));
+    }
+    dropdown.style.display = 'block';
+  };
+
+  const input = h('input.input', {
+    placeholder: t('search_ph'),
+    style: { padding: '8px 12px 8px 32px', fontSize: '12.5px' },
+    onInput: e => renderResults(e.target.value),
+    onKeydown: e => { if (e.key === 'Escape') { e.target.value = ''; close(); e.target.blur(); } },
+    // Delay lets a click on "Buka"/"Drive ↗" (which fires blur first) land
+    // before the dropdown disappears out from under it.
+    onBlur: () => setTimeout(close, 150),
+  });
+
+  return h('div', { style: { flex: 1, maxWidth: '430px', marginLeft: 'auto', position: 'relative' } }, [
+    h('span', { style: { position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', zIndex: 1 } }, icon('search', 14, { stroke: 'var(--text-3)' })),
+    input,
+    dropdown,
+  ]);
+}
+
 function header(st) {
   const u = st.user;
   const bd = badges(st);
@@ -99,10 +177,7 @@ function header(st) {
       h('div', { style: { fontSize: '15.5px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 } }, t(TITLES[st.screen] || 's_dashboard')),
       h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, `${COMPANY.name} · ${u.tag}`),
     ]),
-    h('div', { style: { flex: 1, maxWidth: '430px', marginLeft: 'auto', position: 'relative' } }, [
-      h('span', { style: { position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)' } }, icon('search', 14, { stroke: 'var(--text-3)' })),
-      h('input.input', { placeholder: t('search_ph'), style: { padding: '8px 12px 8px 32px', fontSize: '12.5px' } }),
-    ]),
+    globalSearchBox(),
     langSwitch(st),
     iconBtn(st.theme === 'light' ? 'moon' : 'sun', { title: 'Theme', onClick: () => setState({ theme: st.theme === 'light' ? 'dark' : 'light' }) }),
     bellMenu(st),
