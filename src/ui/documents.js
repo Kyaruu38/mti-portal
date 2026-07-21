@@ -171,7 +171,7 @@ export function suratJalanPaper(sj) {
     ...sj.items.map((it, idx) => h('div', { style: { border: '1px solid #D1D5DB', borderRadius: '4px', padding: '12px', marginBottom: '10px' } }, [
       h('div', { style: { fontSize: '9px', fontWeight: 800, color: '#6B7280', marginBottom: '6px' } }, `ITEM ${idx + 1} · Approved Design Reference`),
       h('div', { style: { display: 'flex', gap: '14px' } }, [
-        h('span', { style: { width: '48px', minHeight: '132px', borderRadius: '2px', background: it.designUrl && !it.designUrl.startsWith('drive-') ? '#fff' : 'repeating-linear-gradient(45deg,#EDEAE1 0 5px,#E2DED2 5px 10px)', border: '1px solid #D1D5DB', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' } },
+        h('span', { style: { width: '110px', minHeight: '150px', borderRadius: '2px', background: it.designUrl && !it.designUrl.startsWith('drive-') ? '#fff' : 'repeating-linear-gradient(45deg,#EDEAE1 0 5px,#E2DED2 5px 10px)', border: '1px solid #D1D5DB', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' } },
           it.designUrl && !it.designUrl.startsWith('drive-') ? h('img', { src: it.designUrl, style: { width: '100%', height: '100%', objectFit: 'cover' } }) : h('span.mono', { style: { fontSize: '7px', color: '#6B7280', writingMode: 'vertical-rl' } }, 'label design')),
         h('div', { style: { flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 18px', alignContent: 'start' } }, [
           kv('No. ERP ERP物料编号', it.erp, true),

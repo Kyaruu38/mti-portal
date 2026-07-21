@@ -4,6 +4,7 @@ import { t } from '../i18n/index.js';
 import { badge, btn, icon, driveLink, selectEl, inputEl } from '../ui/components.js';
 import { uploadToDrive } from '../core/drive.js';
 import { insertDesign } from '../core/designsApi.js';
+import { renderThumb } from '../parsers/pdf.js';
 
 export function labelLibraryScreen() {
   const st = getState(); const ui = st.ui;
@@ -56,12 +57,18 @@ async function uploadDesign() {
   const up = await uploadToDrive(file, 'LabelDesigns/', file.name);
   const url = up.placeholder ? '' : up.url;
   const localUrl = URL.createObjectURL(file);
+  // Rendered from the file still in hand (not fetched back from Drive) — a
+  // persisted base64 JPEG so the thumbnail survives reload/other sessions,
+  // unlike designUrl below. Non-fatal: a render failure just leaves the
+  // library card on its color-swatch fallback, same as no thumb at all.
+  const thumb = await renderThumb(file).catch(() => '');
   const erp = prompt('ERP code untuk desain ini?', 'LBL-NEW-XX') || 'LBL-NEW-' + Date.now().toString(36).slice(-3).toUpperCase();
   const st = getState();
   // color/designUrl are local-only display fields — not persisted (see
   // designsApi.js header comment): color is a swatch fallback derivable from
-  // brand, designUrl is a browser-session-only blob: URL.
-  const design = { id: uid('dsg'), erp, spec: '—', brand: 'BARU', market: '—', ver: 'v1', updated: 'hari ini', driveUrl: url, designUrl: localUrl, color: '#F26722', status: 'draft' };
+  // brand, designUrl is a browser-session-only blob: URL. thumb IS persisted
+  // (designsApi.js) — it's what Surat Jalan pulls in per item (see suratJalan.js).
+  const design = { id: uid('dsg'), erp, spec: '—', brand: 'BARU', market: '—', ver: 'v1', updated: 'hari ini', driveUrl: url, designUrl: localUrl, thumb, color: '#F26722', status: 'draft' };
   try {
     const saved = await insertDesign(design);
     design.id = saved.id;

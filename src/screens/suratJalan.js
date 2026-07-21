@@ -1,7 +1,7 @@
 import { h } from '../core/dom.js';
 import { getState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t } from '../i18n/index.js';
-import { card, badge, btn, checkRow, selectEl, icon, driveLink } from '../ui/components.js';
+import { card, badge, btn, checkRow, selectEl, icon, driveLink, modal } from '../ui/components.js';
 import { suratJalanPaper } from '../ui/documents.js';
 import { romanMonth, nextMonthlySeq, fmtDate, num } from '../core/format.js';
 import { outstandingPOs, closeFullyReceivedPOs } from '../core/outstanding.js';
@@ -51,7 +51,8 @@ function pulledInRows(st, entries) {
         key: rowKey(po.id, li.lineId), poId: po.id, poNo: po.contract || po.no, lineId: li.lineId,
         erp: design ? design.erp : (li.erp || '—'), name: li.d, dimension: li.dimension || '',
         unit: li.unit || po.unit || '张', outstanding: li.outstanding, ordered: li.qty, received: li.received,
-        designUrl: design ? (design.designUrl || '') : '',
+        designUrl: design ? (design.thumb || '') : '', // persisted thumb, not the old session-only blob
+        designFull: design ? (design.driveUrl || '') : '', // full design PDF/image on Drive
       });
     });
   });
@@ -111,7 +112,7 @@ export function suratJalanScreen() {
 
   const canGenerate = rows.some(r => (ui.sjItemSel || {})[r.key] !== false && getQty(ui, r) > 0);
   const actionBar = h('div.card', { style: { padding: '12px 18px', display: 'flex', justifyContent: 'flex-end' } }, [
-    btn('Buat Surat Jalan', { variant: 'primary', disabled: !canGenerate, onClick: () => createSuratJalan(rows) }),
+    btn('Buat Surat Jalan', { variant: 'primary', disabled: !canGenerate, onClick: () => handleGenerateClick(rows) }),
   ]);
 
   const supplierBar = h('div.card', { style: { padding: '12px 18px', display: 'flex', alignItems: 'center', gap: '10px' } }, [
@@ -121,7 +122,43 @@ export function suratJalanScreen() {
 
   const preview = ui.sjLastId ? previewCard(st, ui.sjLastId) : null;
 
-  return h('div.stack', [summary, supplierBar, poChecklist, itemsTable, rows.length ? actionBar : null, preview, historyCard(st)]);
+  return h('div.stack', [summary, supplierBar, poChecklist, itemsTable, rows.length ? actionBar : null, preview, historyCard(st), ui.sjWarnMissing ? missingDesignModal(ui) : null]);
+}
+
+// Design master is empty at rollout on purpose (built now, filled in later —
+// see the task this shipped with), so this will warn on every item until
+// someone uploads designs; that's expected, not a bug. Gate is on the
+// SELECTED/qty>0 subset (same filter createSuratJalan uses below), not every
+// pulled-in row — warning about an item that isn't even being shipped this
+// time would be a false alarm.
+function handleGenerateClick(rows) {
+  const ui = getState().ui;
+  const selected = rows.filter(r => (ui.sjItemSel || {})[r.key] !== false && getQty(ui, r) > 0);
+  const missing = selected.filter(r => !r.designUrl).map(r => `${r.erp} — ${r.name}`);
+  if (missing.length) {
+    setUI({ sjWarnMissing: missing, sjPendingRows: rows });
+    return;
+  }
+  createSuratJalan(rows);
+}
+
+function missingDesignModal(ui) {
+  const missing = ui.sjWarnMissing || [];
+  const close = () => setUI({ sjWarnMissing: null, sjPendingRows: null });
+  return modal({
+    title: '⚠ Design belum lengkap', width: 480, onClose: close,
+    body: [
+      h('div', { style: { fontSize: '12px', color: 'var(--text-2)' } }, 'Item berikut belum ada master design:'),
+      h('div', { style: { marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '220px', overflowY: 'auto' } },
+        missing.map(m => h('div.mono', { style: { fontSize: '11.5px', color: 'var(--text-3)' } }, `• ${m}`))),
+    ],
+    footer: [
+      btn(t('cancel'), { onClick: close }),
+      // Calls createSuratJalan() directly (not handleGenerateClick again) —
+      // the check already ran, re-running it would just loop back here.
+      btn('Tetap Lanjut', { variant: 'primary', onClick: () => { const rows = ui.sjPendingRows; close(); createSuratJalan(rows); } }),
+    ],
+  });
 }
 
 // Find the base seq number already assigned to this PO THIS MONTH (from a

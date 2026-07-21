@@ -48,3 +48,37 @@ export async function extractPdf(fileOrBuffer) {
   const isScanned = allText.replace(/\s/g, '').length < 20; // almost no text => scan
   return { pages, text: allText, isScanned, numPages: doc.numPages };
 }
+
+// Renders page 1 of a PDF (or an image file, straight through) to a JPEG data
+// URL for use as a persisted thumbnail (see screens/labelLibrary.js). Reuses
+// the same pdfjs loader as extractPdf() above — same cMapUrl/cMapPacked, since
+// label PDFs carry Chinese text pdf.js needs the CJK cmaps to lay out/render
+// correctly even just for a raster thumbnail.
+export async function renderThumb(fileOrBuf, maxW = 300) {
+  const isFile = typeof File !== 'undefined' && fileOrBuf instanceof File;
+  const isPdf = !isFile || fileOrBuf.type === 'application/pdf' || /\.pdf$/i.test(fileOrBuf.name || '');
+
+  if (!isPdf) {
+    const bitmap = await createImageBitmap(fileOrBuf);
+    const scale = maxW / bitmap.width;
+    const cv = document.createElement('canvas');
+    cv.width = maxW; cv.height = Math.round(bitmap.height * scale);
+    cv.getContext('2d').drawImage(bitmap, 0, 0, cv.width, cv.height);
+    return cv.toDataURL('image/jpeg', 0.72);
+  }
+
+  const L = await lib();
+  const data = fileOrBuf instanceof ArrayBuffer ? fileOrBuf : await fileOrBuf.arrayBuffer();
+  const doc = await L.getDocument({
+    data,
+    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/cmaps/',
+    cMapPacked: true,
+  }).promise;
+  const page = await doc.getPage(1);
+  const base = page.getViewport({ scale: 1 });
+  const vp = page.getViewport({ scale: maxW / base.width });
+  const cv = document.createElement('canvas');
+  cv.width = vp.width; cv.height = vp.height;
+  await page.render({ canvasContext: cv.getContext('2d'), viewport: vp }).promise;
+  return cv.toDataURL('image/jpeg', 0.72);
+}

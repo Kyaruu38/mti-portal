@@ -8,17 +8,19 @@
 // already derives a swatch color from `brand` when there's no real image) and
 // `designUrl` (a local blob: URL from URL.createObjectURL(), browser-session-
 // only by nature — can't be persisted or shared across sessions). A design
-// fetched into a different session shows the color-swatch fallback instead of
-// the actual artwork; the real file is still reachable via the Drive link
-// (`driveUrl`), just not inline. Flagging this as a known gap, not fixing
-// Drive-thumbnail rendering here — out of scope for CRUD wiring.
+// fetched into a different session shows the color-swatch fallback for
+// designUrl; the real file is still reachable via the Drive link (`driveUrl`).
+// `thumb` IS persisted — a small base64 JPEG rendered client-side at upload
+// time (parsers/pdf.js renderThumb(), see labelLibrary.js's uploadDesign())
+// that DOES survive across sessions, unlike designUrl. It's what Surat Jalan
+// pulls into the per-item design box (screens/suratJalan.js).
 import { getClient, isConfigured } from './supabase.js';
 
 function fromRow(row) {
-  return { id: row.id, erp: row.erp, spec: row.spec, brand: row.brand, market: row.market, ver: row.ver, updated: row.updated, driveUrl: row.drive_url, status: row.status };
+  return { id: row.id, erp: row.erp, spec: row.spec, brand: row.brand, market: row.market, ver: row.ver, updated: row.updated, driveUrl: row.drive_url, thumb: row.thumb || '', status: row.status };
 }
 function toRow(d) {
-  return { erp: d.erp || null, spec: d.spec || null, brand: d.brand || null, market: d.market || null, ver: d.ver || null, updated: d.updated || null, drive_url: d.driveUrl || null, status: d.status || 'active' };
+  return { erp: d.erp || null, spec: d.spec || null, brand: d.brand || null, market: d.market || null, ver: d.ver || null, updated: d.updated || null, drive_url: d.driveUrl || null, thumb: d.thumb || null, status: d.status || 'active' };
 }
 
 export async function fetchDesigns() {
