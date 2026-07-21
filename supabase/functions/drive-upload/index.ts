@@ -1,26 +1,35 @@
 // =============================================================================
 // Supabase Edge Function: drive-upload
 // -----------------------------------------------------------------------------
-// Uploads a file to Google Drive using a SERVICE ACCOUNT. The private key stays
-// server-side (as a Supabase secret) — the browser never sees it.
+// Uploads a file to Google Drive under the purchase.ptmti@gmail.com account
+// (architecture A — one shared department Drive) using OAuth2 **refresh token**
+// auth, not a service account. The client secret and refresh token stay
+// server-side as Supabase secrets — the browser never sees them.
+//
+// One-time setup (get the refresh token): see SETUP.md "Google Drive (OAuth,
+// department account)" section — purchase.ptmti authorizes once, you paste the
+// resulting refresh token into the secret below.
 //
 // Deploy:
 //   supabase functions deploy drive-upload
-// Secrets (see SETUP.md):
-//   supabase secrets set GOOGLE_SERVICE_ACCOUNT_JSON="$(cat service-account.json)"
-//   supabase secrets set DRIVE_ROOT_FOLDER_ID="<folder id shared with the SA>"
+// Secrets:
+//   supabase secrets set GOOGLE_CLIENT_ID="..."
+//   supabase secrets set GOOGLE_CLIENT_SECRET="..."
+//   supabase secrets set GOOGLE_REFRESH_TOKEN="..."
+//   supabase secrets set DRIVE_ROOT_FOLDER_ID="..."   (optional fallback; the
+//     frontend also sends rootFolderId per-request from src/config.js)
 //
 // The frontend posts multipart/form-data: file, folderPath, rootFolderId.
-// Returns JSON: { id, webViewLink }.
+// Returns JSON: { id, webViewLink }. Uploaded files are set to "anyone with
+// the link can view".
 // =============================================================================
 
 // deno-lint-ignore-file no-explicit-any
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 
-// TODO(you): store the FULL service-account JSON as the secret below.
-// It must be a Drive-enabled service account, and the target Drive folder must be
-// SHARED with the service-account email (Editor).
-const SA_JSON = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_JSON') || '';
+const CLIENT_ID = Deno.env.get('GOOGLE_CLIENT_ID') || '';
+const CLIENT_SECRET = Deno.env.get('GOOGLE_CLIENT_SECRET') || '';
+const REFRESH_TOKEN = Deno.env.get('GOOGLE_REFRESH_TOKEN') || '';
 const DEFAULT_ROOT = Deno.env.get('DRIVE_ROOT_FOLDER_ID') || '';
 
 const CORS = {
@@ -29,13 +38,18 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
+// Cached across warm invocations of the same isolate — avoids a token
+// exchange round-trip on every upload. Falls back to a fresh exchange
+// whenever it's missing/expired.
+let cachedToken: { token: string; exp: number } | null = null;
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
-  if (!SA_JSON) {
+  if (!CLIENT_ID || !CLIENT_SECRET || !REFRESH_TOKEN) {
     // Degrade gracefully — the frontend treats this as "not configured".
-    return json({ error: 'GOOGLE_SERVICE_ACCOUNT_JSON not set. See SETUP.md.' }, 501);
+    return json({ error: 'GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET/GOOGLE_REFRESH_TOKEN not set. See SETUP.md.' }, 501);
   }
 
   try {
@@ -44,9 +58,9 @@ serve(async (req) => {
     const folderPath = String(form.get('folderPath') || '');
     const rootFolderId = String(form.get('rootFolderId') || DEFAULT_ROOT);
     if (!file) return json({ error: 'file is required' }, 400);
+    if (!rootFolderId) return json({ error: 'rootFolderId is required (set DRIVE_ROOT_FOLDER_ID or pass rootFolderId)' }, 400);
 
-    const sa = JSON.parse(SA_JSON);
-    const token = await getAccessToken(sa);
+    const token = await getAccessToken();
 
     // Ensure nested folder path exists (creates missing folders under the root).
     const parentId = await ensureFolderPath(token, rootFolderId, folderPath);
@@ -58,13 +72,21 @@ serve(async (req) => {
     const post = `\r\n--${boundary}--`;
     const body = new Blob([pre, await file.arrayBuffer(), post]);
 
-    const up = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink&supportsAllDrives=true', {
+    const up = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
       body,
     });
     if (!up.ok) return json({ error: 'Drive upload failed', detail: await up.text() }, 502);
     const data = await up.json();
+
+    // Anyone with the link can view — the whole point of this Drive layout.
+    await fetch(`https://www.googleapis.com/drive/v3/files/${data.id}/permissions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'reader', type: 'anyone' }),
+    });
+
     return json({ id: data.id, webViewLink: data.webViewLink });
   } catch (e) {
     return json({ error: String(e) }, 500);
@@ -75,41 +97,25 @@ function json(obj: any, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 }
 
-// --- Google OAuth2 (JWT bearer) for the service account ---
-async function getAccessToken(sa: any): Promise<string> {
+// --- Google OAuth2 (refresh token -> access token) ---
+async function getAccessToken(): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  const header = { alg: 'RS256', typ: 'JWT' };
-  const claim = {
-    iss: sa.client_email,
-    scope: 'https://www.googleapis.com/auth/drive',
-    aud: 'https://oauth2.googleapis.com/token',
-    iat: now, exp: now + 3600,
-  };
-  const enc = (o: any) => b64url(new TextEncoder().encode(JSON.stringify(o)));
-  const unsigned = `${enc(header)}.${enc(claim)}`;
-  const key = await importPrivateKey(sa.private_key);
-  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(unsigned));
-  const jwt = `${unsigned}.${b64url(new Uint8Array(sig))}`;
+  if (cachedToken && cachedToken.exp - 60 > now) return cachedToken.token;
 
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
+    body: new URLSearchParams({
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      refresh_token: REFRESH_TOKEN,
+      grant_type: 'refresh_token',
+    }),
   });
   const data = await res.json();
-  if (!data.access_token) throw new Error('Token error: ' + JSON.stringify(data));
-  return data.access_token;
-}
-
-async function importPrivateKey(pem: string) {
-  const body = pem.replace(/-----[^-]+-----/g, '').replace(/\s/g, '');
-  const der = Uint8Array.from(atob(body), (c) => c.charCodeAt(0));
-  return crypto.subtle.importKey('pkcs8', der, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
-}
-
-function b64url(bytes: Uint8Array): string {
-  let s = btoa(String.fromCharCode(...bytes));
-  return s.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  if (!data.access_token) throw new Error('Token refresh error: ' + JSON.stringify(data));
+  cachedToken = { token: data.access_token, exp: now + (data.expires_in || 3600) };
+  return cachedToken.token;
 }
 
 // Create/resolve nested folders "A/B/C/" under rootFolderId; returns the leaf id.
@@ -118,10 +124,10 @@ async function ensureFolderPath(token: string, rootId: string, path: string): Pr
   const parts = path.split('/').map((p) => p.trim()).filter(Boolean);
   for (const name of parts) {
     const q = encodeURIComponent(`name='${name.replace(/'/g, "\\'")}' and '${parent}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-    const list = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`, { headers: { Authorization: `Bearer ${token}` } });
+    const list = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`, { headers: { Authorization: `Bearer ${token}` } });
     const found = await list.json();
     if (found.files && found.files.length) { parent = found.files[0].id; continue; }
-    const create = await fetch('https://www.googleapis.com/drive/v3/files?fields=id&supportsAllDrives=true', {
+    const create = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder', parents: [parent] }),
