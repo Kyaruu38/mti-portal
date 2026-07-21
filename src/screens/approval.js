@@ -76,6 +76,27 @@ export function approvalScreen() {
     downloadBlob(new Blob([html], { type: 'text/html' }), `${po.no.replace(/\//g, '-')}-final.html`);
     toast('PO final (capped) diunduh');
   };
+  const downloadPdf = async () => {
+    toast('Membuat PDF…');
+    try {
+      const { default: html2pdf } = await import('https://esm.sh/html2pdf.js@0.10.2');
+      const el = poDocument(po);
+      el.style.background = '#fff';
+      el.style.padding = '10px';
+      await html2pdf().set({
+        filename: `${po.no.replace(/\//g, '-')}-final.pdf`,
+        margin: [8, 8, 8, 8],
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+        pagebreak: { mode: ['css', 'legacy', 'avoid-all'] },
+      }).from(el).save();
+      toast('PDF diunduh');
+    } catch (e) {
+      console.error('PDF gen failed', e);
+      toast('Gagal buat PDF: ' + (e.message || e) + ' — pakai tombol HTML sebagai cadangan');
+    }
+  };
 
   const listPanel = card([
     h('div.card-head', [h('div.card-title', t('ap_pending')), badge(String(st.pos.filter(p => p.status === 'Menunggu Approval').length), 'accent')]),
@@ -99,7 +120,7 @@ export function approvalScreen() {
   if (!po) return h('div.stack', [listPanel]);
 
   const actions = po.status === 'Approved'
-    ? [badge(t('ap_approved'), 'green', { iconName: 'check' }), btn(t('ap_download_final'), { variant: 'primary', iconName: 'download', onClick: downloadFinal })]
+    ? [badge(t('ap_approved'), 'green', { iconName: 'check' }), btn('Download PDF', { variant: 'primary', iconName: 'download', onClick: downloadPdf }), btn('Download HTML', { iconName: 'download', onClick: downloadFinal })]
     : po.status === 'Rejected'
       ? [badge(t('ap_rejected'), 'red')]
       : isWilbert

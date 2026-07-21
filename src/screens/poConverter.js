@@ -74,10 +74,13 @@ export function poConverterScreen() {
 }
 
 function genPreview(res) {
-  return h('div', { style: { marginTop: '8px', aspectRatio: '1/1.32', background: '#fff', border: '1px solid #E5E7EB', borderRadius: '8px', boxShadow: 'var(--shadow)', padding: '16px', overflow: 'hidden', color: '#1F2937' } }, [
+  const shown = res.items.slice(0, 30);
+  const extra = res.items.length - shown.length;
+  return h('div', { style: { marginTop: '8px', minHeight: '0', aspectRatio: shown.length > 4 ? 'auto' : '1/1.32', background: '#fff', border: '1px solid #E5E7EB', borderRadius: '8px', boxShadow: 'var(--shadow)', padding: '16px', maxHeight: '480px', overflow: 'auto', color: '#1F2937' } }, [
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '2px solid #1B3A6B', paddingBottom: '6px' } }, [h('span', { style: { fontSize: '12px', fontWeight: 800, color: '#1B3A6B' } }, 'MTI'), h('span', { style: { fontSize: '8px', fontWeight: 800, letterSpacing: '.18em', color: '#111827' } }, 'PURCHASE ORDER')]),
     h('div.mono', { style: { fontSize: '7.5px', color: '#374151', marginTop: '6px', lineHeight: 1.7 } }, [`Ref: ${res.cgdd}`, h('br'), `Supplier: ${res.supplierEn || res.supplierZh}`, h('br'), `Terms: ${res.paymentText || '—'}`]),
-    h('div', { style: { border: '1px solid #D1D5DB', borderRadius: '3px', marginTop: '8px' } }, res.items.slice(0, 4).map(li => h('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '6.8px', color: '#374151', padding: '3px 6px', borderBottom: '1px solid #E5E7EB' } }, [h('span', (li.descEn || li.desc || '').slice(0, 34)), h('span.mono', num(li.amount, res.currency === 'USD' ? 2 : 0))]))),
+    h('div', { style: { border: '1px solid #D1D5DB', borderRadius: '3px', marginTop: '8px' } }, shown.map(li => h('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: '6.8px', color: '#374151', padding: '3px 6px', borderBottom: '1px solid #E5E7EB' } }, [h('span', (li.descEn || li.desc || '').slice(0, 34)), h('span.mono', num(li.amount, res.currency === 'USD' ? 2 : 0))]))),
+    extra > 0 ? h('div', { style: { fontSize: '6.8px', color: '#9CA3AF', padding: '4px 6px', fontStyle: 'italic' } }, `+${extra} item lagi`) : null,
     h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '10px', fontSize: '7.5px', fontWeight: 800, color: '#111827', marginTop: '6px' } }, [h('span', 'TOTAL'), h('span.mono', money(res.total, res.currency))]),
   ]);
 }
@@ -92,7 +95,8 @@ function genPreview(res) {
 // in the master would be worse than the bug this whole fix is closing.
 function unitOptions(st, current) {
   const codes = st.units.length ? st.units.map(u => u.code) : ['张', '条', '千克kg', 'set'];
-  const opts = [{ value: '', label: '— pilih —' }, ...codes.map(c => ({ value: c, label: c }))];
+  const labelFor = c => { const u = st.units.find(x => x.code === c); return u && u.intl ? `${u.code} · ${u.intl}` : c; };
+  const opts = [{ value: '', label: '— pilih —' }, ...codes.map(c => ({ value: c, label: labelFor(c) }))];
   if (current && !codes.includes(current)) opts.push({ value: current, label: `${current} (dari PDF)` });
   return opts;
 }

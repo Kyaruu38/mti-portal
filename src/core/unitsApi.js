@@ -2,8 +2,8 @@
 // itemsApi.js/brandMapApi.js.
 import { getClient, isConfigured } from './supabase.js';
 
-function fromRow(row) { return { id: row.id, code: row.code }; }
-function toRow(u) { return { code: u.code }; }
+function fromRow(row) { return { id: row.id, code: row.code, intl: row.code_intl, note: row.note }; }
+function toRow(u) { return { code: u.code, code_intl: u.intl || null, note: u.note || null }; }
 
 export async function fetchUnits() {
   if (!isConfigured()) return null;

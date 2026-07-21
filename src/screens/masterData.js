@@ -416,7 +416,7 @@ function itemModal() {
     body: [
       h('div.grid.g2', [field(t('col_erp'), inputEl({ mono: true, value: f.erp, onInput: v => (f.erp = v) })), field(t('col_spec'), inputEl({ value: f.spec, onInput: v => (f.spec = v) }))]),
       h('div.grid.g2', [field(t('col_brand'), inputEl({ value: f.brand, onInput: v => (f.brand = v) })), field('Market', inputEl({ value: f.market, onInput: v => (f.market = v) }))]),
-      h('div.grid.g2', [field('Unit', selectEl(st.units.length ? st.units.map(u => u.code) : ['张', '条', '千克kg', 'set'], { value: f.unit, onChange: v => (f.unit = v) })), field('EAN', inputEl({ mono: true, value: f.ean, onInput: v => (f.ean = v) }))]),
+      h('div.grid.g2', [field('Unit', selectEl(st.units.length ? st.units.map(u => ({ value: u.code, label: u.intl ? `${u.code} · ${u.intl}` : u.code })) : ['张', '条', '千克kg', 'set'], { value: f.unit, onChange: v => (f.unit = v) })), field('EAN', inputEl({ mono: true, value: f.ean, onInput: v => (f.ean = v) }))]),
       h('div.grid.g2', [field('Name EN', inputEl({ value: f.nameEn, onInput: v => (f.nameEn = v) })), field('Name ZH', inputEl({ value: f.nameZh, onInput: v => (f.nameZh = v) }))]),
       h('div.grid.g2', [field('MS', inputEl({ value: f.ms, onInput: v => (f.ms = v) })), field('RR', inputEl({ value: f.rr, onInput: v => (f.rr = v) }))]),
       field('Noise', inputEl({ value: f.noise, onInput: v => (f.noise = v) })),
@@ -479,9 +479,11 @@ function unitsTab(st) {
   return h('div.stack', [card([
     h('div.card-head', [h('div.card-title', 'Unit'), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${st.units.length} unit`), editable ? h('div.mla', btn('Add', { sm: true, variant: 'primary', iconName: 'plus', onClick: () => openUnitModal() })) : null]),
     h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', ['Kode', editable ? t('col_action') : ''].map(c => h('th', c)))),
+      h('thead', h('tr', ['Mandarin', 'International', 'Keterangan', editable ? t('col_action') : ''].map(c => h('th', c)))),
       h('tbody', st.units.map((u, i) => h('tr', [
         h('td.cell-strong.mono', u.code),
+        h('td.mono', u.intl || '—'),
+        h('td', u.note || '—'),
         h('td', editable ? h('div.row.gap8', [
           btn(t('edit'), { sm: true, onClick: () => openUnitModal(u) }),
           confirmDeleteBtn('unit:' + (u.id || i), () => deleteUnitRow(u)),
@@ -492,7 +494,7 @@ function unitsTab(st) {
 }
 
 function openUnitModal(existing) {
-  setUI({ unitModal: true, unitForm: existing ? { editingRef: existing, code: existing.code } : { code: '' } });
+  setUI({ unitModal: true, unitForm: existing ? { editingRef: existing, code: existing.code, intl: existing.intl, note: existing.note } : { code: '', intl: '', note: '' } });
 }
 
 function unitModal() {
@@ -500,7 +502,11 @@ function unitModal() {
   const isEdit = !!f.editingRef;
   return modal({
     title: isEdit ? 'Edit Unit' : 'Add Unit', width: 380, onClose: () => setUI({ unitModal: false }),
-    body: [field('Kode Unit', inputEl({ value: f.code, onInput: v => (f.code = v) }))],
+    body: [
+      field('Satuan Mandarin (张/条/千克)', inputEl({ value: f.code, onInput: v => (f.code = v) })),
+      field('Satuan International (PC/KG/SET)', inputEl({ value: f.intl, onInput: v => (f.intl = v) })),
+      field('Keterangan', inputEl({ value: f.note, onInput: v => (f.note = v) })),
+    ],
     footer: [btn(t('cancel'), { onClick: () => setUI({ unitModal: false }) }), btn(t('save'), { variant: 'primary', onClick: () => saveUnitModal() })],
   });
 }
@@ -508,14 +514,14 @@ function unitModal() {
 function saveUnitModal() {
   const st = getState(); const f = st.ui.unitForm;
   if (!f.code) { toast('Kode unit wajib diisi'); return; }
-  if (f.editingRef) editUnit(f.editingRef, f.code);
-  else addUnit(f.code);
+  if (f.editingRef) editUnit(f.editingRef, { code: f.code, intl: f.intl, note: f.note });
+  else addUnit({ code: f.code, intl: f.intl, note: f.note });
   setUI({ unitModal: false });
 }
 
-async function addUnit(code) {
+async function addUnit(u) {
   const st = getState();
-  const local = { code };
+  const local = { code: u.code, intl: u.intl, note: u.note };
   try {
     const saved = await insertUnit(local);
     local.id = saved.id;
@@ -529,8 +535,8 @@ async function addUnit(code) {
   setState({});
 }
 
-async function editUnit(u, code) {
-  u.code = code;
+async function editUnit(u, patch) {
+  Object.assign(u, patch);
   try {
     if (UUID_RE.test(u.id)) await updateUnit(u.id, u);
     else { const saved = await insertUnit(u); u.id = saved.id; }
