@@ -256,7 +256,7 @@ function prfModal() {
     footer: [
       btn(t('close'), { onClick: () => setUI({ prfModal: false }) }),
       btn('PDF', { iconName: 'download', onClick: () => {
-        const html = wrapPrintable(prfPaper(d, d.supplier, d.lines).outerHTML, d.no);
+        const html = wrapPrintable(prfPaper(d, d.supplier, d.lines).outerHTML, d.no, 'landscape');
         const w = window.open('', '_blank');
         if (!w) { toast('Popup diblokir — izinkan popup buat Save PDF'); return; }
         w.document.write(html); w.document.close();

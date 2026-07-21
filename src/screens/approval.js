@@ -263,9 +263,9 @@ async function savePoEdit() {
   setState({});
 }
 
-export function wrapPrintable(inner, title) {
+export function wrapPrintable(inner, title, orientation = 'portrait') {
   return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;600&family=Caveat:wght@600&display=swap" rel="stylesheet">
-<style>body{font-family:'Plus Jakarta Sans',sans-serif;background:#fff;display:flex;justify-content:center;padding:20px}.mono{font-family:'IBM Plex Mono',monospace}table{border-collapse:collapse;width:100%}</style>
+<style>@page{size:A4 ${orientation};margin:10mm}body{font-family:'Plus Jakarta Sans',sans-serif;background:#fff;display:flex;justify-content:center;padding:20px}.mono{font-family:'IBM Plex Mono',monospace}table{border-collapse:collapse;width:100%}</style>
 </head><body>${inner}</body></html>`;
 }

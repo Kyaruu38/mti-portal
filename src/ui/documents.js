@@ -204,13 +204,13 @@ export function prfPaper(prf, supplier, lines) {
   const dp = ccyDecimals(prf.currency);
   const words = amountInWords(prf.amount, prf.currency);
   const bd = '1px solid #111827';
-  const L = (extra) => ({ border: bd, padding: '6px 9px', fontSize: '9.5px', color: '#111827', background: '#F3F4F6', fontWeight: 700, whiteSpace: 'pre-line', verticalAlign: 'top', width: '22%', ...extra });
+  const L = (extra) => ({ border: bd, padding: '6px 9px', fontSize: '9.5px', color: '#111827', background: '#F3F4F6', fontWeight: 700, whiteSpace: 'pre-line', verticalAlign: 'top', width: '18%', ...extra });
   const V = (extra) => ({ border: bd, padding: '6px 9px', fontSize: '10px', color: '#111827', verticalAlign: 'top', whiteSpace: 'pre-line', ...extra });
   const bank = supplier ? `${supplier.bank || ''}, ACC: ${supplier.acct || ''} a/n. ${supplier.name}` : (prf.bank || '-');
   const descLines = (lines || []).map(l => `${l.no} — ${l.desc}`).join('\n');
   const applicant = prf.by || '';
 
-  return h('div.paper', { style: { padding: '28px 30px', color: '#111827' } }, [
+  return h('div.paper', { style: { width: '1040px', padding: '26px 32px', color: '#111827' } }, [
     h('table', { style: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' } }, h('tbody', [
       // Title rows
       h('tr', h('td', { colspan: 4, style: { border: bd, padding: '8px', textAlign: 'center', fontSize: '13px', fontWeight: 800 } },
@@ -220,13 +220,13 @@ export function prfPaper(prf, supplier, lines) {
       h('tr', [
         h('td', { style: L() }, 'Requesting Department\n申请部门'),
         h('td', { style: V() }, '经营管理部 / Procurement'),
-        h('td', { style: L({ width: '24%' }) }, 'Approval of General Manager\n总经理审批：'),
+        h('td', { style: L({ width: '20%' }) }, 'Approval of General Manager\n总经理审批：'),
         h('td', { style: V() }, ''),
       ]),
       h('tr', [
         h('td', { style: L() }, 'Applicant\n申 请 人'),
         h('td', { style: V() }, applicant),
-        h('td', { style: L({ width: '24%' }) }, 'Date of Completion\n填制日期：'),
+        h('td', { style: L({ width: '20%' }) }, 'Date of Completion\n填制日期：'),
         h('td', { style: V() }, fmtDate(prf.createdAt)),
       ]),
       // Payee details — ALL from master supplier
@@ -239,7 +239,7 @@ export function prfPaper(prf, supplier, lines) {
       h('tr', [
         h('td', { style: L() }, 'Amount of payment (in capitals)\n付款金额 （大写）'),
         h('td', { style: V() }, `${words.en}\n${words.zh}`),
-        h('td', { style: L({ width: '24%' }) }, 'Amount of payment (lower case)\n付款金额 （小写）'),
+        h('td', { style: L({ width: '20%' }) }, 'Amount of payment (lower case)\n付款金额 （小写）'),
         h('td', { style: V({ fontFamily: "'IBM Plex Mono',monospace", fontWeight: 700 }) }, `${prf.currency} ${num(prf.amount, dp)}`),
       ]),
       row2('Payment method\n付款方式', 'Online banking\n网银支付'),
