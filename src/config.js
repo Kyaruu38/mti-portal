@@ -23,10 +23,11 @@ export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiO
 // If DRIVE_UPLOAD_URL is empty OR the function is not configured, uploads
 // degrade gracefully: the app keeps working and records a local placeholder link.
 // -----------------------------------------------------------------------------
-export const DRIVE_UPLOAD_URL = ''; // e.g. `${SUPABASE_URL}/functions/v1/drive-upload`
-// Root Drive folder that the service account has been shared into (Editor).
-// TODO(you): create the folder, share it with the service-account email, paste its ID.
-export const DRIVE_ROOT_FOLDER_ID = ''; // e.g. '1AbCdEfGhIjKlMnOpQrStUv'
+export const DRIVE_UPLOAD_URL = `${SUPABASE_URL}/functions/v1/drive-upload`;
+// Root "MTI Portal Files" folder in purchase.ptmti@gmail.com's Drive. The Edge
+// Function creates/caches per-category subfolders under this (PPKEK, Invoice,
+// Bukti Bayar, Surat Jalan, ...) — see supabase/functions/drive-upload/index.ts.
+export const DRIVE_ROOT_FOLDER_ID = '1OwIcxTn03Uoi1kQLtAwFjbigRZhgXe63';
 
 // -----------------------------------------------------------------------------
 // Company constants (used in generated documents). Adjust if needed.

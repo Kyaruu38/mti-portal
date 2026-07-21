@@ -7,9 +7,11 @@ import { getClient } from './supabase.js';
 
 export function driveConfigured() { return FEATURES.useDrive; }
 
-// Upload a File/Blob to a logical folder path (e.g. "PPKEK/2026/07/003576-26ID0022/").
+// Upload a File/Blob to a logical folder path nested under a top-level Drive
+// category (e.g. category "PPKEK", folderPath "2026/07/003576-26ID0022/").
+// category is optional — omitted/unrecognized falls back to the Drive root.
 // Returns { url, id, name, placeholder }.
-export async function uploadToDrive(file, folderPath, filename) {
+export async function uploadToDrive(file, folderPath, filename, category) {
   const name = filename || file.name || 'document';
   if (!driveConfigured()) {
     // Graceful placeholder — real link filled once Drive is configured.
@@ -25,6 +27,7 @@ export async function uploadToDrive(file, folderPath, filename) {
     form.append('file', file, name);
     form.append('folderPath', folderPath);
     form.append('rootFolderId', DRIVE_ROOT_FOLDER_ID);
+    if (category) form.append('category', category);
 
     // Pass the Supabase access token if available (Edge Function verifies it).
     let headers = {};
@@ -45,8 +48,8 @@ export async function uploadToDrive(file, folderPath, filename) {
   }
 }
 
-// Build the standard PPKEK folder path: PPKEK/{year}/{month}/{SPPB}-{shipment}/
+// Build the PPKEK sub-path within the "PPKEK" category folder: {year}/{month}/{SPPB}-{shipment}/
 export function ppkekFolder(year, month, sppb, shipment) {
   const mm = String(month).padStart(2, '0');
-  return `PPKEK/${year}/${mm}/${sppb}-${shipment}/`;
+  return `${year}/${mm}/${sppb}-${shipment}/`;
 }

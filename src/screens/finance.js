@@ -111,7 +111,7 @@ async function handleProof(file) {
       if (res.fields.poNo && st.pos.some(po => po.contract === res.fields.poNo && po.supplier === p.supplier)) score += 0.15;
       if (score > bestScore) { bestScore = score; best = p; }
     }
-    const up = await uploadToDrive(file, 'Payments/', file.name);
+    const up = await uploadToDrive(file, '', file.name, 'Bukti Bayar');
     setUI({ proofMatch: { file, fields: res.fields, template: res.templateLabel, prf: best, confidence: Math.min(0.99, bestScore), driveUrl: up.url }, proofManual: null });
     if (!best) toast('Bukti terparse tapi tidak ada PRF cocok — pilih manual');
   } catch (e) { console.error(e); toast('Parse bukti gagal: ' + e.message); }

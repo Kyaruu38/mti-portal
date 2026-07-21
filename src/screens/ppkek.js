@@ -124,7 +124,7 @@ async function handleArchive(file) {
     const folder = ppkekFolder(year, month, sppb, shipment);
     const fileRecords = [];
     for (const f of files) {
-      const up = await uploadToDrive(f, folder, f.name);
+      const up = await uploadToDrive(f, folder, f.name, 'PPKEK');
       f.url = up.url;
       fileRecords.push({ name: f.name, url: up.url, placeholder: !!up.placeholder });
     }

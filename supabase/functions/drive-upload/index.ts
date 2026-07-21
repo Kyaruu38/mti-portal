@@ -19,7 +19,10 @@
 //   supabase secrets set DRIVE_ROOT_FOLDER_ID="..."   (optional fallback; the
 //     frontend also sends rootFolderId per-request from src/config.js)
 //
-// The frontend posts multipart/form-data: file, folderPath, rootFolderId.
+// The frontend posts multipart/form-data: file, folderPath, rootFolderId, category.
+// `category` ("PPKEK" / "Invoice" / "Bukti Bayar" / "Surat Jalan" / ...) is a
+// top-level subfolder directly under root, auto-created and cached per warm
+// isolate; empty/unrecognized category falls back to root, never errors.
 // Returns JSON: { id, webViewLink }. Uploaded files are set to "anyone with
 // the link can view".
 // =============================================================================
@@ -43,6 +46,13 @@ const CORS = {
 // whenever it's missing/expired.
 let cachedToken: { token: string; exp: number } | null = null;
 
+// Cached top-level category subfolder ids ("PPKEK", "Invoice", "Bukti Bayar",
+// "Surat Jalan", ...), keyed by `${rootFolderId}::${category}`. Avoids a
+// list+maybe-create round-trip on every single upload; resets on cold start,
+// which just costs one extra lookup, not a duplicate folder (ensureFolderPath
+// itself is already idempotent — it looks up by name before creating).
+const categoryFolderCache = new Map<string, string>();
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -57,13 +67,17 @@ serve(async (req) => {
     const file = form.get('file') as File;
     const folderPath = String(form.get('folderPath') || '');
     const rootFolderId = String(form.get('rootFolderId') || DEFAULT_ROOT);
+    const category = String(form.get('category') || '').trim();
     if (!file) return json({ error: 'file is required' }, 400);
     if (!rootFolderId) return json({ error: 'rootFolderId is required (set DRIVE_ROOT_FOLDER_ID or pass rootFolderId)' }, 400);
 
     const token = await getAccessToken();
 
-    // Ensure nested folder path exists (creates missing folders under the root).
-    const parentId = await ensureFolderPath(token, rootFolderId, folderPath);
+    // Unrecognized/missing category falls back to the root itself — never errors.
+    const categoryParentId = await resolveCategoryFolder(token, rootFolderId, category);
+
+    // Ensure any further nested folder path exists under the category folder.
+    const parentId = await ensureFolderPath(token, categoryParentId, folderPath);
 
     // Resumable/multipart upload of the file bytes.
     const meta = { name: file.name, parents: parentId ? [parentId] : undefined };
@@ -116,6 +130,19 @@ async function getAccessToken(): Promise<string> {
   if (!data.access_token) throw new Error('Token refresh error: ' + JSON.stringify(data));
   cachedToken = { token: data.access_token, exp: now + (data.expires_in || 3600) };
   return cachedToken.token;
+}
+
+// Resolve (or create) the top-level category subfolder directly under root —
+// e.g. "PPKEK", "Invoice", "Bukti Bayar", "Surat Jalan". Empty category means
+// "no subfolder", i.e. upload straight into root (the pre-category behavior).
+async function resolveCategoryFolder(token: string, rootId: string, category: string): Promise<string> {
+  if (!category) return rootId;
+  const key = `${rootId}::${category}`;
+  const cached = categoryFolderCache.get(key);
+  if (cached) return cached;
+  const id = await ensureFolderPath(token, rootId, category);
+  categoryFolderCache.set(key, id);
+  return id;
 }
 
 // Create/resolve nested folders "A/B/C/" under rootFolderId; returns the leaf id.

@@ -23,3 +23,6 @@ supabase_*.sql
 supabase_schema.sql
 CLAUDE.md
 SETUP.md
+
+# Supabase CLI local link/session metadata (project ref, pooler URL, etc.)
+supabase/.temp/
