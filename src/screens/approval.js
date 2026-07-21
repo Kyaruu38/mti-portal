@@ -5,7 +5,7 @@ import { card, badge, btn, icon } from '../ui/components.js';
 import { money, fmtDate } from '../core/format.js';
 import { poDocument } from '../ui/documents.js';
 import { can } from '../auth/roles.js';
-import { downloadBlob, downloadDocPdf } from '../core/dom.js';
+import { downloadBlob } from '../core/dom.js';
 import { requestPoDelete, approvePoDelete, rejectPoDelete, updatePoStatus, UUID_RE } from '../core/posApi.js';
 
 // Only POs mirrored to Supabase (real UUID id, see labelRequest.js/poConverter.js
@@ -76,16 +76,12 @@ export function approvalScreen() {
     downloadBlob(new Blob([html], { type: 'text/html' }), `${po.no.replace(/\//g, '-')}-final.html`);
     toast('PO final (capped) diunduh');
   };
-  const downloadPdf = async () => {
-    toast('Membuat PDF…');
-    try {
-      await downloadDocPdf(poDocument(po), `${po.no.replace(/\//g, '-')}-final`, 'landscape');
-      toast('PDF diunduh');
-    } catch (e) {
-      console.error('PO PDF gagal:', e);
-      toast('PDF gagal — unduh HTML sebagai cadangan');
-      downloadFinal();
-    }
+  const downloadPdf = () => {
+    const html = wrapPrintable(poDocument(po).outerHTML, `PO ${po.no}`);
+    const w = window.open('', '_blank');
+    if (!w) { toast('Popup diblokir — izinkan popup dulu buat Save PDF'); return; }
+    w.document.write(html); w.document.close();
+    w.onload = () => { w.focus(); w.onafterprint = () => w.close(); setTimeout(() => w.print(), 300); };
   };
 
   const listPanel = card([
