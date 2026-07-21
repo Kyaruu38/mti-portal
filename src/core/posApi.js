@@ -84,6 +84,20 @@ export async function updatePoStatus(poId, patch) {
   if (error) throw error;
 }
 
+// Full in-place edit (Edit PO feature) — overwrites every editable column via
+// the same toRow() shape used on insert. Status is whatever the caller's `po`
+// object already has (screens/approval.js's savePoEdit() never touches it) —
+// this is a content edit, not a workflow transition, so it must never ride
+// along and flip status as a side effect. Same RLS path as updatePoStatus
+// (pos_update), no new policy needed.
+export async function updatePO(poId, po) {
+  if (!isConfigured()) return;
+  const c = await getClient();
+  if (!c) throw new Error('Supabase client unavailable');
+  const { error } = await c.from('pos').update(toRow(po)).eq('id', poId);
+  if (error) throw error;
+}
+
 export async function requestPoDelete(poId, reason) {
   const c = await getClient();
   if (!c) throw new Error('Supabase client unavailable');
