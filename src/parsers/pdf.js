@@ -20,7 +20,11 @@ export async function extractPdf(fileOrBuffer) {
   const data = fileOrBuffer instanceof ArrayBuffer
     ? fileOrBuffer
     : await fileOrBuffer.arrayBuffer();
-  const doc = await L.getDocument({ data }).promise;
+  const doc = await L.getDocument({
+    data,
+    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/cmaps/',
+    cMapPacked: true,
+  }).promise;
   const pages = [];
   let allText = '';
   for (let p = 1; p <= doc.numPages; p++) {
