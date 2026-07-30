@@ -4,7 +4,7 @@
 
 import { EMAIL_DOMAIN } from '../config.js';
 
-// The 5 accounts. Passwords (88888888) live in Supabase Auth, not here.
+// The 6 accounts. Passwords live in Supabase Auth, not here.
 // Display name === username (no invented full names). Role captions kept in `tag`.
 export const USERS = {
   wilbert:    { name: 'wilbert',    tag: 'Purchasing Supervisor',  init: 'WI', color: '#F26722', lang: 'id' },
@@ -12,6 +12,7 @@ export const USERS = {
   visca:      { name: 'visca',      tag: 'Purchasing — Label & PO', init: 'VI', color: '#7C5CBF', lang: 'id' },
   sekar:      { name: 'sekar',      tag: 'PPKEK & Payment',         init: 'SE', color: '#1F8A4C', lang: 'id' },
   financemti: { name: 'financemti', tag: 'Finance Department',      init: 'FM', color: '#B48A1F', lang: 'en' },
+  sona:       { name: 'sona',       tag: 'Label Stock & Request',   init: 'SO', color: '#0E7C86', lang: 'id' },
 };
 
 // Screen access per role (menus hidden + RLS enforced).
@@ -21,12 +22,18 @@ export const USERS = {
 //               no stage tracking) - see paymentScreen()'s canIntake branch
 //  sekar      = PPKEK + Payment(purchasing) + payment-status READ-ONLY
 //  financemti = Finance dashboard only
+//  sona       = Label Request + Label Stock (weekly Excel upload) only
 export const ACCESS = {
   wilbert: ['dashboard', 'approval', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'ppkek', 'payment', 'finance', 'master-data', 'reports'],
   cania:   ['dashboard', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'payment', 'master-data', 'reports'],
   visca:   ['dashboard', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'payment', 'master-data', 'reports'],
   sekar:   ['dashboard', 'ppkek', 'payment', 'reports'],
   financemti: ['dashboard', 'finance'],
+  // sona owns the weekly label-stock routine (the workbook's own Instructions
+  // sheet says as much) and raises label requests. Nothing else — deliberately
+  // NOT in is_purchasing() server-side, so she has no write access to suppliers,
+  // designs or surat jalan even though those menus are simply absent here.
+  sona:    ['dashboard', 'label-request', 'label-stock'],
 };
 
 // Fine-grained capabilities (used to hide buttons + enforced by RLS).
@@ -46,6 +53,8 @@ export const CAPS = {
   sekar:      { approve: false, markPaid: false, financeReceive: false, editMaster: false, labelStockWrite: false, paymentWrite: true, prfCreate: true, paymentReadonly: true },
   // finance: only mark paid / receive; cannot approve POs or raise a PRF.
   financemti: { approve: false, markPaid: true, financeReceive: true, editMaster: false, labelStockWrite: false, paymentWrite: false, prfCreate: false, paymentReadonly: false },
+  // sona: the ONLY capability she holds is the label-stock upload.
+  sona:       { approve: false, markPaid: false, financeReceive: false, editMaster: false, labelStockWrite: true, paymentWrite: false, prfCreate: false, paymentReadonly: false },
 };
 
 // Which Reports modules a role may see.
@@ -63,6 +72,7 @@ export const REPORT_MODULES = {
   visca:      ['Label', 'PO'],
   sekar:      ['PPKEK', 'PRF'],
   financemti: ['PRF', 'Payment'],
+  sona:       [],   // no Reports screen at all; listed so the lookup is explicit
 };
 export function allowedReportModules(role) { return REPORT_MODULES[role] || []; }
 
@@ -74,6 +84,6 @@ export function emailToUsername(email) { return String(email || '').split('@')[0
 export function makeUser(username) {
   const u = USERS[username];
   if (!u) return null;
-  // role === username for the 5 built-in accounts.
+  // role === username for the built-in accounts.
   return { username, role: username, email: usernameToEmail(username), ...u };
 }
