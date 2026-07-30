@@ -195,7 +195,7 @@ function openPoModal() {
   const selItems = (st.ui.labelResult.items || []).filter((_, i) => st.ui.labelSel[i]);
   const chosen = selItems; // assigned to one supplier per design (bulk assign)
   const subtotal = chosen.reduce((s, r) => s + (r.qty * (r.unitPrice || 1000)), 0); // demo price
-  setUI({ poModal: true, poForm: { no: '', contract: '', terms: '45 hari setelah invoice', ppn: 'kek', subtotal, count: chosen.length } });
+  setUI({ poModal: true, poForm: { no: '', contract: '', terms: '45 hari setelah invoice', priority: 'Normal', ppn: 'kek', subtotal, count: chosen.length } });
 }
 
 function poModal() {
@@ -221,6 +221,10 @@ function poModal() {
       // 'Custom…' removed — it had no follow-up input and printed as "30 days"
       // on the contract via the old topDaysOf() default. See poTermDays().
       field(t('po_terms'), selectEl(['30 hari setelah invoice', '45 hari setelah invoice', '60 hari setelah invoice', 'Bayar di muka'], { value: f.terms, onChange: v => (f.terms = v) })),
+      // Priority drives expected arrival in Label Stock -> Order Tracking
+      // (lead days come from label_settings: Normal 14 / Urgent 7 / Super 3).
+      // Without it every order was assumed Normal and "overdue" meant nothing.
+      field('Prioritas', selectEl(['Normal', 'Urgent', 'Super Urgent'], { value: f.priority || 'Normal', onChange: v => (f.priority = v) })),
       field(t('po_ppn'), h('div.row.gap12', [radio('bayar', t('po_ppn_paid'), t('po_ppn_paid_d')), radio('kek', t('po_ppn_susp'), t('po_ppn_susp_d'))])),
       h('div', { style: { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '6px' } }, [
         row2(t('po_subtotal'), money(f.subtotal, 'IDR')),
@@ -254,7 +258,7 @@ async function genPO() {
     id: uid('po'), no: f.no.trim(), contract: f.contract || '', supplier: supplier.name, supplierZh: supplier.nameZh || '',
     address: supplier.address || `${supplier.city || ''}`, currency: 'IDR', unit: '张',
     subtotal: f.subtotal, ppn, ppnMode, total: f.subtotal + ppn,
-    amount: f.subtotal + ppn, terms: f.terms, delivery: 'Loco Kendal', by: st.user.username,
+    amount: f.subtotal + ppn, terms: f.terms, priority: f.priority || 'Normal', delivery: 'Loco Kendal', by: st.user.username,
     status: isWilbert ? 'Approved' : 'Menunggu Approval', createdAt: new Date().toISOString(), source: 'label',
     contact: supplier.contact, phone: supplier.phone,
     // Opaque lineId minted up front — see posApi.js newLineId().

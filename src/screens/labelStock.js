@@ -12,8 +12,9 @@ import { getState, setState, setUI, toast, logAudit } from '../core/store.js';
 import { card, badge, btn, icon, dropzone, modal, searchInput, selectEl } from '../ui/components.js';
 import { num, money, fmtDate, fmtDateTime } from '../core/format.js';
 import { readWorkbook, writeWorkbook } from '../core/xlsx.js';
-import { parseLabelStockSheet, STATUSES } from '../parsers/labelStock.js';
-import { applyLabelStockUpload, fetchLabelStock, fetchLabelUploads } from '../core/labelStockApi.js';
+import { parseLabelStockSheet, STATUSES, guessErp } from '../parsers/labelStock.js';
+import { labelOrders, erpCandidates } from '../core/labelOrders.js';
+import { applyLabelStockUpload, fetchLabelStock, fetchLabelUploads, setLabelStockErp } from '../core/labelStockApi.js';
 import { isConfigured } from '../core/supabase.js';
 import { can } from '../auth/roles.js';
 
@@ -24,10 +25,14 @@ export function labelStockScreen() {
   const tab = ui.lsTab || 'master';
   const rows = st.labelStock || [];
 
+  const unmatched = rows.filter(r => !r.erp).length;
+  const ord = labelOrders(st, st.labelSettings, new Date());
   const tabs = [
     ['master', `Master Tracker · ${rows.length}`],
     ['buy', `BUY NOW · ${rows.filter(r => r.status === 'BUY NOW').length}`],
     ['nobuy', `DO NOT BUY · ${rows.filter(r => r.status === 'OVERSTOCK' || r.status === 'IDLE STOCK').length}`],
+    ['orders', `Order Tracking · ${ord.summary.open} open`],
+    ['match', unmatched ? `Cocokkan ERP · ${unmatched} belum` : 'Cocokkan ERP ✓'],
     ['uploads', 'Riwayat Upload'],
   ];
   const tabBar = h('div.row.gap8.wrap', tabs.map(([id, label]) =>
@@ -36,6 +41,8 @@ export function labelStockScreen() {
   let body;
   if (tab === 'buy') body = listTab(st, r => r.status === 'BUY NOW', 'BUY NOW', 'Stok di bawah kebutuhan — perlu order.');
   else if (tab === 'nobuy') body = listTab(st, r => r.status === 'OVERSTOCK' || r.status === 'IDLE STOCK', 'DO NOT BUY', 'Stok berlebih atau tidak terpakai — jangan order, habiskan dulu.');
+  else if (tab === 'orders') body = ordersTab(st, ord);
+  else if (tab === 'match') body = matchTab(st);
   else if (tab === 'uploads') body = uploadsTab(st);
   else body = masterTab(st);
 
@@ -385,4 +392,198 @@ export async function refreshLabelStock() {
   if (rows) getState().labelStock = rows;
   if (ups) getState().labelUploads = ups;
   setState({});
+}
+
+
+// ---------------------------------------------------------------------------
+// ORDER TRACKING — fully derived, see core/labelOrders.js. No inputs on this
+// screen at all, deliberately: everything here is already recorded elsewhere.
+// ---------------------------------------------------------------------------
+function ordersTab(st, ord) {
+  const { orders, summary } = ord;
+  const ALERT_TONE = { OVERDUE: 'red', 'IN TRANSIT': 'amber', RECEIVED: 'green' };
+
+  const chips = h('div.row.gap8.wrap', [
+    badge(`${summary.open} order jalan`, 'amber'),
+    badge(`${summary.overdue} telat`, summary.overdue ? 'red' : 'gray'),
+    badge(`${summary.received} diterima`, 'green'),
+    summary.doubles ? badge(`${summary.doubles} DOBEL ORDER`, 'red', { iconName: 'warn' }) : null,
+    summary.unlinked ? badge(`${summary.unlinked} belum kecocok ke SKU`, 'gray') : null,
+    h('span', { style: { fontSize: '10.5px', color: 'var(--text-3)' } },
+      'Semua kolom di sini dihitung dari PO + surat jalan — tidak ada yang diinput manual.'),
+  ]);
+
+  if (!orders.length) {
+    return h('div.stack', [chips, card([h('div.card-pad', { style: { fontSize: '12px', color: 'var(--text-3)' } },
+      'Belum ada order label. Order muncul di sini otomatis begitu PO label dibuat dan di-approve.')])]);
+  }
+
+  const dbl = orders.filter(o => o.doubleOrder);
+  const dblBanner = dbl.length ? h('div.cfg-banner', { style: { display: 'block', background: 'var(--st-red-bg)', color: 'var(--st-red-tx)', borderColor: 'var(--st-red-tx)' } }, [
+    h('div', { style: { fontWeight: 700 } }, [icon('warn', 14), ' DOBEL ORDER — label yang sama dipesan lagi padahal order sebelumnya belum sampai:']),
+    ...[...new Set(dbl.map(o => o.erp))].slice(0, 8).map(e => {
+      const g = dbl.filter(o => o.erp === e);
+      return h('div', { style: { fontSize: '10.5px' } }, [
+        h('span.mono', { style: { fontWeight: 700 } }, e || '(tanpa ERP)'),
+        ` — ${g.length}x: ${g.map(o => `${o.poNo} (${num(o.qtyOrdered)})`).join(', ')}`,
+      ]);
+    }),
+  ]) : null;
+
+  const head = ['PO', 'Tgl Order', 'ERP', 'Nama', 'Qty', 'Diterima', 'Sisa', 'Prioritas', 'Perkiraan Sampai', 'Status', 'Umur'];
+  return h('div.stack', [chips, dblBanner, h('div.card', h('div.tbl-wrap', h('table.tbl', [
+    h('thead', h('tr', head.map((c, i) => h('th' + ([4, 5, 6].includes(i) ? '.r' : ''), c)))),
+    h('tbody', orders.slice(0, 300).map(o => h('tr', {
+      style: o.doubleOrder ? { background: 'var(--st-red-bg)' } : {},
+    }, [
+      h('td.mono.cell-strong', { style: { fontSize: '11px' } }, o.poNo),
+      h('td.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, fmtDate(o.orderDate)),
+      h('td.mono', { style: { fontSize: '10.5px' } }, [
+        o.erp || h('span', { style: { color: 'var(--text-3)' } }, '—'),
+        !o.linked ? h('span', { style: { marginLeft: '5px' } }, badge('belum kecocok', 'gray')) : null,
+        o.doubleOrder ? h('span', { style: { marginLeft: '5px' } }, badge('DOBEL', 'red')) : null,
+      ]),
+      h('td', { style: { maxWidth: '240px', fontSize: '11px' } }, o.name),
+      h('td.mono.r', num(o.qtyOrdered)),
+      h('td.mono.r', num(o.qtyReceived)),
+      h('td.mono.r', { style: { fontWeight: o.outstanding ? 700 : 400 } }, o.outstanding ? num(o.outstanding) : '—'),
+      h('td', badge(o.priority, o.priority === 'Super Urgent' ? 'red' : o.priority === 'Urgent' ? 'amber' : 'gray')),
+      h('td.mono', { style: { fontSize: '10.5px' } }, o.expectedArrival ? fmtDate(o.expectedArrival) : '—'),
+      h('td', h('div.row.gap8', [
+        badge(o.alert, ALERT_TONE[o.alert] || 'gray'),
+        o.daysLate ? h('span', { style: { fontSize: '10px', color: 'var(--st-red-tx)', fontWeight: 700 } }, `+${o.daysLate}h`) : null,
+      ])),
+      h('td.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } },
+        o.status === 'Received' ? (o.receivedAt ? fmtDate(o.receivedAt) : 'selesai') : `${o.daysOutstanding}h`),
+    ]))),
+  ])))]);
+}
+
+// ---------------------------------------------------------------------------
+// ERP MATCHING — one-time bridge from the tracker's spec names to ERP codes.
+//
+// Never auto-applied. A wrong ERP silently attributes another product's
+// shipments to this SKU, which is worse than no link at all.
+// ---------------------------------------------------------------------------
+function matchTab(st) {
+  const rows = st.labelStock || [];
+  const cands = erpCandidates(st);
+  const unmatched = rows.filter(r => !r.erp);
+  const matched = rows.length - unmatched.length;
+
+  const info = h('div.stack', { style: { gap: '8px' } }, [
+    h('div.row.gap8.wrap', [
+      badge(`${matched} sudah kecocok`, matched ? 'green' : 'gray'),
+      badge(`${unmatched.length} belum`, unmatched.length ? 'amber' : 'green'),
+      badge(`${cands.length} kandidat ERP tersedia`, cands.length ? 'blue' : 'red'),
+    ]),
+    h('div', { style: { fontSize: '11px', color: 'var(--text-3)', lineHeight: 1.5 } },
+      'Kolom Material Code di Excel kosong semua, jadi portal harus tahu sendiri "nama panjang ini = kode barang mana". '
+      + 'Tebakan diambil dari item master, design library, dan PO yang sudah pernah dibuat. '
+      + 'Dicocokkan sekali saja — setelah itu Order Tracking bisa nyambungin order ke SKU.'),
+  ]);
+
+  if (!cands.length) {
+    return h('div.stack', [info, h('div.cfg-banner', { style: { display: 'block' } }, [
+      h('div', { style: { fontWeight: 700 } }, [icon('warn', 14), ' Belum ada sumber kode ERP sama sekali']),
+      h('div', { style: { fontSize: '10.5px', marginTop: '3px' } },
+        'Portal belum punya satu pun pasangan "kode ERP ↔ spec" untuk dijadikan tebakan. '
+        + 'Sumbernya: Item Master di Master Data, Design Library, atau PO label yang sudah pernah dibuat. '
+        + 'Isi salah satu dulu, atau ketik kode ERP-nya manual di tabel bawah.'),
+    ]), matchTable(st, unmatched, cands)]);
+  }
+  return h('div.stack', [info, matchTable(st, unmatched, cands)]);
+}
+
+function matchTable(st, unmatched, cands) {
+  if (!unmatched.length) {
+    return card([h('div.card-pad', { style: { fontSize: '12px', color: 'var(--st-green-tx)', fontWeight: 600 } },
+      'Semua SKU sudah punya kode ERP. Order Tracking bisa nyambungin order ke SKU.')]);
+  }
+  // Guess once per render for the visible slice only — guessErp scans every
+  // candidate, so doing all 974 x N candidates on each keystroke would crawl.
+  const shown = unmatched.slice(0, 60);
+  const guesses = shown.map(r => guessErp(r, cands));
+
+  return h('div.stack', [
+    h('div.row.gap8', [
+      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } },
+        `Menampilkan ${shown.length} dari ${unmatched.length} yang belum kecocok`),
+      h('div.mla', btn(`Terima semua tebakan yakin (skor ≥ 0.8)`, {
+        sm: true, variant: 'primary',
+        disabled: !guesses.some(g => g && g.score >= 0.8),
+        onClick: () => acceptConfident(shown, guesses),
+      })),
+    ]),
+    h('div.card', h('div.tbl-wrap', h('table.tbl', [
+      h('thead', h('tr', ['Spec (dari tracker)', 'Market', 'Tebakan ERP', 'Spec kandidat', 'Yakin', 'Aksi'].map(c => h('th', c)))),
+      h('tbody', shown.map((r, i) => {
+        const g = guesses[i];
+        return h('tr', [
+          h('td.cell-strong', { style: { maxWidth: '280px', fontSize: '11px' } }, r.spec),
+          h('td.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, r.market),
+          h('td.mono', { style: { fontWeight: 700 } }, g ? g.erp : h('span', { style: { color: 'var(--text-3)', fontWeight: 400 } }, 'tidak ketemu')),
+          h('td', { style: { fontSize: '10.5px', color: 'var(--text-3)', maxWidth: '240px' } }, g ? g.spec : '—'),
+          h('td', g ? badge(`${Math.round(g.score * 100)}%`, g.score >= 0.8 ? 'green' : g.score >= 0.6 ? 'amber' : 'gray') : badge('—', 'gray')),
+          h('td', h('div.row.gap8', [
+            g ? btn('Terima', { sm: true, variant: 'primary', onClick: () => acceptErp(r, g.erp) }) : null,
+            btn('Ketik manual', { sm: true, onClick: () => setUI({ lsManual: r.id }) }),
+          ])),
+        ]);
+      })),
+    ]))),
+    st.ui.lsManual ? manualErpModal(st) : null,
+  ]);
+}
+
+function manualErpModal(st) {
+  const row = (st.labelStock || []).find(r => r.id === st.ui.lsManual);
+  if (!row) return null;
+  const draft = { erp: row.erp || '' };
+  return modal({
+    title: 'Kode ERP manual', subtitle: row.spec, width: 480,
+    onClose: () => setUI({ lsManual: null }),
+    body: [
+      h('div', [h('div.field-label', 'Kode ERP'), h('input.input.mono', {
+        value: draft.erp, placeholder: 'mis. 1010203040',
+        onInput: e => { draft.erp = e.target.value; },
+      })]),
+      h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } },
+        'Kosongkan lalu Simpan untuk melepas kecocokan yang salah.'),
+    ],
+    footer: [
+      btn('Batal', { onClick: () => setUI({ lsManual: null }) }),
+      btn('Simpan', { variant: 'primary', onClick: () => acceptErp(row, draft.erp.trim(), true) }),
+    ],
+  });
+}
+
+async function acceptErp(row, erp, closeModal) {
+  try {
+    await setLabelStockErp(row.id, erp);
+  } catch (e) {
+    console.error('setLabelStockErp failed', e);
+    toast('Gagal simpan kode ERP: ' + (e.message || e));
+    return;
+  }
+  row.erp = erp; row.erpConfirmed = !!erp;
+  logAudit({ entity: 'label_stock', target: row.spec, action: 'erp_match', detail: erp || '(dilepas)' });
+  if (closeModal) setUI({ lsManual: null });
+  else setState({});
+  toast(erp ? `${row.spec.slice(0, 30)}… → ${erp}` : 'Kecocokan dilepas');
+}
+
+// Bulk-accept only the guesses the matcher is confident about. Anything below
+// the threshold stays for a human, on purpose.
+async function acceptConfident(rows, guesses) {
+  const pairs = rows.map((r, i) => [r, guesses[i]]).filter(([, g]) => g && g.score >= 0.8);
+  if (!pairs.length) return;
+  let ok = 0, fail = 0;
+  for (const [r, g] of pairs) {
+    try { await setLabelStockErp(r.id, g.erp); r.erp = g.erp; r.erpConfirmed = true; ok++; }
+    catch (e) { console.error('setLabelStockErp failed for', r.spec, e); fail++; }
+  }
+  logAudit({ entity: 'label_stock', target: `${ok} SKU`, action: 'erp_match_bulk', detail: `skor >= 0.8${fail ? ` · ${fail} gagal` : ''}` });
+  setState({});
+  toast(fail ? `${ok} kecocokan disimpan, ${fail} gagal — cek console` : `${ok} kecocokan disimpan`);
 }

@@ -46,6 +46,10 @@ function toRow(po) {
     subtotal: po.subtotal || 0, ppn: po.ppn || 0, ppn_mode: po.ppnMode || 'suspended', total: po.total || 0,
     terms: po.terms || null, delivery: po.delivery || null, items: po.items || [],
     source: po.source || null, status: po.status, created_by: po.by,
+    // Drives expected-arrival and overdue in Label Stock -> Order Tracking.
+    // The column has a CHECK constraint, so an unexpected value is rejected by
+    // Postgres rather than silently stored.
+    priority: po.priority || 'Normal',
   };
 }
 
@@ -63,6 +67,7 @@ function fromRow(row) {
     subtotal: row.subtotal || 0, ppn: row.ppn || 0, ppnMode: row.ppn_mode || 'suspended', total: row.total || 0,
     terms: row.terms || null, delivery: row.delivery || null, items,
     source: row.source || null, status: row.status, by: row.created_by, createdAt: row.created_at,
+    priority: row.priority || 'Normal',
     approvedBy: row.approved_by || null, approvedAt: row.approved_at || null, rejectNote: row.reject_note || null,
     deleteRequested: !!row.delete_requested, deleteReason: row.delete_reason || null, deletedAt: row.deleted_at || null,
   };

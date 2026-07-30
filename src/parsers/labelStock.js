@@ -122,14 +122,12 @@ const num = v => {
 
 /**
  * @param {Array<Array>} rows   sheet as array-of-arrays (core/xlsx.js rows())
- * @param {object} opts         { moq, overstockMultiple, items } — `items` is the
- *                              portal's item master, used only to GUESS an ERP code
+ * @param {object} opts         { moq, overstockMultiple }
  * @returns {object} see the shape documented at the top of this file
  */
 export function parseLabelStockSheet(rows, opts = {}) {
   const moq = Number(opts.moq) || 500;
   const multiple = Number(opts.overstockMultiple) || OVERSTOCK_MULTIPLE;
-  const master = opts.items || [];
   const warnings = [];
 
   const header = findHeaderRow(rows);
@@ -237,7 +235,11 @@ export function parseLabelStockSheet(rows, opts = {}) {
   }
 
   // ERP guess — a HINT for the one-time matching screen, never applied silently.
-  if (master.length) for (const r of items) if (!r.erp) r.erpGuess = guessErp(r, master);
+  // NOTE: the ERP guess is NOT computed here. The matching screen does it, for
+  // the visible slice only — 974 rows x every candidate on each upload is wasted
+  // work, and by then the candidate pool (item master + design library +
+  // historical PO lines, see core/labelOrders.js erpCandidates) is far richer
+  // than the item master alone.
 
   return {
     ok: true,

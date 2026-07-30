@@ -134,7 +134,7 @@ function openPopup() {
   // overlay, so blocking inside it would strand the user unable to reach the
   // unit dropdowns in the Extracted panel behind it.
   if (res.items.some(li => !li.unit)) { toast('Unit belum dipilih untuk salah satu item — lengkapi dulu di panel Extracted'); return; }
-  setUI({ cvPopup: true, cvForm: { no: res.cgdd || res.contractNo || '', terms: 'TOP 45', contract: res.contractNo || res.cgdd || '', ppn: res.ppnSuspended || !res.ppnPresent ? 'kek' : 'bayar' } });
+  setUI({ cvPopup: true, cvForm: { no: res.cgdd || res.contractNo || '', terms: 'TOP 45', priority: 'Normal', contract: res.contractNo || res.cgdd || '', ppn: res.ppnSuspended || !res.ppnPresent ? 'kek' : 'bayar' } });
 }
 
 function popup() {
@@ -148,6 +148,10 @@ function popup() {
       // and the printed contract then showed the CONTRACT NUMBER as the number
       // of days. Replaced with the real alternative term.
       field(t('po_terms') + ' *', selectEl(['TOP 30', 'TOP 45', 'TOP 60', 'Bayar di muka'], { value: f.terms, onChange: v => (f.terms = v) })),
+      // Priority drives expected arrival in Label Stock -> Order Tracking
+      // (lead days come from label_settings: Normal 14 / Urgent 7 / Super 3).
+      // Without it every order was assumed Normal and "overdue" meant nothing.
+      field('Prioritas', selectEl(['Normal', 'Urgent', 'Super Urgent'], { value: f.priority || 'Normal', onChange: v => (f.priority = v) })),
       field('Contract No (合同号)', inputEl({ value: f.contract, mono: true, onInput: v => (f.contract = v) })),
       field(t('po_ppn'), selectEl([{ value: 'bayar', label: t('po_ppn_paid') }, { value: 'kek', label: t('po_ppn_susp') }], { value: f.ppn, onChange: v => (f.ppn = v) })),
     ],
@@ -183,7 +187,7 @@ async function genConverterPO() {
     subtotal: res.subtotal, ppn: ppnFor(res.subtotal, ppnMode),
     ppnMode,
     total: res.total, amount: res.total, terms: termsText,
-    delivery: res.incoterm || 'FOB', by: st.user.username, status: isWilbert ? 'Approved' : 'Menunggu Approval',
+    delivery: res.incoterm || 'FOB', priority: f.priority || 'Normal', by: st.user.username, status: isWilbert ? 'Approved' : 'Menunggu Approval',
     createdAt: new Date().toISOString(), source: 'converter',
     contact: res.contact || '', phone: res.phone || '',
     items,
