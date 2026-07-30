@@ -7,7 +7,7 @@
 // configured, uploadToDrive() starts returning real links and this column
 // starts holding those instead — nothing here or in ppkek.js's data flow
 // needs to change.
-import { getClient, isConfigured } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
 
 function fromRow(row) {
   const files = row.files || [];
@@ -41,7 +41,8 @@ export async function fetchPpkek() {
   if (!isConfigured()) return null;
   const c = await getClient();
   if (!c) return null;
-  const { data, error } = await c.from('ppkek').select('*').order('created_at', { ascending: false });
+  // Paged: PostgREST silently caps an unbounded select at max-rows (1000).
+  const { data, error } = await fetchAllPaged((a, b) => c.from('ppkek').select('*').order('created_at', { ascending: false }).range(a, b));
   if (error) { console.error('fetchPpkek failed:', error); return null; }
   return data.map(fromRow);
 }

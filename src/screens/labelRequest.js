@@ -1,7 +1,7 @@
 import { h, wireDrop, pickFiles } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t } from '../i18n/index.js';
-import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField } from '../ui/components.js';
+import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField, searchInput } from '../ui/components.js';
 import { readWorkbook } from '../core/xlsx.js';
 import { parseLabelSheet } from '../parsers/excelLabels.js';
 import { money, num, ppnFor, ppnModeFromForm } from '../core/format.js';
@@ -140,7 +140,7 @@ function step3() {
     badge(`${res.stats.total} ${t('lr_scanned')} · ${countOrders(res.items)} ${t('lr_orders')}`, 'accent'),
     badge(`${noDesign} ${t('lr_no_design')} · ${res.stats.newItems} ${t('lr_new_items')}`, 'gray'),
     h('div.mla.row.gap8', [
-      inputEl({ placeholder: 'Filter spec / ERP…', onInput: v => setUI({ labelFilter: v }), value: ui.labelFilter || '' }),
+      searchInput({ id: 'lr-filter', placeholder: 'Filter spec / ERP…', onChange: v => setUI({ labelFilter: v }), value: ui.labelFilter || '' }),
       btn(t('lr_reparse'), { onClick: () => setUI({ labelStep: 2 }) }),
     ]),
   ]);
@@ -244,7 +244,12 @@ async function genPO() {
   const supplier = st.suppliers.find(s => s.name === st.ui.assignSup) || {};
   const ppnMode = ppnModeFromForm(f.ppn);
   const ppn = ppnFor(f.subtotal, ppnMode);
-  const isWilbert = st.user.role === 'wilbert';
+  // Capability, not a username string. The literal comparison paired with the
+  // window.__MTI__ handle (main.js) let any purchasing account fake the role
+  // client-side and insert a PO with status 'Approved' — pos_insert's RLS
+  // policy only checked is_purchasing(), never the status value.
+  // Server-side lock is in supabase_migration_po_insert_guard.sql.
+  const isWilbert = can(st.user.role, 'approve');
   const po = {
     id: uid('po'), no: f.no.trim(), contract: f.contract || '', supplier: supplier.name, supplierZh: supplier.nameZh || '',
     address: supplier.address || `${supplier.city || ''}`, currency: 'IDR', unit: '张',

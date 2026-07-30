@@ -1,10 +1,10 @@
 import { h } from '../core/dom.js';
-import { getState, setUI, toast, uid, logAudit } from '../core/store.js';
+import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t } from '../i18n/index.js';
 import { card, badge, btn, checkRow, selectEl, icon, driveLink, modal } from '../ui/components.js';
 import { suratJalanPaper } from '../ui/documents.js';
 import { romanMonth, nextMonthlySeq, fmtDate, num } from '../core/format.js';
-import { outstandingPOs, closeFullyReceivedPOs } from '../core/outstanding.js';
+import { outstandingPOs, closeFullyReceivedPOs, receivedQty } from '../core/outstanding.js';
 import { wrapPrintable } from './approval.js';
 import { fetchSuratJalan, insertSuratJalan, updateSuratJalan } from '../core/suratJalanApi.js';
 import { isConfigured } from '../core/supabase.js';
@@ -190,10 +190,52 @@ async function refreshFromServer() {
   }
 }
 
+// Guard against a SECOND submission while the first is still in flight.
+//
+// btn() has no busy state, onClick returns a floating promise, `rows` is a
+// render-time snapshot, and setUI() only runs at the very END of this function —
+// after two network round trips (next_sj_number RPC + insert). The button stayed
+// live and armed with stale rows for that entire window, so a double-click
+// created TWO surat jalan with two distinct numbers, both shipping the full
+// outstanding qty: received became 2x ordered, outstanding clamped to 0, and the
+// PO was auto-closed. The warehouse shipped double and no screen showed it.
+//
+// This is the client-side half. The authoritative fix is a server-side check
+// inside a create_surat_jalan() transaction — see
+// supabase_migration_sj_overdelivery_guard.sql (not executed).
+let sjInFlight = false;
+
 async function createSuratJalan(rows) {
+  if (sjInFlight) { toast('Surat jalan sedang diproses — tunggu sebentar'); return; }
   const st = getState(); const ui = st.ui;
   const selected = rows.filter(r => (ui.sjItemSel || {})[r.key] !== false && getQty(ui, r) > 0);
   if (!selected.length) { toast('Pilih minimal 1 item untuk dikirim'); return; }
+
+  // Re-derive outstanding from CURRENT state, not from the `rows` snapshot the
+  // button closed over — another tab or user may have shipped in the meantime.
+  const over = [];
+  for (const r of selected) {
+    const po = st.pos.find(p => p.id === r.poId);
+    const line = po && (po.items || []).find(i => i.lineId === r.lineId);
+    if (!line) continue;
+    const fresh = Math.max(0, (line.qty || 0) - receivedQty(st, r.poId, r.lineId));
+    if (getQty(ui, r) > fresh + 1e-6) over.push(`${r.erp} — minta ${getQty(ui, r)}, sisa ${fresh}`);
+  }
+  if (over.length) {
+    toast('Qty melebihi outstanding (mungkin sudah dikirim di tab/sesi lain): ' + over.join('; '));
+    setUI({});   // force a re-render so the table shows the real numbers
+    return;
+  }
+
+  sjInFlight = true;
+  try {
+    await doCreateSuratJalan(st, ui, rows, selected);
+  } finally {
+    sjInFlight = false;
+  }
+}
+
+async function doCreateSuratJalan(st, ui, rows, selected) {
   const poIds = [...new Set(selected.map(r => r.poId))];
   const poNos = [...new Set(selected.map(r => r.poNo))];
   // Derive supplier from the actually-selected PO(s), not raw ui.sjSupplier —
@@ -255,16 +297,39 @@ async function createSuratJalan(rows) {
 // generated and usable, just without a Drive link yet. uploadToDrive() itself
 // already degrades to a placeholder on failure instead of throwing; the only
 // other failure mode here is updateSuratJalan() (Supabase write), caught below.
-async function archiveSuratJalanToDrive(sj) {
+async function archiveSuratJalanToDrive(sj, { announce = false } = {}) {
   try {
     const html = wrapPrintable(suratJalanPaper(sj).outerHTML, sj.no);
     const blob = new Blob([html], { type: 'text/html' });
     const up = await uploadToDrive(blob, '', `${sj.no.replace(/\//g, '-')}.html`, 'Surat Jalan');
     sj.driveUrl = up.url;
-    if (!up.placeholder) await updateSuratJalan(sj.id, { driveUrl: up.url });
+    if (up.placeholder) {
+      if (announce) toast('Drive belum aktif — link masih placeholder');
+      return;
+    }
+    // The upload has ALREADY COMMITTED here. If this DB write fails, the file
+    // sits in the shared Drive folder permanently with no row pointing at it:
+    // the current session still shows a working link (sj.driveUrl was set in
+    // memory above) but the next fetchSuratJalan() returns drive_url '' and the
+    // link is gone for good. That used to be a silent console.warn — now the
+    // user is told, and the history row offers "Arsip ulang".
+    try {
+      await updateSuratJalan(sj.id, { driveUrl: up.url });
+      if (announce) toast('Surat jalan diarsipkan ulang ke Drive');
+    } catch (e) {
+      console.error('Drive upload OK but saving the link to the DB failed', e);
+      toast(`File ${sj.no} sudah di Drive tapi link-nya gagal disimpan — pakai "Arsip ulang" di riwayat`);
+    }
   } catch (e) {
     console.warn('Surat jalan Drive auto-archive failed (non-fatal, doc already generated):', e);
+    if (announce) toast('Gagal arsip ke Drive: ' + (e.message || e));
   }
+}
+
+// Re-run the archive for a surat jalan whose driveUrl never landed.
+async function reArchive(sj) {
+  await archiveSuratJalanToDrive(sj, { announce: true });
+  setState({});
 }
 
 function previewCard(st, id) {
@@ -299,7 +364,15 @@ function historyCard(st) {
         h('td.mono.cell-strong', sj.no), h('td', sj.supplier), h('td.mono', { style: { color: 'var(--text-3)' } }, sj.poNo),
         h('td.mono', fmtDate(sj.date)),
         h('td', driveLink(sj.driveUrl || '')),
-        h('td', btn('Lihat', { sm: true, onClick: () => setUI({ sjLastId: sj.id }) })),
+        h('td', h('div.row.gap8', [
+          btn('Lihat', { sm: true, onClick: () => setUI({ sjLastId: sj.id }) }),
+          // Offered only when there's no Drive link: either the upload failed,
+          // or it succeeded and the DB write that stores the link didn't.
+          // Without this the file was unreachable forever.
+          (!sj.driveUrl || String(sj.driveUrl).startsWith('drive-'))
+            ? btn('Arsip ulang', { sm: true, iconName: 'upload', onClick: () => reArchive(sj) })
+            : null,
+        ])),
       ]))),
     ])) : h('div', { style: { padding: '16px', fontSize: '12px', color: 'var(--text-3)' } }, 'Belum ada surat jalan dibuat.'),
   ]);

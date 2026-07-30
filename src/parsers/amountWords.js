@@ -80,23 +80,36 @@ function zhFour(n) {
   }
   return s;
 }
+// Chinese financial integer.
+//
+// The old version appended 零 EAGERLY — as soon as a group was zero and i > 0,
+// without checking whether any LOWER group was non-empty. Two bugs came out of
+// that, and both printed on the PRF that goes to the bank:
+//   * every round 亿 value ended with a dangling 零
+//       1_000_000_000  -> 壹拾亿零   (should be 壹拾亿)
+//   * a zero middle group followed by a low group also got a SECOND 零 from
+//     the `g < 1000` branch below
+//       100_000_500    -> 壹亿零零伍佰   (should be 壹亿零伍佰)
+//
+// Fixed by building the segments first and only then joining: a separator 零 is
+// inserted exactly once, only BETWEEN a non-empty prefix and a following
+// non-empty segment, and never at the end.
 function zhInt(n) {
   n = Math.floor(Math.abs(n));
   if (n === 0) return '零';
   const groups = [];
   while (n > 0) { groups.push(n % 10000); n = Math.floor(n / 10000); }
+
   let out = '';
+  let gapSinceLast = false;   // a zero group was skipped since the last segment
   for (let i = groups.length - 1; i >= 0; i--) {
     const g = groups[i];
-    if (g === 0) {
-      // insert a single zero between non-empty higher and lower groups
-      if (out && !out.endsWith('零') && i > 0) out += '零';
-      continue;
-    }
-    let seg = zhFour(g);
-    // if this group < 1000 and there is a higher group, prefix 零
-    if (out && g < 1000) out += '零';
-    out += seg + ZH_BIG[i];
+    if (g === 0) { if (out) gapSinceLast = true; continue; }
+    // One 零 separator, whether the gap came from a skipped zero group or from
+    // this group being < 1000 (i.e. its own leading myriad digit is absent).
+    if (out && (gapSinceLast || g < 1000)) out += '零';
+    out += zhFour(g) + ZH_BIG[i];
+    gapSinceLast = false;
   }
   return out;
 }
@@ -124,8 +137,14 @@ export function amountInWords(amount, ccy = 'IDR') {
     };
   }
 
-  const whole = Math.floor(abs);
-  const cents = Math.round((abs - whole) * 100);
+  // Carry a cents value that rounds up to 100 into the whole part.
+  // Math.round((abs - whole) * 100) can return 100 — e.g. amountInWords(1.999),
+  // reachable from float accumulation of 4–6-decimal unit prices on USD PRFs.
+  // That produced jiao = Math.floor(100/10) = 10, and ZH_DIGITS[10] is
+  // undefined, so the printed PRF read "壹美元undefined角" / "one hundred Cents".
+  let whole = Math.floor(abs);
+  let cents = Math.round((abs - whole) * 100);
+  if (cents >= 100) { whole += Math.floor(cents / 100); cents = cents % 100; }
   const en = cap(enInt(whole)) + ' ' + cfg.en + (cents ? ' and ' + enInt(cents) + ' Cents' : '') + ' only';
   const id = cap(cfg.id) + ' ' + cap(idInt(whole)) + (cents ? ' koma ' + idInt(cents) + ' sen' : '') + ' saja';
   // Chinese financial: <unit> + 角/分, or 整 when no cents.

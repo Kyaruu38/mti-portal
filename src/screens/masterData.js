@@ -1,7 +1,7 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t } from '../i18n/index.js';
-import { card, badge, btn, icon, modal, field, inputEl, selectEl, toggle } from '../ui/components.js';
+import { card, badge, btn, icon, modal, field, inputEl, selectEl, toggle, searchInput } from '../ui/components.js';
 import { fmtDateTime, TOP_OPTIONS } from '../core/format.js';
 import { can } from '../auth/roles.js';
 import { insertSupplier, updateSupplier } from '../core/suppliersApi.js';
@@ -52,7 +52,7 @@ function suppliersTab(st) {
     h('div.row.gap8', [
       h('div.card-title', t('md_suppliers')),
       h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${st.suppliers.length} aktif · perubahan rekening wajib review supervisor`),
-      h('div.mla.row.gap8', [inputEl({ placeholder: 'Search supplier…', value: st.ui.mdQ || '', onInput: v => setUI({ mdQ: v }) }), editable ? btn(t('md_add_supplier'), { variant: 'primary', iconName: 'plus', onClick: () => openSup() }) : null]),
+      h('div.mla.row.gap8', [searchInput({ id: 'md-q-sup', placeholder: 'Search supplier…', value: st.ui.mdQ || '', onChange: v => setUI({ mdQ: v }) }), editable ? btn(t('md_add_supplier'), { variant: 'primary', iconName: 'plus', onClick: () => openSup() }) : null]),
     ]),
     h('div.card', h('div.tbl-wrap', h('table.tbl', [
       h('thead', h('tr', [t('col_supplier'), t('md_city'), t('md_contact'), t('md_bank'), 'PKP', 'TOP', t('col_action')].map(c => h('th', c)))),
@@ -475,7 +475,7 @@ function itemsTab(st) {
     h('div.row.gap8', [
       h('div.card-title', 'Item Master'),
       h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${st.items.length} item`),
-      h('div.mla.row.gap8', [inputEl({ placeholder: 'Search ERP / spec / brand…', value: st.ui.mdItemQ || '', onInput: v => setUI({ mdItemQ: v }) }), editable ? btn('Add Item', { variant: 'primary', iconName: 'plus', onClick: () => openItem() }) : null]),
+      h('div.mla.row.gap8', [searchInput({ id: 'md-q-item', placeholder: 'Search ERP / spec / brand…', value: st.ui.mdItemQ || '', onChange: v => setUI({ mdItemQ: v }) }), editable ? btn('Add Item', { variant: 'primary', iconName: 'plus', onClick: () => openItem() }) : null]),
     ]),
     h('div.card', h('div.tbl-wrap', h('table.tbl', [
       h('thead', h('tr', [t('col_erp'), t('col_spec'), t('col_brand'), 'Market', 'Unit', 'Name EN', t('col_action')].map(c => h('th', c)))),

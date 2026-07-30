@@ -178,8 +178,15 @@ export function suratJalanPaper(sj) {
     ])),
     h('div', { style: { fontSize: '10px', fontWeight: 800, letterSpacing: '.1em', color: '#374151', margin: '18px 0 8px' } }, 'RINCIAN ITEM · ITEM DETAILS'),
     // Each item block ends with ITS OWN checklist + Catatan line (per sample).
-    ...sj.items.map((it, idx) => h('div', { style: { border: '1px solid #D1D5DB', borderRadius: '4px', padding: '12px', marginBottom: '10px' } }, [
-      h('div', { style: { fontSize: '9px', fontWeight: 800, color: '#6B7280', marginBottom: '6px' } }, `ITEM ${idx + 1} · Approved Design Reference`),
+    // .sj-item carries `break-inside: avoid` (print.css + wrapPrintable's inline
+    // style) so a card is never sliced across a page break — the warehouse
+    // checklist must always sit on the same page as the item it verifies.
+    // The doc no. is repeated per card so pages 2+ stay identifiable.
+    ...sj.items.map((it, idx) => h('div.sj-item', { style: { border: '1px solid #D1D5DB', borderRadius: '4px', padding: '12px', marginBottom: '10px' } }, [
+      h('div', { style: { display: 'flex', justifyContent: 'space-between', marginBottom: '6px' } }, [
+        h('div', { style: { fontSize: '9px', fontWeight: 800, color: '#6B7280' } }, `ITEM ${idx + 1} · Approved Design Reference`),
+        h('div.mono', { style: { fontSize: '8px', color: '#9CA3AF' } }, `${sj.docNo} · ${idx + 1}/${sj.items.length}`),
+      ]),
       h('div', { style: { display: 'flex', gap: '14px' } }, [
         h('span', { style: { width: '110px', minHeight: '150px', borderRadius: '2px', background: it.designUrl && !it.designUrl.startsWith('drive-') ? '#fff' : 'repeating-linear-gradient(45deg,#EDEAE1 0 5px,#E2DED2 5px 10px)', border: '1px solid #D1D5DB', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' } },
           it.designUrl && !it.designUrl.startsWith('drive-') ? h('img', { src: it.designUrl, style: { width: '100%', height: '100%', objectFit: 'cover' } }) : h('span.mono', { style: { fontSize: '7px', color: '#6B7280', writingMode: 'vertical-rl' } }, 'label design')),
@@ -263,7 +270,11 @@ export function prfPaper(prf, supplier, lines) {
         h('td', { style: { border: bd, padding: '6px 9px', fontSize: '9px', fontWeight: 700, whiteSpace: 'pre-line', verticalAlign: 'top' } }, 'Finance Manager\n财务经理：'),
       ]),
     ])),
-    h('div.mono', { style: { fontSize: '8px', color: '#9CA3AF', marginTop: '8px', textAlign: 'right' } }, `${prf.no} · MTI Purchasing Portal · ${COMPANY.version}`),
+    // prf.no is empty on the PREVIEW: the register number is only allocated at
+    // submit time (screens/payment.js submitPrf) so browsing the preview can't
+    // burn numbers and leave gaps in the register. Say so rather than printing
+    // a blank.
+    h('div.mono', { style: { fontSize: '8px', color: '#9CA3AF', marginTop: '8px', textAlign: 'right' } }, `${prf.no || '(nomor terbit saat dikirim)'} · MTI Purchasing Portal · ${COMPANY.version}`),
   ]);
 
   function row2(label, val) { return h('tr', [h('td', { style: L() }, label), h('td', { colspan: 3, style: V() }, val)]); }

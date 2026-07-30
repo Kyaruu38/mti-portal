@@ -5,17 +5,22 @@ import { card, badge, btn, icon, driveLink, selectEl } from '../ui/components.js
 import { money, num, fmtDate } from '../core/format.js';
 import { writeWorkbook } from '../core/xlsx.js';
 import { outstandingPOs } from '../core/outstanding.js';
+import { allowedReportModules } from '../auth/roles.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
-// Flatten all modules into a unified report dataset.
+// Flatten the modules THIS ROLE may see into a unified report dataset.
+// Filtering here (not just in the dropdown) is what actually keeps finance data
+// out of a purchasing role's Excel export — the dropdown alone would still let
+// "All" include it.
 function buildRows(st) {
+  const allowed = new Set(allowedReportModules(st.user.role));
   const rows = [];
-  st.pos.forEach(p => rows.push({ date: p.createdAt, module: 'PO', doc: p.no, supplier: p.supplier, value: p.total, currency: p.currency, status: p.status, driveUrl: p.driveUrl || '' }));
-  st.ppkek.forEach(p => rows.push({ date: p.date, module: 'PPKEK', doc: p.nopen, supplier: p.supplier, value: p.idr, currency: 'IDR', status: p.status, driveUrl: p.driveUrl || '' }));
-  st.prfs.forEach(p => rows.push({ date: p.createdAt, module: 'PRF', doc: p.no, supplier: p.supplier, value: p.amount, currency: p.currency, status: p.stage, driveUrl: p.driveUrl || '' }));
-  st.labelBatches.forEach(b => rows.push({ date: b.at, module: 'Label', doc: `${b.file} · ${b.count} rows`, supplier: 'Multi', value: 0, currency: 'IDR', status: 'draft', driveUrl: '' }));
-  st.payments.forEach(p => rows.push({ date: p.date, module: 'Payment', doc: p.prf, supplier: p.supplier, value: p.amount, currency: p.currency, status: 'Paid', driveUrl: p.driveUrl || '' }));
+  if (allowed.has('PO')) st.pos.forEach(p => rows.push({ date: p.createdAt, module: 'PO', doc: p.no, supplier: p.supplier, value: p.total, currency: p.currency, status: p.status, driveUrl: p.driveUrl || '' }));
+  if (allowed.has('PPKEK')) st.ppkek.forEach(p => rows.push({ date: p.date, module: 'PPKEK', doc: p.nopen, supplier: p.supplier, value: p.idr, currency: 'IDR', status: p.status, driveUrl: p.driveUrl || '' }));
+  if (allowed.has('PRF')) st.prfs.forEach(p => rows.push({ date: p.createdAt, module: 'PRF', doc: p.no, supplier: p.supplier, value: p.amount, currency: p.currency, status: p.stage, driveUrl: p.driveUrl || '' }));
+  if (allowed.has('Label')) st.labelBatches.forEach(b => rows.push({ date: b.at, module: 'Label', doc: `${b.file} · ${b.count} rows`, supplier: 'Multi', value: 0, currency: 'IDR', status: 'draft', driveUrl: '' }));
+  if (allowed.has('Payment')) st.payments.forEach(p => rows.push({ date: p.date, module: 'Payment', doc: p.prf, supplier: p.supplier, value: p.amount, currency: p.currency, status: 'Paid', driveUrl: p.driveUrl || '' }));
   return rows.sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
@@ -37,7 +42,7 @@ export function reportsScreen() {
   const statuses = [t('all'), 'Approved', 'Menunggu Approval', 'Paid', 'Open', 'Costed', 'Closed', 'Diterima Finance'];
 
   const filterBar = h('div.card', { style: { display: 'flex', alignItems: 'flex-end', gap: '10px', padding: '14px 18px', flexWrap: 'wrap' } }, [
-    filt(t('rp_module'), [t('all'), 'Label', 'PO', 'PPKEK', 'PRF', 'Payment'], f.module, v => set({ module: v })),
+    filt(t('rp_module'), [t('all'), ...allowedReportModules(st.user.role)], f.module, v => set({ module: v })),
     filt(t('rp_month'), MONTHS, f.month, v => set({ month: v })),
     filt(t('rp_year'), ['2025', '2026'], f.year, v => set({ year: v })),
     filt(t('rp_status'), statuses, f.status, v => set({ status: v })),

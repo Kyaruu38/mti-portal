@@ -103,6 +103,46 @@ export function inputEl({ value = '', placeholder, mono, type = 'text', onInput,
   return h('input.input' + (mono ? '.mono' : ''), { value, placeholder, type, id, onInput: onInput ? (e) => onInput(e.target.value, e) : null });
 }
 
+// ---------------------------------------------------------------------------
+// searchInput — an input that DRIVES A RE-RENDER without losing focus.
+//
+// THE PROBLEM IT SOLVES
+// mount() (core/dom.js) has no diffing: it clears the container and rebuilds
+// the whole tree. setUI() schedules that rebuild on a microtask. So any plain
+// `onInput: v => setUI({ q: v })` replaces the very <input> being typed into
+// before the SECOND keystroke lands — focus falls to <body> and only the first
+// character is ever captured. Typing "BSN" into a search box yielded "B".
+//
+// THE FIX
+//   1. Debounce, so a burst of keystrokes causes ONE re-render, not one per key.
+//   2. After that render, re-acquire the element by id (it is a NEW node) and
+//      restore focus plus the caret position.
+//
+// `id` is required and must be unique per call site — it is the only handle we
+// have on the replacement node.
+// ---------------------------------------------------------------------------
+export function searchInput({ id, value = '', placeholder, mono, onChange, delay = 160 }) {
+  const el = h('input.input' + (mono ? '.mono' : ''), { value, placeholder, id, autocomplete: 'off' });
+  let timer = null;
+  el.addEventListener('input', () => {
+    const v = el.value;
+    const caret = el.selectionStart;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      onChange(v);
+      // Two frames: one for setUI's microtask flush, one for the rebuild.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const next = document.getElementById(id);
+        if (!next || next === document.activeElement) return;
+        next.value = v;
+        next.focus();
+        try { next.setSelectionRange(caret, caret); } catch { /* not text-selectable */ }
+      }));
+    }, delay);
+  });
+  return el;
+}
+
 // Editable "No PO" field with a non-blocking duplicate warning. The warning
 // is checked on blur and written straight to the warning element (no setUI,
 // no re-render) — mount() rebuilds the whole DOM tree on every state change,

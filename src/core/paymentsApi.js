@@ -4,7 +4,7 @@
 // exactly what confirm_prf_paid() (Postgres RPC, security definer) does in
 // one transaction — see supabase_migration_finance_wiring.sql for why this
 // can't safely be 3 separate client-side calls.
-import { getClient, isConfigured } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
 
 function fromRow(row) {
   return { id: row.id, date: row.date, prf: row.prf, supplier: row.supplier, amount: row.amount, currency: row.currency, method: row.method, driveUrl: row.drive_url };
@@ -14,7 +14,8 @@ export async function fetchPayments() {
   if (!isConfigured()) return null;
   const c = await getClient();
   if (!c) return null;
-  const { data, error } = await c.from('payments').select('*').order('date', { ascending: false });
+  // Paged: PostgREST silently caps an unbounded select at max-rows (1000).
+  const { data, error } = await fetchAllPaged((a, b) => c.from('payments').select('*').order('date', { ascending: false }).range(a, b));
   if (error) { console.error('fetchPayments failed:', error); return null; }
   return data.map(fromRow);
 }

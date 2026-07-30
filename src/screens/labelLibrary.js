@@ -1,7 +1,7 @@
 import { h, pickFiles } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t } from '../i18n/index.js';
-import { badge, btn, icon, driveLink, selectEl, inputEl } from '../ui/components.js';
+import { badge, btn, icon, driveLink, selectEl, inputEl, searchInput } from '../ui/components.js';
 import { uploadToDrive } from '../core/drive.js';
 import { insertDesign } from '../core/designsApi.js';
 import { renderThumb } from '../parsers/pdf.js';
@@ -20,7 +20,7 @@ export function labelLibraryScreen() {
   const markets = [t('lib_all_market'), ...new Set(st.designs.map(d => d.market))];
 
   const toolbar = h('div.row.gap8.wrap', [
-    inputEl({ placeholder: t('lib_search'), value: ui.libQ || '', onInput: v => setUI({ libQ: v }) }),
+    searchInput({ id: 'lib-q', placeholder: t('lib_search'), value: ui.libQ || '', onChange: v => setUI({ libQ: v }) }),
     selectEl(brands, { value: brand, onChange: v => setUI({ libBrand: v }) }),
     selectEl(markets, { value: market, onChange: v => setUI({ libMarket: v }) }),
     h('span', { style: { fontSize: '11.5px', color: 'var(--text-3)' } }, [h('span.mono', String(st.designs.length)), ` ${t('lib_designs')}`]),

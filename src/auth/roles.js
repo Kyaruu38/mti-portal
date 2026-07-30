@@ -45,6 +45,24 @@ export const CAPS = {
   financemti: { approve: false, markPaid: true, financeReceive: true, editMaster: false, paymentWrite: false, prfCreate: false, paymentReadonly: false },
 };
 
+// Which Reports modules a role may see.
+//
+// The Reports screen flattens PO + PPKEK + PRF + Label + Payment into one table
+// with an Excel export, and login() fetches all of those tables for every role.
+// Granting the screen therefore granted FINANCE data (PRF amounts, payment
+// history) to purchasing roles whose scope doesn't include it.
+//
+// Per the owner's decision: sekar tracks PRF progress (read-only), cania/visca
+// only CREATE PRFs and get no payment visibility at all.
+export const REPORT_MODULES = {
+  wilbert:    ['Label', 'PO', 'PPKEK', 'PRF', 'Payment'],
+  cania:      ['Label', 'PO'],
+  visca:      ['Label', 'PO'],
+  sekar:      ['PPKEK', 'PRF'],
+  financemti: ['PRF', 'Payment'],
+};
+export function allowedReportModules(role) { return REPORT_MODULES[role] || []; }
+
 export function allowedScreens(role) { return ACCESS[role] || []; }
 export function can(role, cap) { return !!(CAPS[role] && CAPS[role][cap]); }
 export function usernameToEmail(username) { return `${username}@${EMAIL_DOMAIN}`; }

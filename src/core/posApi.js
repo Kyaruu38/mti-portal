@@ -4,7 +4,7 @@
 // any PO whose insert failed to sync) by partitioning on UUID_RE: the two
 // live in disjoint id spaces, so seed data can never be shadowed by a real
 // PO and a real PO can never be wiped by an empty/failing fetch (A3).
-import { getClient, isConfigured, UUID_RE } from './supabase.js';
+import { getClient, isConfigured, UUID_RE, fetchAllPaged } from './supabase.js';
 
 export { UUID_RE };
 
@@ -78,7 +78,8 @@ export async function fetchPOs() {
   if (!isConfigured()) return null;
   const c = await getClient();
   if (!c) return null;
-  const { data, error } = await c.from('pos').select('*').is('deleted_at', null).order('created_at', { ascending: false });
+  // Paged: PostgREST silently caps an unbounded select at max-rows (1000).
+  const { data, error } = await fetchAllPaged((a, b) => c.from('pos').select('*').is('deleted_at', null).order('created_at', { ascending: false }).range(a, b));
   if (error) { console.error('fetchPOs failed:', error); return null; }
   return data.map(fromRow);
 }

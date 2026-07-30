@@ -50,7 +50,22 @@ export function parseItemName(raw, brandMap) {
     brandRaw = brandRaw.replace(/\b(TL|TT)\b/g, '').replace(/无内|东南亚|全诺/g, '').trim();
   }
   if (/[\u4e00-\u9fff]/.test(brandRaw)) out.chinese = brandRaw;
-  out.brand = canonicalBrand(brandRaw || out.pattern, brandMap);
+  // The `|| out.pattern` fallback used to be unconditional: an item name with
+  // no brand text after the [..] block (or only TT/TL, which is stripped above)
+  // fell through to the TREAD-PATTERN code, which was then uppercased and
+  // returned unchanged because it matches no brand-map entry. So
+  //   '(ID-CY-TBR-BX)ID11R22.5-16PR(146/143L)[CR926]'
+  // produced brand 'CR926'. That value is upserted into the item master via
+  // excelLabels.js -> labelRequest.js, permanently polluting it.
+  //
+  // Now the pattern is only accepted as a brand when it actually RESOLVES to a
+  // mapped brand; otherwise the brand stays empty and the user fills it in.
+  const direct = canonicalBrand(brandRaw, brandMap);
+  if (direct) out.brand = direct;
+  else {
+    const viaPattern = canonicalBrand(out.pattern, brandMap);
+    out.brand = (viaPattern && viaPattern !== String(out.pattern || '').toUpperCase()) ? viaPattern : '';
+  }
 
   return out;
 }

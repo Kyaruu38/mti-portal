@@ -7,7 +7,7 @@
 // items jsonb, created_by, created_at). There's no separate po_ids column —
 // each line inside `items` already carries its own `poId`, so the set of
 // POs a document references is derived from that on read.
-import { getClient, isConfigured } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
 
 function fromRow(row) {
   const items = row.items || [];
@@ -38,7 +38,8 @@ export async function fetchSuratJalan() {
   if (!isConfigured()) return null;
   const c = await getClient();
   if (!c) return null;
-  const { data, error } = await c.from('surat_jalan').select('*').order('created_at', { ascending: false });
+  // Paged: PostgREST silently caps an unbounded select at max-rows (1000).
+  const { data, error } = await fetchAllPaged((a, b) => c.from('surat_jalan').select('*').order('created_at', { ascending: false }).range(a, b));
   if (error) { console.error('fetchSuratJalan failed:', error); return null; }
   return data.map(fromRow);
 }

@@ -2,7 +2,7 @@
 // Same shape as suppliersApi.js. `erp` is unique in the schema — a duplicate
 // save surfaces as a real Postgres error, caught and toasted by the caller
 // like every other module, not silently handled here.
-import { getClient, isConfigured } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
 
 function fromRow(row) {
   return {
@@ -22,7 +22,8 @@ export async function fetchItems() {
   if (!isConfigured()) return null;
   const c = await getClient();
   if (!c) return null;
-  const { data, error } = await c.from('items').select('*').order('erp', { ascending: true });
+  // Paged: PostgREST silently caps an unbounded select at max-rows (1000).
+  const { data, error } = await fetchAllPaged((a, b) => c.from('items').select('*').order('erp', { ascending: true }).range(a, b));
   if (error) { console.error('fetchItems failed:', error); return null; }
   return data.map(fromRow);
 }

@@ -88,5 +88,20 @@ function errorBox(e) {
 subscribe(render);
 render();
 
-// Expose a tiny debug handle (no localStorage; in-memory only).
-window.__MTI__ = { getState };
+// Debug handle — READ-ONLY SNAPSHOT, and only on localhost.
+//
+// This used to be `window.__MTI__ = { getState }`, and getState() returns the
+// LIVE state object. Any logged-in user could run
+//     __MTI__.getState().user.role = 'wilbert'
+// and get the full menu (Approval, Master Data, Finance) on the next render,
+// then invoke those screens' handlers under their own JWT. RLS still decides
+// whether a WRITE lands (current_role() reads the profiles table, not client
+// state), but client-rendered artifacts — the PO chop, the PRF paper — are
+// outside RLS's reach entirely, and any policy that forgets to constrain a
+// value becomes reachable that way (see pos_insert / status).
+//
+// A shallow frozen copy keeps the handle useful for debugging while making
+// `__MTI__.snapshot().user.role = …` a no-op on the real store.
+if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+  window.__MTI__ = { snapshot: () => Object.freeze({ ...getState() }) };
+}

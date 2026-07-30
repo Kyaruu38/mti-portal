@@ -1,6 +1,7 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t } from '../i18n/index.js';
+import { can } from '../auth/roles.js';
 import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField } from '../ui/components.js';
 import { parseZcPo } from '../parsers/zcPoPdf.js';
 import { money, num, ppnFor, ppnModeFromForm } from '../core/format.js';
@@ -26,7 +27,11 @@ export function poConverterScreen() {
       h('div.mono', { style: { fontSize: '13px', fontWeight: 700 } }, res.cgdd || res.contractNo || 'PO PDF'),
       h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '2px' } }, `Parsed · ${res.items.length} line items · ${res.currency} · sumber: ${res.supplierEn || res.supplierZh || '—'}`),
     ]),
-    badge('Rule-based parse', 'green'),
+    // Never let a dropped row pass silently — the subtotal falls back to the sum
+    // of the surviving items, so a short PO looks perfectly consistent.
+    (res.skippedRows && res.skippedRows.length)
+      ? badge(`${res.skippedRows.length} baris TIDAK terbaca`, 'red', { iconName: 'warn' })
+      : badge('Rule-based parse', 'green'),
     btn('Upload PDF lain', { onClick: () => setUI({ cvResult: null }) }),
     btn(t('cv_send_appr') + ' →', { variant: 'primary', onClick: () => openPopup() }),
   ]);
@@ -70,7 +75,16 @@ export function poConverterScreen() {
     ]),
   ]);
 
-  return h('div.stack', [statusBar, h('div.grid', { style: { gridTemplateColumns: '370px 1fr', alignItems: 'start' } }, [fields, compare]), ui.cvPopup ? popup() : null]);
+  const skippedBanner = (res.skippedRows && res.skippedRows.length)
+    ? h('div.cfg-banner', { style: { background: 'var(--st-red-bg)', color: 'var(--st-red-tx)', borderColor: 'var(--st-red-tx)', display: 'block' } }, [
+        h('div', { style: { fontWeight: 700, marginBottom: '4px' } }, [icon('warn', 14), ` ${res.skippedRows.length} baris item gagal diparse dan TIDAK masuk PO ini:`]),
+        ...res.skippedRows.slice(0, 8).map(r => h('div.mono', { style: { fontSize: '10.5px' } }, `• ${r.erp} — ${r.reason}`)),
+        res.skippedRows.length > 8 ? h('div', { style: { fontSize: '10.5px' } }, `…dan ${res.skippedRows.length - 8} lagi`) : null,
+        h('div', { style: { fontSize: '10.5px', marginTop: '4px' } }, 'Cek PDF aslinya — subtotal di bawah dihitung dari baris yang berhasil terbaca saja.'),
+      ])
+    : null;
+
+  return h('div.stack', [statusBar, skippedBanner, h('div.grid', { style: { gridTemplateColumns: '370px 1fr', alignItems: 'start' } }, [fields, compare]), ui.cvPopup ? popup() : null]);
 }
 
 function genPreview(res) {
@@ -147,7 +161,12 @@ async function genConverterPO() {
   if (res.items.some(li => !li.unit)) { toast('Unit belum dipilih untuk salah satu item — lengkapi dulu di panel Extracted'); return; }
   const no = f.no.trim();
   const contract = f.contract || '';
-  const isWilbert = st.user.role === 'wilbert';
+  // Capability, not a username string. The literal comparison paired with the
+  // window.__MTI__ handle (main.js) let any purchasing account fake the role
+  // client-side and insert a PO with status 'Approved' — pos_insert's RLS
+  // policy only checked is_purchasing(), never the status value.
+  // Server-side lock is in supabase_migration_po_insert_guard.sql.
+  const isWilbert = can(st.user.role, 'approve');
   // lineId minted here, before the insert — see posApi.js newLineId(). It used
   // to be '' and get patched to `${id}:${idx}` after the insert returned.
   const items = res.items.map(li => ({ erp: li.erp, d: li.descEn || li.desc, dimension: li.spec || '', cn: '', qty: li.qty, u: li.price, a: li.amount, unit: li.unit, lineId: newLineId() }));

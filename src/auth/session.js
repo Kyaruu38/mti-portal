@@ -139,5 +139,25 @@ export async function login(username, password) {
 
 export async function logout() {
   try { await signOut(); } catch { /* ignore */ }
-  setState({ user: null, screen: 'login', menuOpen: false });
+  // Wipe EVERYTHING, not just the user.
+  //
+  // This used to clear only user/screen/menuOpen, leaving state.ui and every
+  // domain array in memory for whoever logged in next on the same tab. Two real
+  // consequences:
+  //   * a half-finished modal survived the switch — financemti's finance-receive
+  //     drawer re-rendered for wilbert, whose footer button is gated only on the
+  //     4/4 checklist, letting him complete an action his role doesn't have;
+  //   * ui.prfDraft.supplier holds a REFERENCE to a supplier object; after the
+  //     next login fetchSuppliers() replaces st.suppliers with fresh objects, so
+  //     a still-open PRF preview printed the previous, now-detached bank details
+  //     and submitting it persisted a PRF with the old user in `by`.
+  // login() re-fetches everything it needs, and a fetch that returns null now
+  // finds an empty array rather than the previous user's rows.
+  setState({
+    user: null, screen: 'login', menuOpen: false, langOpen: false, toast: null,
+    ui: {},
+    suppliers: [], units: [], items: [], brandMap: [], designs: [], descDict: [],
+    pos: [], labelBatches: [], ppkek: [], invoices: [], prfs: [], payments: [],
+    audit: [], suratJalan: [],
+  });
 }

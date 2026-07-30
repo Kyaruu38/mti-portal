@@ -24,6 +24,72 @@
   .paper-scroll { display:block !important; }
   /* Force light palette on printed paper */
   .paper { background:#fff !important; color:#1F2937 !important; }
+
+  /* ==========================================================================
+     Print ONLY the document, never the surrounding screen.
+     --------------------------------------------------------------------------
+     The rule above hides .sidebar/.topbar/.no-print, but .no-print is used in
+     exactly one place in the whole app, so every other .card stayed visible.
+     Pressing "Print" on the Surat Jalan screen therefore produced a PDF
+     containing the outstanding-PO summary, the supplier dropdown, the "Pilih
+     PO" checklist, the live qty inputs AND the 20-row history table — i.e. other
+     suppliers' document numbers on a sheet handed to the warehouse.
+
+     Keep only: the .paper, its contents, and its ancestors. :has() is used
+     deliberately — the deploy target is Chrome and PDF output already relies on
+     Chrome's native print renderer.
+     ====================================================================== */
+  .content *:not(:has(.paper)):not(.paper):not(.paper *) { display:none !important; }
+  /* Strip the card chrome from whatever wraps the paper. */
+  .content .card:has(.paper),
+  .content .card-pad:has(.paper) {
+    border:none !important; background:none !important; box-shadow:none !important; padding:0 !important;
+  }
+
+  /* ==========================================================================
+     Never inherit the dark theme onto paper.
+     --------------------------------------------------------------------------
+     body was forced white but the [data-theme="dark"] custom properties on
+     <html> were not reset, so everything outside .paper kept
+     color: var(--text) = #EAEEF6 — near-white ink on white paper. Chrome drops
+     the dark BACKGROUND (no print-color-adjust) but keeps the foreground.
+     Redeclare the light palette for print so output never depends on the
+     theme the user happens to be in.
+     ====================================================================== */
+  :root, [data-theme="dark"] {
+    color-scheme: light !important;
+    --bg:#FFFFFF; --surface:#FFFFFF; --surface2:#FFFFFF; --surface3:#F3F4F6;
+    --border:#E6E3DB; --border-strong:#D6D2C7;
+    --text:#17263F; --text-2:#43526C; --text-3:#7C8699;
+    --navy-ink:#1B3A6B; --navy-soft:#E9EFF8; --navy-soft-tx:#2B5AA6;
+    --accent:#F26722; --accent-tx:#C2540E; --link:#C2540E;
+    --input:#FFFFFF; --input-bd:#D9D5CB;
+    --st-green-bg:#E2F2E8; --st-green-tx:#1B7A44;
+    --st-amber-bg:#FAF1DC; --st-amber-tx:#8F6205;
+    --st-red-bg:#FBE9E5;   --st-red-tx:#B23327;
+    --st-blue-bg:#E7EEF9;  --st-blue-tx:#2B5AA6;
+    --st-gray-bg:#EEECE5;  --st-gray-tx:#6E7787;
+    --overlay:rgba(15,21,34,.52); --shadow:none; --paper-shadow:none;
+  }
+
+  /* ==========================================================================
+     Keep the MTI navy/orange identity rules and table header shading.
+     Chrome's print dialog has "Background graphics" OFF by default, which drops
+     every CSS background — the navy + orange letterhead rules, the grey goods-
+     table header band and the PRF label column all vanished.
+     ====================================================================== */
+  .paper, .paper * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+
+  /* ==========================================================================
+     Don't fragment a Surat Jalan item across a page break. Each item card is
+     ~350px (design thumbnail + 4 KV fields + 5-item checklist), and with no
+     break rule Chrome sliced them wherever the page ran out — page 2 could open
+     with a bare "CHECKLIST VERIFIKASI GUDANG" block carrying no item number,
+     no ERP code and no item name for the operator to tick against.
+     ====================================================================== */
+  .sj-item, .p-keep { break-inside: avoid !important; page-break-inside: avoid !important; }
+  .paper table thead { display: table-header-group; }   /* repeat header on p2+ */
+  .paper table tr { break-inside: avoid; page-break-inside: avoid; }
 }
 
 .print-only { display:none; }

@@ -68,8 +68,41 @@ export function paymentScreen() {
     h('div.grid', { style: { gridTemplateColumns: '1fr 1.6fr' } }, [dz, flow]),
     invoiceTable(st),
     prfBuilder(st),
+    prfTrackingCard(st, readonly),
     ui.prfModal ? prfModal() : null,
     ui.invoiceModal ? invoiceModal() : null,
+  ]);
+}
+
+// READ-ONLY progress list of every PRF raised, for the intake side of the screen
+// (sekar + wilbert). Once a PRF is submitted sekar's role is to watch where it
+// got to, and until now this screen gave her no way to see that at all — she had
+// to go to Reports. There are deliberately NO action buttons here: moving a PRF
+// to "Diterima Finance" or "Paid" is finance's job, and RLS's prfs_update policy
+// blocks sekar/cania/visca from those stages anyway.
+function prfTrackingCard(st, readonly) {
+  const list = st.prfs.slice(0, 25);
+  const tone = s => ({ 'Terbentuk': 'gray', 'Diproses Wilbert': 'amber', 'Diterima Finance': 'blue', 'Paid': 'green' }[s] || 'gray');
+  return h('div.card', [
+    h('div.card-head', [
+      h('div.card-title', 'Progress PRF'),
+      badge('Read-only', 'gray', { iconName: 'eye' }),
+      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${st.prfs.length} PRF · status diubah oleh Finance`),
+    ]),
+    list.length ? h('div.tbl-wrap', h('table.tbl', [
+      h('thead', h('tr', ['No. PRF', t('col_supplier'), t('col_amount'), 'Invoice', 'Dibuat', t('col_status')].map((c, i) => h('th' + (i === 2 ? '.r' : ''), c)))),
+      h('tbody', list.map(p => h('tr', [
+        h('td.mono.cell-strong', p.no),
+        h('td', p.supplier),
+        h('td.mono.r', money(p.amount, p.currency)),
+        h('td.mono', { style: { color: 'var(--text-3)', fontSize: '10.5px' } }, (p.invoices || []).join(', ') || '—'),
+        h('td', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${p.by || '—'} · ${fmtDate(p.createdAt)}`),
+        h('td', h('div.row.gap8', [
+          badge(trStage(p.stage), tone(p.stage)),
+          p.paidAt ? h('span', { style: { fontSize: '10px', color: 'var(--text-3)' } }, fmtDate(p.paidAt)) : null,
+        ])),
+      ]))),
+    ])) : h('div', { style: { padding: '16px', fontSize: '12px', color: 'var(--text-3)' } }, 'Belum ada PRF dibuat.'),
   ]);
 }
 
@@ -244,27 +277,38 @@ function prfBuilder(st) {
     h('div.row.gap14', { style: { padding: '13px 16px', background: 'var(--surface2)' } }, [
       h('div', { style: { fontSize: '12.5px', fontWeight: 800 } }, [h('span.mono', { style: { color: 'var(--accent-tx)' } }, String(chosen.length)), ` invoice · Total `, h('span.mono', money(sum, currency))]),
       badge(currency, ccyTone(currency)),
-      h('div.mla', btn(t('pay_preview_prf') + ' →', { variant: 'primary', disabled: !chosen.length, onClick: () => openPrf(chosen, currency, supplier) })),
+      h('div.mla', btn(t('pay_preview_prf') + ' →', { variant: 'primary', disabled: !chosen.length, onClick: () => openPrf(chosen, currency, supplierObj) })),
     ]),
   ]);
 }
 
 function ccyTone(c) { return { USD: 'accent', EUR: 'blue', CNY: 'amber', IDR: 'navy' }[c] || 'gray'; }
 
-async function openPrf(chosen, currency, supplierName) {
+// Takes the supplier OBJECT the builder already resolved by id.
+//
+// It used to take only the NAME and re-resolve with
+//     st.suppliers.find(s => s.name === supplierName)
+// which returns the FIRST row with that name. Supplier creation has no
+// uniqueness check and unshifts new rows to the front of the array, so a second
+// supplier with the same name and a different account won that lookup — and the
+// printed PRF carried the wrong bank details. After a re-login the order comes
+// from fetchSuppliers()'s order('name'), where duplicates tie and the winner is
+// arbitrary.
+async function openPrf(chosen, currency, supplierObj) {
   const st = getState();
-  const supplier = st.suppliers.find(s => s.name === supplierName);
-  const prefix = `PRF/PC/${romanMonth()}/`;
-  let no;
-  try {
-    no = await nextPrfNo(st.prfs, romanMonth(), new Date().getFullYear(), prefix);
-  } catch (e) {
-    console.error('nextPrfNo failed', e);
-    toast('Gagal generate nomor PRF dari server: ' + (e.message || e));
-    return;
-  }
+  const supplier = supplierObj;
+  const supplierName = supplier && supplier.name;
+  if (!supplier) { toast('Supplier tidak ditemukan — pilih ulang dari dropdown'); return; }
+  // NO number is allocated here.
+  //
+  // next_doc_seq() increments unconditionally and there is no way to hand a
+  // number back, so allocating at PREVIEW time burned one every time the user
+  // opened the modal, spotted a wrong invoice, closed it and previewed again —
+  // and on every submit path that returned early. The result was permanent gaps
+  // in a statutory Indonesian payment-request register. The number is now taken
+  // in submitPrf(), immediately before the insert.
   const lines = chosen.map(inv => ({ no: inv.no, desc: descFor(inv), amount: inv.amount }));
-  setUI({ prfModal: true, prfDraft: { no, supplier, supplierName, currency, amount: chosen.reduce((s, x) => s + x.amount, 0), invoices: chosen.map(i => i.no), lines, by: st.user.username, createdAt: new Date().toISOString(), stage: 'Terbentuk', receiveChecklist: { a: false, b: false, c: false, d: false } } });
+  setUI({ prfModal: true, prfDraft: { no: '', supplier, supplierName, currency, amount: chosen.reduce((s, x) => s + x.amount, 0), invoices: chosen.map(i => i.no), lines, by: st.user.username, createdAt: new Date().toISOString(), stage: 'Terbentuk', receiveChecklist: { a: false, b: false, c: false, d: false } } });
 }
 
 // Learning bilingual description dictionary: prefill from prior entries.
@@ -294,6 +338,7 @@ function prfModal() {
     footer: [
       btn(t('close'), { onClick: () => setUI({ prfModal: false }) }),
       btn('PDF', { iconName: 'download', onClick: () => {
+        if (!d.no) { toast('Nomor PRF baru terbit setelah dikirim ke Wilbert — kirim dulu, lalu unduh dari daftar PRF'); return; }
         const html = wrapPrintable(prfPaper(d, d.supplier, d.lines).outerHTML, d.no, 'landscape');
         const w = window.open('', '_blank');
         if (!w) { toast('Popup diblokir — izinkan popup buat Save PDF'); return; }
@@ -323,7 +368,20 @@ async function submitPrf() {
       st.descDict.push(entry);
     }
   }
-  const prf = { ...d, supplier: d.supplierName, stage: 'Diproses Wilbert' };
+  // Allocate the register number NOW — one line before the insert, so the only
+  // way to burn a number is an insert that actually reaches Postgres.
+  let no = d.no;
+  if (!no) {
+    const prefix = `PRF/PC/${romanMonth()}/`;
+    try {
+      no = await nextPrfNo(st.prfs, romanMonth(), new Date().getFullYear(), prefix);
+    } catch (e) {
+      console.error('nextPrfNo failed', e);
+      toast('Gagal generate nomor PRF dari server: ' + (e.message || e));
+      return;
+    }
+  }
+  const prf = { ...d, no, supplier: d.supplierName, stage: 'Diproses Wilbert' };
   delete prf.supplierName;
   try {
     const saved = await insertPrf(prf);

@@ -14,7 +14,7 @@
 // time (parsers/pdf.js renderThumb(), see labelLibrary.js's uploadDesign())
 // that DOES survive across sessions, unlike designUrl. It's what Surat Jalan
 // pulls into the per-item design box (screens/suratJalan.js).
-import { getClient, isConfigured } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
 
 function fromRow(row) {
   return { id: row.id, erp: row.erp, spec: row.spec, brand: row.brand, market: row.market, ver: row.ver, updated: row.updated, driveUrl: row.drive_url, thumb: row.thumb || '', status: row.status };
@@ -27,7 +27,8 @@ export async function fetchDesigns() {
   if (!isConfigured()) return null;
   const c = await getClient();
   if (!c) return null;
-  const { data, error } = await c.from('designs').select('*').order('created_at', { ascending: false });
+  // Paged: PostgREST silently caps an unbounded select at max-rows (1000).
+  const { data, error } = await fetchAllPaged((a, b) => c.from('designs').select('*').order('created_at', { ascending: false }).range(a, b));
   if (error) { console.error('fetchDesigns failed:', error); return null; }
   return data.map(fromRow);
 }

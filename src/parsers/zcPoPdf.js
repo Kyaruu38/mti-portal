@@ -13,11 +13,21 @@
 // ("3,000 张PC") or split across two ("17,000" + "千克kg").
 
 import { extractPdf } from './pdf.js';
+import { parseNumber } from './numbers.js';
 import { englishFirst } from './itemName.js';
 
 const ERP = /^(\d{6,}[A-Za-z]{0,3}|MTI-[\w-]+)$/;
-const PRICE_RE = /^[\d,]+\.\d{4,6}$/;
-const AMOUNT_RE = /^[\d,]+\.\d{2}$/;
+// Price and amount are told apart by DECIMAL COUNT plus column position.
+// Both regexes now accept an optional leading '-': ZC POs carry credit/return
+// lines (negative qty and amount), and the old patterns rejected them, so those
+// rows were dropped with no warning at all. `out.subtotal` then fell back to the
+// sum of the SURVIVING items (see the end of parseZcPo), which made the
+// converted PO internally consistent and therefore look perfectly correct while
+// silently missing a line.
+// Price widened to 2..6 decimals for the same reason — a supplier quoting a flat
+// "1500.00" unit price had the whole row discarded.
+const PRICE_RE = /^-?[\d,]+\.\d{2,6}$/;
+const AMOUNT_RE = /^-?[\d,]+\.\d{2}$/;
 
 export async function parseZcPo(file) {
   const pdf = await extractPdf(file);
@@ -29,6 +39,12 @@ export async function parseZcPo(file) {
 
   const out = {
     ok: true,
+    // Rows that LOOKED like item rows (valid ERP code + trailing amount) but
+    // whose qty or price couldn't be read. Previously a bare `continue` dropped
+    // them with no trace, and because out.subtotal falls back to the sum of the
+    // surviving items, the converted PO stayed internally consistent and looked
+    // correct while being short a line. poConverter.js surfaces this now.
+    skippedRows: [],
     cgdd: '',           // CGDD… document number
     contractNo: '',     // 合同号 (may equal CGDD, editable)
     supplierZh: '',
@@ -126,18 +142,20 @@ export async function parseZcPo(file) {
 
   for (const page of pdf.pages) {
     const rows = page.lines;
+    // Rows already claimed as another item's wrapped description, per page.
+    const consumedRows = new Set();
     for (let i = 0; i < rows.length; i++) {
       const tokens = rows[i].parts.map(p => p.str.trim()).filter(Boolean);
       if (!tokens.length || !ERP.test(tokens[0])) continue;
 
       const amountTok = tokens[tokens.length - 1];
-      if (!AMOUNT_RE.test(amountTok)) continue; // not an item row
+      if (!AMOUNT_RE.test(amountTok)) continue; // not an item row (header/total/blank) — not counted
 
       let priceIdx = -1;
       for (let k = tokens.length - 2; k >= 1; k--) {
         if (PRICE_RE.test(tokens[k])) { priceIdx = k; break; }
       }
-      if (priceIdx === -1) continue;
+      if (priceIdx === -1) { out.skippedRows.push({ erp: tokens[0], reason: 'harga tidak terbaca', raw: tokens.join(' ') }); continue; }
 
       // Quantity token = the last digit-bearing token before price (qty is
       // always closer to price than any digits inside the description, e.g.
@@ -147,22 +165,34 @@ export async function parseZcPo(file) {
       for (let k = priceIdx - 1; k >= 1; k--) {
         if (/\d/.test(tokens[k])) { qtyIdx = k; break; }
       }
-      if (qtyIdx === -1) continue;
+      if (qtyIdx === -1) { out.skippedRows.push({ erp: tokens[0], reason: 'qty tidak terbaca', raw: tokens.join(' ') }); continue; }
 
-      const qtyMatch = tokens[qtyIdx].match(/^([\d,]+)(.*)$/);
+      // `[\d,]+` stopped at the decimal point, so "17,000.50" parsed as qty
+      // 17000 and dumped ".50" into mergedUnit — which then failed the
+      // `!li.unit` gate in poConverter.js and printed verbatim on the PO.
+      // Weight-priced lines (千克kg) routinely carry decimals.
+      const qtyMatch = tokens[qtyIdx].match(/^(-?[\d,]+(?:\.\d+)?)(.*)$/);
       const qty = qtyMatch ? toNum(qtyMatch[1]) : 0;
       const mergedUnit = qtyMatch ? qtyMatch[2].trim() : '';
       const unitTokens = tokens.slice(qtyIdx + 1, priceIdx).join(' ').trim();
       const unit = unitTokens || mergedUnit;
 
+      // BOOKKEEPING: a wrapped description row may only be consumed ONCE.
+      //
+      // The anchor row used to absorb rows[i-1] AND rows[i+1] with no record of
+      // what had already been taken. For the common layout
+      //     itemA / wrapA / itemB
+      // `wrapA` was appended to A (as A's "next") and simultaneously prepended
+      // to B (as B's "prev") — so a tyre's dimension string ended up labelling
+      // the natural-rubber line underneath it.
       const descParts = tokens.slice(1, qtyIdx);
-      if (i > 0) {
+      if (i > 0 && !consumedRows.has(i - 1)) {
         const prevTokens = rows[i - 1].parts.map(p => p.str.trim()).filter(Boolean);
-        if (isDescContinuation(prevTokens)) descParts.unshift(...prevTokens);
+        if (isDescContinuation(prevTokens)) { descParts.unshift(...prevTokens); consumedRows.add(i - 1); }
       }
-      if (i + 1 < rows.length) {
+      if (i + 1 < rows.length && !consumedRows.has(i + 1)) {
         const nextTokens = rows[i + 1].parts.map(p => p.str.trim()).filter(Boolean);
-        if (isDescContinuation(nextTokens)) descParts.push(...nextTokens);
+        if (isDescContinuation(nextTokens)) { descParts.push(...nextTokens); consumedRows.add(i + 1); }
       }
       const desc = descParts.join(' ').trim();
 
@@ -199,4 +229,10 @@ export async function parseZcPo(file) {
   return out;
 }
 
-function toNum(v) { return Number(String(v).replace(/[,\s]/g, '')) || 0; }
+// ZC ERP exports are ENGLISH-formatted (comma = thousands, dot = decimal), so
+// the locale is pinned rather than auto-detected — "1.500" here means one and a
+// half, not fifteen hundred.
+function toNum(v) {
+  const n = parseNumber(v, 'en');
+  return Number.isFinite(n) ? n : 0;
+}

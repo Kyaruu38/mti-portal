@@ -68,6 +68,17 @@ export function toast(msg) {
 }
 
 // Append an audit entry (who/when/what) — used across modules.
+//
+// Writes to BOTH the in-memory list (so the UI updates immediately) and the
+// audit_log table (so the record survives a logout). It used to be memory-only:
+// login() replaces state.audit with the server list, so every entry from an
+// action that performed no DML — approving or rejecting a supplier bank change,
+// deleting a supplier — silently disappeared on the next login.
+//
+// Deliberately NOT awaited: every call site is synchronous UI code. A failed
+// write is logged to the console rather than thrown, so an audit outage can
+// never abort the business action it was recording (same graceful-degradation
+// rule as the Drive uploads).
 export function logAudit(entry) {
   state.audit.unshift({
     id: uid('aud'),
@@ -75,4 +86,8 @@ export function logAudit(entry) {
     user: state.user ? state.user.username : 'system',
     ...entry,
   });
+  if (!scheduled) { scheduled = true; queueMicrotask(flush); }
+  import('./auditApi.js')
+    .then(m => m.insertAuditLog(entry))
+    .catch(e => console.error('audit persist failed (non-fatal):', e));
 }

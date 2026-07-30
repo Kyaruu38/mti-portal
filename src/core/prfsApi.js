@@ -3,7 +3,7 @@
 // around that, it just calls plain insert/update and lets Postgres accept or
 // reject based on the caller's role + the stage transition, same as every
 // other module here. No delete — no delete UI exists for PRFs.
-import { getClient, isConfigured } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
 
 function fromRow(row) {
   return {
@@ -25,7 +25,8 @@ export async function fetchPrfs() {
   if (!isConfigured()) return null;
   const c = await getClient();
   if (!c) return null;
-  const { data, error } = await c.from('prfs').select('*').order('created_at', { ascending: false });
+  // Paged: PostgREST silently caps an unbounded select at max-rows (1000).
+  const { data, error } = await fetchAllPaged((a, b) => c.from('prfs').select('*').order('created_at', { ascending: false }).range(a, b));
   if (error) { console.error('fetchPrfs failed:', error); return null; }
   return data.map(fromRow);
 }

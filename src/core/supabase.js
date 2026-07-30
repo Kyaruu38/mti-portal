@@ -78,3 +78,40 @@ export async function clearMustChangePassword() {
   const { error } = await c.rpc('clear_must_change_password');
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// fetchAllPaged — read an ENTIRE table, not just its first page.
+//
+// PostgREST caps every response at the project's `max-rows` (Supabase's default
+// is 1000) and returns HTTP 200 with NO error. The truncation is completely
+// invisible to `if (error)`, and `grep -rn "\.range(\|\.limit("` over this repo
+// found exactly one hit in the whole codebase — so every fetch* treated its
+// first page as the complete table.
+//
+// The worst case was surat_jalan. receivedQty() (core/outstanding.js) derives
+// shipped quantity SOLELY by summing st.suratJalan, and fetchSuratJalan orders
+// by created_at DESC — so the rows silently dropped were the OLDEST, i.e.
+// exactly the historical shipments the calculation needs. A PO ordered 1,000
+// and fully shipped two years ago would read received 0 / outstanding 1,000 and
+// reappear on the Surat Jalan screen as ready to ship again.
+//
+// Pass a factory that applies .range(from, to) to your query; this walks pages
+// until a short one comes back.
+// ---------------------------------------------------------------------------
+export const PAGE_SIZE = 1000;
+
+export async function fetchAllPaged(makeQuery, pageSize = PAGE_SIZE) {
+  const out = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await makeQuery(from, from + pageSize - 1);
+    if (error) return { data: null, error };
+    if (!data || !data.length) break;
+    out.push(...data);
+    if (data.length < pageSize) break;
+    // Runaway guard. If this ever trips, the table is far larger than this
+    // app's in-memory store was designed for — log it rather than silently
+    // truncating, which is the exact failure mode this helper exists to fix.
+    if (out.length >= 100000) { console.error('fetchAllPaged: 100k row cap hit — result IS truncated'); break; }
+  }
+  return { data: out, error: null };
+}

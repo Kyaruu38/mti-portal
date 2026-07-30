@@ -1,6 +1,6 @@
 // Supabase persistence for Invoices. Same shape as suppliersApi.js/posApi.js.
 // No delete — no delete UI exists for invoices anywhere in the app.
-import { getClient, isConfigured } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
 
 function fromRow(row) {
   return { id: row.id, no: row.no, supplier: row.supplier, poRef: row.po_ref, currency: row.currency, amount: row.amount, due: row.due, faktur: row.faktur, ppnPaid: row.ppn_paid, status: row.status, files: row.files || [] };
@@ -13,7 +13,8 @@ export async function fetchInvoices() {
   if (!isConfigured()) return null;
   const c = await getClient();
   if (!c) return null;
-  const { data, error } = await c.from('invoices').select('*').order('due', { ascending: true });
+  // Paged: PostgREST silently caps an unbounded select at max-rows (1000).
+  const { data, error } = await fetchAllPaged((a, b) => c.from('invoices').select('*').order('due', { ascending: true }).range(a, b));
   if (error) { console.error('fetchInvoices failed:', error); return null; }
   return data.map(fromRow);
 }

@@ -65,8 +65,19 @@ const ERP_RE = /^\d{6,}[A-Za-z]{0,3}$|^MTI-|^\d{4,}ID$/;
 // Validate & auto-correct the QTY column via type inspection of data rows.
 function correctQty(rows, headerIdx, map) {
   const dataRows = rows.slice(headerIdx + 1).filter(r => r && r.some(c => c !== ''));
-  const sample = dataRows.filter(r => (r[map.erp] != null && String(r[map.erp]).trim())).slice(0, 20);
-  if (!sample.length || map.qty == null) return { map, shifted: false };
+  // Sample by "row has content in the mapped columns", NOT by "row has an ERP
+  // code". The `newitems` section exists precisely for items that have no ERP
+  // yet, so an all-new-items sheet produced an EMPTY sample: correctQty bailed
+  // with shifted:false, the column shift was never detected, map.qty kept
+  // pointing at the 泥雪地 column, NUMERIC failed on every row, and all rows were
+  // silently counted as `skipped` with no warning at all.
+  const hasContent = r => [map.erp, map.spec, map.qty, map.brand].some(c => c != null && r[c] != null && String(r[c]).trim() !== '');
+  const withErp = dataRows.filter(r => (r[map.erp] != null && String(r[map.erp]).trim()));
+  const sample = (withErp.length ? withErp : dataRows.filter(hasContent)).slice(0, 20);
+  if (map.qty == null) return { map, shifted: false };
+  // An empty sample means we genuinely cannot validate — say so instead of
+  // reporting "no shift detected", which reads like a clean bill of health.
+  if (!sample.length) return { map, shifted: false, unvalidated: true };
 
   const numericAt = col => sample.filter(r => NUMERIC(r[col])).length / sample.length;
   const declared = numericAt(map.qty);
@@ -99,11 +110,18 @@ export function parseLabelSheet(rows, { brandMap, knownErps = new Set() } = {}) 
   if (header.idx < 0 || header.hits < 3) {
     return { ok: false, error: 'Header tidak terdeteksi (kolom market / ERP CODE / QTY tidak ditemukan).', warnings };
   }
-  const { map, shifted } = correctQty(rows, header.idx, header.map);
+  const { map, shifted, unvalidated } = correctQty(rows, header.idx, header.map);
   if (shifted) {
     warnings.push({
       type: 'shifted_pr',
       msg: 'Kolom "PR" hilang di sheet ini — kolom di kanan TT/TL bergeser. Otomatis dikoreksi lewat validasi tipe QTY.',
+    });
+  }
+  if (unvalidated) {
+    // Explicit: "couldn't check" is NOT the same as "checked, all good".
+    warnings.push({
+      type: 'qty_unvalidated',
+      msg: 'Kolom QTY tidak bisa divalidasi (tidak ada baris sampel yang terisi) — cek manual kalau qty terlihat aneh atau semua baris ter-skip.',
     });
   }
 
