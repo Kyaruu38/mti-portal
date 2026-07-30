@@ -26,3 +26,9 @@ SETUP.md
 
 # Supabase CLI local link/session metadata (project ref, pooler URL, etc.)
 supabase/.temp/
+
+# Windows Explorer folder metadata — never useful in a repo
+desktop.ini
+
+# Agent/editor workspace metadata
+.claude/

@@ -1,0 +1,29 @@
+# Line endings — normalise everything to LF in the repository.
+#
+# WHY THIS FILE EXISTS
+# Without it, an editor saving a file with Windows line endings makes git see
+# EVERY LINE as changed even when not a single character differs. That is exactly
+# what happened here: `git status` showed 37 files modified and `git diff` counted
+# 4503 insertions / 4503 deletions, while `git diff --ignore-cr-at-eol` came back
+# completely empty. One careless `git add .` would have produced a commit burying
+# the real change under thousands of phantom lines, and permanently broken
+# `git blame` for those files.
+#
+# `text=auto eol=lf` means: git decides what is text, stores it with LF, and
+# checks it out with LF. Working copies stay consistent across machines.
+* text=auto eol=lf
+
+# Binary — never touch these.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.wasm binary
+*.xls  binary
+*.xlsx binary
+*.rar  binary
+*.zip  binary
+*.woff  binary
+*.woff2 binary
