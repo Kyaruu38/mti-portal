@@ -4,6 +4,7 @@ import { t } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, checkRow, driveLink, statusTone } from '../ui/components.js';
 import { money, num, fmtDate, fmtDateTime, daysUntil, similarity, normalize, sumByCurrency, moneyMulti } from '../core/format.js';
 import { parsePaymentProof } from '../parsers/bankProof.js';
+import { parseNumber } from '../parsers/numbers.js';
 import { uploadToDrive } from '../core/drive.js';
 import { can } from '../auth/roles.js';
 import { updatePrfStage } from '../core/prfsApi.js';
@@ -98,7 +99,10 @@ async function handleProof(file) {
   try {
     const res = await parsePaymentProof(file);
     const st = getState();
-    if (res.manual) { setUI({ proofManual: { file, fields: res.fields }, proofMatch: null }); return; }
+    // res.manual is also set when a template DID match but its amount was
+    // unreadable — better to ask for one retyped number than to auto-match on
+    // payee similarity alone (see bankProof.parsePaymentProof).
+    if (res.manual) { setUI({ proofManual: { file, fields: res.fields, amountUnreadable: !!res.amountUnreadable }, proofMatch: null }); return; }
     // Auto-match to a received PRF by amount + fuzzy payee (+PO no when available).
     const candidates = st.prfs.filter(p => p.stage === 'Diterima Finance');
     let best = null, bestScore = 0;
@@ -127,7 +131,9 @@ function matchCard(m) {
       h('div.mono', { style: { fontSize: '13px', fontWeight: 600, color: 'var(--text-2)', marginTop: '4px' } }, `${money(m.fields.amount, m.fields.currency)} · ${m.fields.date}${m.fields.poNo ? ' · ' + m.fields.poNo : ''}`),
       h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', marginTop: '8px' } }, `Nominal ${Math.abs(m.prf.amount - m.fields.amount) < 1 ? 'sama persis' : 'beda'} · payee match ${Math.round(similarity(m.prf.supplier, m.fields.beneficiary) * 100)}%${m.fields.poNo ? ' · PO ' + m.fields.poNo : ''}`),
       h('div.row.gap8', { style: { justifyContent: 'flex-end', marginTop: '14px' } }, [
-        btn(t('fn_pick_other'), { onClick: () => { setUI({ proofManual: { file: m.file, fields: m.fields }, proofMatch: null }); } }),
+        // Clicking "pilih lain" is an explicit rejection of the auto-match, so
+        // the picker opens with nothing selected rather than re-suggesting.
+        btn(t('fn_pick_other'), { onClick: () => { m.fields.prfId = ''; setUI({ proofManual: { file: m.file, fields: m.fields }, proofMatch: null }); } }),
         btn(t('fn_confirm_paid'), { variant: 'primary', disabled: !canPay, onClick: () => confirmPaid(m) }),
       ]),
     ]),
@@ -135,24 +141,85 @@ function matchCard(m) {
 }
 
 function manualCard(m) {
-  const canPay = can(getState().user.role, 'markPaid');
+  const st0 = getState();
+  const canPay = can(st0.user.role, 'markPaid');
   const f = m.fields;
+  // Every PRF finance could legitimately be paying. The operator picks ONE;
+  // nothing is inferred.
+  //
+  // This used to be:
+  //   prfs.find(amount matches) || prfs.find(stage === 'Diterima Finance')
+  // The `||` fallback dropped BOTH the amount test and any supplier test, so a
+  // mistyped nominal silently selected whatever PRF happened to be first in
+  // the array — and confirm_prf_paid() then marked that PRF (and all of its
+  // linked invoices) Paid. The RPC couldn't catch it: its guard only checks
+  // that the PRF is in 'Diterima Finance', which the wrong PRF also satisfies.
+  const candidates = st0.prfs.filter(p => p.stage === 'Diterima Finance');
+  const amountKnown = Number.isFinite(f.amount);
+  // Pre-select only on an exact amount hit — a hint, never a decision.
+  if (f.prfId === undefined) {
+    const exact = amountKnown ? candidates.filter(p => Math.abs(p.amount - f.amount) < 1) : [];
+    f.prfId = exact.length === 1 ? exact[0].id : '';
+  }
+  const chosen = candidates.find(p => p.id === f.prfId) || null;
+
+  const prfSelect = h('select.input', {
+    onChange: e => { f.prfId = e.target.value; setUI({}); },
+  }, [
+    h('option', { value: '', selected: !f.prfId }, candidates.length ? '— pilih PRF —' : '— tidak ada PRF di stage Diterima Finance —'),
+    ...candidates.map(p => h('option', { value: p.id, selected: p.id === f.prfId },
+      `${p.no} · ${p.supplier} · ${money(p.amount, p.currency)}`)),
+  ]);
+
+  const mismatch = chosen && amountKnown && Math.abs(chosen.amount - f.amount) >= 1;
+
   return card([h('div.card-pad', [
-    h('div.row.gap8', [badge(t('fn_manual_proof'), 'amber', { iconName: 'warn' }), h('span.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } }, m.file.name)]),
+    h('div.row.gap8', [
+      badge(t('fn_manual_proof'), 'amber', { iconName: 'warn' }),
+      h('span.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } }, m.file.name),
+      m.amountUnreadable ? badge('Nominal tidak terbaca', 'red', { iconName: 'warn' }) : null,
+    ]),
+    m.amountUnreadable
+      ? h('div', { style: { fontSize: '11px', color: 'var(--st-red-tx)', marginTop: '8px' } },
+          'Template banknya dikenali, tapi nominalnya gagal diparse. Ketik ulang manual dari bukti aslinya.')
+      : null,
     h('div.grid.g3', { style: { marginTop: '12px' } }, [
-      h('div', [h('div.field-label', t('fn_proof_amount')), h('input.input.mono', { value: f.amount || '', onInput: e => (f.amount = Number(e.target.value.replace(/[,\s]/g, '')) || 0) })]),
+      h('div', [h('div.field-label', t('fn_proof_amount')), h('input.input.mono', {
+        value: amountKnown ? f.amount : '',
+        placeholder: '2.862.720.000',
+        // parseNumber understands both 1.234.567,89 and 1,234,567.89 and
+        // yields NaN (not 0) for junk, so a typo can't read as "zero".
+        onInput: e => { f.prfId = f.prfId || ''; f.amount = parseNumber(e.target.value); },
+      })]),
       h('div', [h('div.field-label', t('fn_proof_payee')), h('input.input', { value: f.beneficiary || '', onInput: e => (f.beneficiary = e.target.value) })]),
       h('div', [h('div.field-label', t('fn_proof_date')), h('input.input.mono', { value: f.date || '', onInput: e => (f.date = e.target.value) })]),
     ]),
+    h('div', { style: { marginTop: '12px' } }, [
+      h('div.field-label', 'PRF yang dibayar *'),
+      prfSelect,
+      mismatch
+        ? h('div', { style: { fontSize: '10.5px', color: 'var(--st-amber-tx)', marginTop: '6px', fontWeight: 700 } },
+            `Nominal bukti ${money(f.amount, chosen.currency)} ≠ nominal PRF ${money(chosen.amount, chosen.currency)} — pastikan ini memang benar.`)
+        : null,
+    ]),
     h('div.row.gap8', { style: { justifyContent: 'flex-end', marginTop: '14px' } }, [
-      btn(t('fn_confirm_paid'), { variant: 'primary', disabled: !canPay, onClick: () => {
-        const st = getState();
-        const match = st.prfs.find(p => p.stage === 'Diterima Finance' && Math.abs(p.amount - f.amount) < 1) || st.prfs.find(p => p.stage === 'Diterima Finance');
-        if (!match) { toast('Tidak ada PRF cocok'); return; }
-        confirmPaid({ file: m.file, fields: f, prf: match, driveUrl: '' });
-      } }),
+      btn(t('fn_confirm_paid'), {
+        variant: 'primary',
+        disabled: !canPay || !chosen,
+        onClick: () => confirmPaidManual(m.file, f, chosen),
+      }),
     ]),
   ])]);
+}
+
+// Manual path: archive the proof to Drive too. It used to pass driveUrl: ''
+// unconditionally, so a manually-matched payment was recorded with no proof
+// attached. uploadToDrive() never throws — it degrades to a placeholder — so
+// this can't block the confirmation.
+async function confirmPaidManual(file, fields, prf) {
+  if (!prf) { toast('Pilih PRF yang dibayar dulu'); return; }
+  const up = await uploadToDrive(file, '', file.name, 'Bukti Bayar');
+  confirmPaid({ file, fields, prf, driveUrl: up.url });
 }
 
 // This is the one operation in Batch 2 that touches 3 tables in one business

@@ -4,9 +4,9 @@ import { t } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField } from '../ui/components.js';
 import { readWorkbook } from '../core/xlsx.js';
 import { parseLabelSheet } from '../parsers/excelLabels.js';
-import { money, num } from '../core/format.js';
+import { money, num, ppnFor, ppnModeFromForm } from '../core/format.js';
 import { can } from '../auth/roles.js';
-import { insertPO } from '../core/posApi.js';
+import { insertPO, newLineId } from '../core/posApi.js';
 
 export function labelRequestScreen() {
   const st = getState();
@@ -218,7 +218,9 @@ function poModal() {
         field(t('po_date'), inputEl({ value: fmtToday(), mono: true })),
       ]),
       field('Contract No (opsional)', inputEl({ value: f.contract || '', mono: true, onInput: v => (f.contract = v) })),
-      field(t('po_terms'), selectEl(['30 hari setelah invoice', '45 hari setelah invoice', '60 hari setelah invoice', 'Custom…'], { value: f.terms, onChange: v => (f.terms = v) })),
+      // 'Custom…' removed — it had no follow-up input and printed as "30 days"
+      // on the contract via the old topDaysOf() default. See poTermDays().
+      field(t('po_terms'), selectEl(['30 hari setelah invoice', '45 hari setelah invoice', '60 hari setelah invoice', 'Bayar di muka'], { value: f.terms, onChange: v => (f.terms = v) })),
       field(t('po_ppn'), h('div.row.gap12', [radio('bayar', t('po_ppn_paid'), t('po_ppn_paid_d')), radio('kek', t('po_ppn_susp'), t('po_ppn_susp_d'))])),
       h('div', { style: { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '6px' } }, [
         row2(t('po_subtotal'), money(f.subtotal, 'IDR')),
@@ -240,21 +242,23 @@ async function genPO() {
   if (!f.no || !f.no.trim()) { toast('No. PO wajib diisi'); return; }
   const selItems = (st.ui.labelResult.items || []).filter((_, i) => st.ui.labelSel[i]);
   const supplier = st.suppliers.find(s => s.name === st.ui.assignSup) || {};
-  const ppn = f.ppn === 'bayar' ? Math.round(f.subtotal * 0.11) : 0;
+  const ppnMode = ppnModeFromForm(f.ppn);
+  const ppn = ppnFor(f.subtotal, ppnMode);
   const isWilbert = st.user.role === 'wilbert';
   const po = {
     id: uid('po'), no: f.no.trim(), contract: f.contract || '', supplier: supplier.name, supplierZh: supplier.nameZh || '',
     address: supplier.address || `${supplier.city || ''}`, currency: 'IDR', unit: '张',
-    subtotal: f.subtotal, ppn, ppnMode: f.ppn === 'bayar' ? 'paid' : 'suspended', total: f.subtotal + ppn,
+    subtotal: f.subtotal, ppn, ppnMode, total: f.subtotal + ppn,
     amount: f.subtotal + ppn, terms: f.terms, delivery: 'Loco Kendal', by: st.user.username,
     status: isWilbert ? 'Approved' : 'Menunggu Approval', createdAt: new Date().toISOString(), source: 'label',
     contact: supplier.contact, phone: supplier.phone,
-    items: selItems.map(r => ({ erp: r.erp, d: r.nameEn || r.spec, dimension: r.spec, cn: r.nameZh || '', qty: r.qty, u: r.unitPrice || 1000, a: r.qty * (r.unitPrice || 1000), unit: '张/PC', lineId: '' })),
+    // Opaque lineId minted up front — see posApi.js newLineId().
+    items: selItems.map(r => ({ erp: r.erp, d: r.nameEn || r.spec, dimension: r.spec, cn: r.nameZh || '', qty: r.qty, u: r.unitPrice || 1000, a: r.qty * (r.unitPrice || 1000), unit: '张/PC', lineId: newLineId() })),
   };
   if (isWilbert) { po.approvedAt = new Date().toISOString(); po.approvedBy = 'wilbert'; }
-  // Mirror to Supabase so the delete-request workflow (item 3) has a real
-  // row to operate on; adopt the server id before computing lineIds so
-  // outstanding-qty tracking (Surat Jalan) stays consistent off one id.
+  // Mirror to Supabase so the delete-request workflow (item 3) has a real row
+  // to operate on. lineIds no longer depend on the server id, so there's no
+  // post-insert patch step and nothing to go wrong between the two writes.
   try {
     const supabaseId = await insertPO(po);
     if (supabaseId) po.id = supabaseId;
@@ -262,7 +266,6 @@ async function genPO() {
     console.error('insertPO failed — PO stays local-only', e);
     toast('PO tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e));
   }
-  po.items.forEach((it, idx) => { it.lineId = `${po.id}:${idx}`; });
   st.pos.unshift(po);
   logAudit({ entity: 'po', target: po.no, action: 'generate', detail: `${supplier.name} · ${selItems.length} lines` });
   setUI({ poModal: false });

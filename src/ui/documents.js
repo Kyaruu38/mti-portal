@@ -5,7 +5,7 @@
 // All render on WHITE paper regardless of theme (see print.css .paper).
 import { h } from '../core/dom.js';
 import { num, fmtDate } from '../core/format.js';
-import { ccyDecimals } from '../core/format.js';
+import { ccyDecimals, ppnFor, poTermDays } from '../core/format.js';
 import { COMPANY } from '../config.js';
 import { CAP_MTI, LOGO_MTI } from '../assets/images.js';
 import { amountInWords } from '../parsers/amountWords.js';
@@ -26,10 +26,17 @@ const BUYER = {
 export function poDocument(po) {
   const dp = ccyDecimals(po.currency);
   const approved = po.status === 'Approved';
-  const ppn11 = po.ppnMode === 'paid' ? Math.round(po.subtotal * 0.11) : 0;
+  // Same helper the stored total goes through (core/format.js) — the printed
+  // document and pos.ppn can no longer drift apart.
+  const ppn11 = ppnFor(po.subtotal, po.ppnMode);
   const total = po.subtotal + ppn11;
   const poNo = po.contract || po.no;
-  const topN = topDaysOf(po.terms);
+  // null => the term isn't a day count (e.g. "Payment in Advance"). Render the
+  // real clause instead of inventing "30 days".
+  const topN = poTermDays(po.terms);
+  const termLine = topN == null
+    ? ['3.付款条件：预付款。', '   Payment Terms: Payment in Advance.']
+    : ['3.付款条件：收到发票后' + topN + '天。', '   Payment Terms: ' + topN + ' days after Invoice.'];
 
   // 7 numbered bilingual terms (verbatim from the sample), PO no embedded in #1.
   const terms = [
@@ -37,8 +44,7 @@ export function poDocument(po) {
      '   Delivery documents：Delivery Note、bill、Original invoice、Original receipt（Must with the PO No.: ' + poNo + '）'],
     ['2.化学品送货需携带检测报告。',
      '   Chemical need to provide the test report for every shipment.'],
-    ['3.付款条件：收到发票后' + topN + '天。',
-     '   Payment Terms: ' + topN + ' days after Invoice.'],
+    termLine,
     ['4.质保期从收货日计起，质保期内如货物有质量问题可退换货物。',
      '   The warranty starts from the day when customer receive the merchandise. If there is any quality problem, the customer can change and return cargos within the warranty.'],
     ['5.如无法按时送货提前通知采购，因晚送货造成的损失，每天按合同额2%处以罚金，在订单款中扣除。',
@@ -125,7 +131,11 @@ export function poDocument(po) {
   }
 }
 
-function topDaysOf(terms) { const m = String(terms || '').match(/(\d+)/); return m ? m[1] : '30'; }
+// topDaysOf() removed — it matched the first digit run ANYWHERE in po.terms,
+// so a term with no leading day count picked up the embedded contract number
+// and printed it as the payment term. Replaced by poTermDays() in
+// core/format.js, which anchors to the start and returns null instead of
+// silently defaulting to 30.
 function isoDate(d) { const dt = new Date(d); return isNaN(dt) ? String(d) : `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`; }
 
 // ============================================================================

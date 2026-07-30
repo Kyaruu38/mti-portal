@@ -4,8 +4,15 @@
 // is included below). Unknown formats fall back to manual 3-field entry.
 
 import { extractPdf } from './pdf.js';
+import { parseNumber } from './numbers.js';
 
-const toNum = v => Number(String(v).replace(/[,\s]/g, '')) || 0;
+// Amounts are parsed with parseNumber(), which understands BOTH Indonesian
+// (1.234.567,89) and English (1,234,567.89) grouping and returns NaN — not 0 —
+// when it can't read the value. The previous helper stripped commas but not
+// dots, so every ICBC BI-FAST receipt (Indonesian format) parsed as 0 and the
+// finance screen still offered a ~30%-confidence "match" on payee name alone.
+// A NaN amount now means "unreadable": callers surface it instead of matching.
+const toNum = v => parseNumber(v);
 
 function firstMatch(text, res) {
   for (const re of res) { const m = text.match(re); if (m) return m; }
@@ -22,11 +29,14 @@ const STANDARD_CHARTERED = {
   parse: (t) => {
     const amt = firstMatch(t, [
       /Credit Amount\s+(IDR|USD|SGD|CNY|EUR)\s+([\d.,]+)/i,
-      /(IDR|USD|SGD|CNY|EUR)\s+([\d.,]+)\.\d{2}\s+Debit Amount/i,
+      // The decimals used to sit OUTSIDE the capture group (…([\d.,]+)\.\d{2}…),
+      // so "USD 12,345.67 Debit Amount" captured "12,345" and the cents were
+      // dropped — enough to break the <1 amount match on USD/CNY/EUR proofs.
+      /(IDR|USD|SGD|CNY|EUR)\s+([\d.,]+\.\d{2})\s+Debit Amount/i,
       /(IDR|USD|SGD|CNY|EUR)\s+([\d.,]+)/i,
     ]);
     const currency = amt ? amt[1].toUpperCase() : 'IDR';
-    const amount = amt ? toNum(amt[2]) : 0;
+    const amount = amt ? toNum(amt[2]) : NaN;
     // Beneficiary: name line inside "Beneficiary Details".
     let beneficiary = '';
     const bd = t.split(/Beneficiary Details/i)[1] || t;
@@ -52,7 +62,9 @@ const ICBC_BIFAST = {
       /Jumlah[^\d]*(?:IDR|Rp)?\s*([\d.,]+)/i,
       /(?:IDR|Rp)\s*([\d.,]+)/i,
     ]);
-    const amount = amt ? toNum(amt[1]) : 0;
+    // Indonesian receipt: "2.862.720.000,00". Explicit 'id' locale so a value
+    // like "16,50" is never mistaken for English thousands grouping.
+    const amount = amt ? parseNumber(amt[1], 'id') : NaN;
     const ben = firstMatch(t, [
       /Nama Penerima[^\n:：]*[:：]?\s*([A-Z][A-Za-z0-9 .,&'-]{3,})/i,
       /Rekening Tujuan[^\n]*\n?\s*([A-Z][A-Za-z0-9 .,&'-]{3,})/i,
@@ -79,7 +91,14 @@ export async function parsePaymentProof(file) {
   const text = pdf.text;
   const tmpl = REGISTRY.find(x => x.detect(text));
   if (!tmpl) {
-    return { matchedTemplate: null, manual: true, fields: { currency: 'IDR', amount: 0, beneficiary: '', date: '', poNo: '' }, text };
+    return { matchedTemplate: null, manual: true, fields: { currency: 'IDR', amount: NaN, beneficiary: '', date: '', poNo: '' }, text };
   }
-  return { matchedTemplate: tmpl.id, templateLabel: tmpl.label, manual: false, fields: tmpl.parse(text), text };
+  const fields = tmpl.parse(text);
+  // A template matched but the amount didn't parse -> degrade to the manual
+  // path rather than letting a NaN (or a silent 0) reach the matcher. The
+  // operator retypes one number instead of the system guessing a PRF.
+  if (!Number.isFinite(fields.amount)) {
+    return { matchedTemplate: tmpl.id, templateLabel: tmpl.label, manual: true, amountUnreadable: true, fields, text };
+  }
+  return { matchedTemplate: tmpl.id, templateLabel: tmpl.label, manual: false, fields, text };
 }

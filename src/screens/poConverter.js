@@ -3,8 +3,8 @@ import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.j
 import { t } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField } from '../ui/components.js';
 import { parseZcPo } from '../parsers/zcPoPdf.js';
-import { money, num } from '../core/format.js';
-import { insertPO } from '../core/posApi.js';
+import { money, num, ppnFor, ppnModeFromForm } from '../core/format.js';
+import { insertPO, newLineId } from '../core/posApi.js';
 
 export function poConverterScreen() {
   const st = getState(); const ui = st.ui;
@@ -129,7 +129,11 @@ function popup() {
     title: t('cv_send_appr'), subtitle: 'PO Converter → Approval Wilbert', width: 480, onClose: () => setUI({ cvPopup: false }),
     body: [
       field(t('po_contract_no') + ' *', poNoField(f)),
-      field(t('po_terms') + ' *', selectEl(['TOP 30', 'TOP 45', 'TOP 60', 'Custom…'], { value: f.terms, onChange: v => (f.terms = v) })),
+      // 'Custom…' removed: it had no follow-up input, so picking it produced
+      // the literal terms string "Custom… days after B/L — ref <contract>",
+      // and the printed contract then showed the CONTRACT NUMBER as the number
+      // of days. Replaced with the real alternative term.
+      field(t('po_terms') + ' *', selectEl(['TOP 30', 'TOP 45', 'TOP 60', 'Bayar di muka'], { value: f.terms, onChange: v => (f.terms = v) })),
       field('Contract No (合同号)', inputEl({ value: f.contract, mono: true, onInput: v => (f.contract = v) })),
       field(t('po_ppn'), selectEl([{ value: 'bayar', label: t('po_ppn_paid') }, { value: 'kek', label: t('po_ppn_susp') }], { value: f.ppn, onChange: v => (f.ppn = v) })),
     ],
@@ -144,13 +148,22 @@ async function genConverterPO() {
   const no = f.no.trim();
   const contract = f.contract || '';
   const isWilbert = st.user.role === 'wilbert';
-  const items = res.items.map((li, idx) => ({ erp: li.erp, d: li.descEn || li.desc, dimension: li.spec || '', cn: '', qty: li.qty, u: li.price, a: li.amount, unit: li.unit, lineId: '' }));
+  // lineId minted here, before the insert — see posApi.js newLineId(). It used
+  // to be '' and get patched to `${id}:${idx}` after the insert returned.
+  const items = res.items.map(li => ({ erp: li.erp, d: li.descEn || li.desc, dimension: li.spec || '', cn: '', qty: li.qty, u: li.price, a: li.amount, unit: li.unit, lineId: newLineId() }));
+  // Terms string must stay parseable by poTermDays(): a day count has to be at
+  // the START, and a non-day term must not begin with a digit.
+  const termDays = f.terms.startsWith('TOP ') ? f.terms.slice(4).trim() : null;
+  const termsText = termDays
+    ? `${termDays} days after B/L — ref ${contract || no}`
+    : `Payment in Advance — ref ${contract || no}`;
+  const ppnMode = ppnModeFromForm(f.ppn);
   const po = {
     id: uid('po'), no, contract, supplier: res.supplierEn || res.supplierZh, supplierZh: res.supplierZh,
     address: res.supplierAddress || '', currency: res.currency, unit: (items[0] && items[0].unit) || '',
-    subtotal: res.subtotal, ppn: f.ppn === 'bayar' ? Math.round(res.subtotal * 0.11) : 0,
-    ppnMode: f.ppn === 'bayar' ? 'paid' : 'suspended',
-    total: res.total, amount: res.total, terms: f.terms.replace('TOP ', '') + ' days after B/L — ref ' + (contract || no),
+    subtotal: res.subtotal, ppn: ppnFor(res.subtotal, ppnMode),
+    ppnMode,
+    total: res.total, amount: res.total, terms: termsText,
     delivery: res.incoterm || 'FOB', by: st.user.username, status: isWilbert ? 'Approved' : 'Menunggu Approval',
     createdAt: new Date().toISOString(), source: 'converter',
     contact: res.contact || '', phone: res.phone || '',
@@ -164,7 +177,8 @@ async function genConverterPO() {
     console.error('insertPO failed — PO stays local-only', e);
     toast('PO tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e));
   }
-  po.items.forEach((it, idx) => { it.lineId = `${po.id}:${idx}`; });
+  // No post-insert lineId patch any more — the ids were minted above and are
+  // identical in the local copy and the persisted row.
   st.pos.unshift(po);
   logAudit({ entity: 'po', target: no, action: 'convert', detail: `from ${contract || no}` });
   setUI({ cvPopup: false, cvResult: null });

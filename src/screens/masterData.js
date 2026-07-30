@@ -60,7 +60,15 @@ function suppliersTab(st) {
         h('td.cell-strong', [s.name, s.nameZh ? h('span', { style: { color: 'var(--text-3)', fontWeight: 500 } }, ' ' + s.nameZh) : null, s.bankChangePending ? h('span', { style: { marginLeft: '8px' } }, badge(t('md_bank_change_review'), 'amber')) : null]),
         h('td', s.city),
         h('td', `${s.contact} · ${s.phone}`),
-        h('td.mono', { style: s.bankChangePending ? { color: 'var(--st-amber-tx)', fontWeight: 600 } : {} }, `${s.bank} ${s.acct}`),
+        // Always shows the APPROVED account (what a PRF would print today).
+        // A staged change is listed underneath, clearly marked as not yet active.
+        h('td.mono', [
+          h('div', `${s.bank || '—'} ${s.acct || ''}`),
+          s.bankChangePending
+            ? h('div', { style: { color: 'var(--st-amber-tx)', fontWeight: 600, fontSize: '10.5px', marginTop: '2px' } },
+                `usulan: ${s.pendingBank || '—'} ${s.pendingAcct || ''} (belum aktif)`)
+            : null,
+        ]),
         h('td', s.overseas ? badge('Overseas', 'gray') : badge(s.pkp ? 'PKP' : 'Non-PKP', s.pkp ? 'green' : 'gray')),
         h('td.mono', s.top),
         h('td', h('div.row.gap8', [
@@ -77,7 +85,11 @@ function openSup(existing) {
   setUI({
     supModal: true,
     supForm: existing
-      ? { editingId: existing.id, name: existing.name, address: existing.address || '', contact: existing.contact || '', phone: existing.phone || '', bank: existing.bank || '', acct: existing.acct || '', bankAddress: existing.bankAddress || '', pkp: !!existing.pkp, top: existing.top || '30 hari' }
+      // Prefill with the STAGED account when one is waiting, so editing a
+      // supplier mid-review doesn't silently revert someone's pending proposal.
+      ? { editingId: existing.id, name: existing.name, address: existing.address || '', contact: existing.contact || '', phone: existing.phone || '',
+          bank: existing.pendingBank || existing.bank || '', acct: existing.pendingAcct || existing.acct || '', bankAddress: existing.pendingBankAddress || existing.bankAddress || '',
+          pkp: !!existing.pkp, top: existing.top || '30 hari' }
       : { name: '', address: '', contact: '', phone: '', bank: '', acct: '', bankAddress: '', pkp: true, top: '30 hari' },
   });
 }
@@ -113,8 +125,29 @@ async function saveSup() {
     if (!sup) { setUI({ supModal: false }); return; }
     const bankChanged = sup.bank !== f.bank || sup.acct !== f.acct || sup.bankAddress !== f.bankAddress;
     const before = `${sup.bank} ${sup.acct}`;
-    Object.assign(sup, { name: f.name, address: f.address, contact: f.contact, phone: f.phone, bank: f.bank, acct: f.acct, bankAddress: f.bankAddress, pkp: f.pkp, top: f.top, city: (f.address || '').split(',').pop().trim() });
-    if (bankChanged) sup.bankChangePending = true;
+
+    // ANTI-FRAUD: a changed account is STAGED, not applied. bank/acct/
+    // bankAddress keep their approved values until wilbert approves, so
+    // prfPaper() (ui/documents.js) cannot print an unreviewed account.
+    //
+    // This used to Object.assign the new bank/acct straight onto the live
+    // supplier and merely raise a `bankChangePending` flag that nothing read —
+    // so a PRF built one minute later already carried the new account, and the
+    // "Reject" button only fired a toast.
+    const patch = {
+      name: f.name, address: f.address, contact: f.contact, phone: f.phone,
+      pkp: f.pkp, top: f.top, city: (f.address || '').split(',').pop().trim(),
+    };
+    if (bankChanged) {
+      patch.pendingBank = f.bank;
+      patch.pendingAcct = f.acct;
+      patch.pendingBankAddress = f.bankAddress;
+      patch.bankChangePending = true;
+    }
+
+    // Snapshot for rollback: nothing local may diverge from the server.
+    const snapshot = { ...sup };
+    Object.assign(sup, patch);
 
     // Sync to Supabase: UPDATE if this row already has a real Supabase id
     // (a UUID); otherwise it's a seeded/local-only row being touched for the
@@ -124,20 +157,32 @@ async function saveSup() {
       if (UUID_RE.test(sup.id)) await updateSupplier(sup.id, sup);
       else { const saved = await insertSupplier(sup); sup.id = saved.id; }
     } catch (e) {
+      // Roll back and STOP. The old code toasted and fell through with no
+      // `return`, so a server-rejected edit still left the new account on the
+      // in-memory record — and a PRF printed in that session showed an account
+      // the server had refused.
       console.error('Supabase supplier sync failed', e);
-      toast('Perubahan tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e));
+      Object.assign(sup, snapshot);
+      toast('Gagal sync ke server — perubahan dibatalkan: ' + (e.message || e));
+      setState({});
+      return;
     }
 
     if (bankChanged) {
-      logAudit({ entity: 'supplier', target: sup.name, action: 'bank_change', detail: `${f.bank} ${f.acct} (dari ${before})`, status: 'menunggu review' });
-      toast('Supplier diperbarui — perubahan rekening masuk antrean review supervisor');
+      logAudit({ entity: 'supplier', target: sup.name, action: 'bank_change', detail: `usulan ${f.bank} ${f.acct} (aktif tetap ${before})`, status: 'menunggu review' });
+      toast('Supplier diperbarui — rekening BARU belum aktif, menunggu approval Wilbert');
     } else {
       toast('Supplier diperbarui');
     }
     setUI({ supModal: false });
     return;
   }
-  const localSup = { id: uid('sup'), name: f.name, address: f.address, contact: f.contact, phone: f.phone, bank: f.bank, acct: f.acct, bankAddress: f.bankAddress, pkp: f.pkp, top: f.top, city: (f.address || '').split(',').pop().trim(), bankChangePending: true };
+  // A BRAND-NEW supplier has no previously-approved account to protect, so its
+  // details go in live (staging them would leave the supplier with no account
+  // at all and block a legitimate first PRF). It's still flagged
+  // bankChangePending so the review queue picks it up and the PRF preview warns
+  // — see prfModal() in screens/payment.js.
+  const localSup = { id: uid('sup'), name: f.name, address: f.address, contact: f.contact, phone: f.phone, bank: f.bank, acct: f.acct, bankAddress: f.bankAddress, pkp: f.pkp, top: f.top, city: (f.address || '').split(',').pop().trim(), bankChangePending: true, pendingBank: '', pendingAcct: '', pendingBankAddress: '' };
   try {
     const saved = await insertSupplier(localSup);
     localSup.id = saved.id;
@@ -186,15 +231,61 @@ function auditDrawer(supId) {
           ]),
         ])),
       ]),
-      isWilbert && sup && sup.bankChangePending ? h('div.row.gap8', { style: { padding: '14px 20px', borderTop: '1px solid var(--border)' } }, [
-        btn(t('md_reject_change'), { variant: 'danger', onClick: () => { toast('Perubahan rekening ditolak'); setUI({ auditFor: null }); } }),
-        btn(t('md_approve_bank'), { variant: 'primary', onClick: () => { sup.bankChangePending = false; logAudit({ entity: 'supplier', target: sup.name, action: 'bank_approved', detail: `${sup.bank} ${sup.acct}` }); toast('Rekening baru disetujui'); setUI({ auditFor: null }); } }),
+      isWilbert && sup && sup.bankChangePending ? h('div.stack', { style: { gap: '10px', padding: '14px 20px', borderTop: '1px solid var(--border)' } }, [
+        // Show wilbert exactly what he's approving — old vs proposed, side by
+        // side. Approving used to flip a local flag and write nothing.
+        h('div', { style: { fontSize: '11px', lineHeight: 1.7 } }, [
+          h('div', [h('span', { style: { color: 'var(--text-3)' } }, 'Aktif sekarang: '), h('b.mono', `${sup.bank || '—'} ${sup.acct || ''}`)]),
+          h('div', [h('span', { style: { color: 'var(--text-3)' } }, 'Usulan baru: '), h('b.mono', { style: { color: 'var(--st-amber-tx)' } }, `${sup.pendingBank || '—'} ${sup.pendingAcct || ''}`)]),
+        ]),
+        h('div.row.gap8', [
+          btn(t('md_reject_change'), { variant: 'danger', onClick: () => resolveBankChange(sup, false) }),
+          btn(t('md_approve_bank'), { variant: 'primary', onClick: () => resolveBankChange(sup, true) }),
+        ]),
       ]) : null,
     ]),
   ]);
   return overlay;
 }
-function actLabel(a) { const m = { bank_change: 'Rekening bank diubah', top_change: 'Default TOP diubah', contact_update: 'Kontak PIC diperbarui', create: 'Supplier dibuat', delete: 'Supplier dihapus', bank_approved: 'Rekening baru disetujui', no_history: 'Tidak ada riwayat', insert: 'Dibuat (server)', update: 'Diperbarui (server)' }; return m[a] || a; }
+// Approve  -> promote pending_* into the live account columns, clear staging.
+// Reject   -> discard the staging, live account untouched.
+// Either way it is a real UPDATE, so the suppliers audit trigger fires and the
+// decision is recorded server-side. Previously Approve only flipped an
+// in-memory flag (lost on next login) and Reject did nothing at all.
+async function resolveBankChange(sup, approve) {
+  const snapshot = { ...sup };
+  const proposed = `${sup.pendingBank || ''} ${sup.pendingAcct || ''}`.trim();
+  const previous = `${sup.bank || ''} ${sup.acct || ''}`.trim();
+
+  if (approve) {
+    sup.bank = sup.pendingBank || sup.bank;
+    sup.acct = sup.pendingAcct || sup.acct;
+    sup.bankAddress = sup.pendingBankAddress || sup.bankAddress;
+  }
+  sup.pendingBank = ''; sup.pendingAcct = ''; sup.pendingBankAddress = '';
+  sup.bankChangePending = false;
+
+  try {
+    if (UUID_RE.test(sup.id)) await updateSupplier(sup.id, sup);
+  } catch (e) {
+    console.error('Supabase bank-change resolution failed', e);
+    Object.assign(sup, snapshot);
+    toast('Gagal simpan keputusan ke server — tidak ada yang berubah: ' + (e.message || e));
+    setState({});
+    return;
+  }
+
+  logAudit({
+    entity: 'supplier', target: sup.name,
+    action: approve ? 'bank_approved' : 'bank_rejected',
+    detail: approve ? `${proposed} (menggantikan ${previous})` : `usulan ${proposed} ditolak — tetap ${previous}`,
+  });
+  toast(approve ? 'Rekening baru disetujui & aktif' : 'Usulan rekening ditolak — rekening lama tetap aktif');
+  setUI({ auditFor: null });
+  setState({});
+}
+
+function actLabel(a) { const m = { bank_change: 'Rekening bank diubah', top_change: 'Default TOP diubah', contact_update: 'Kontak PIC diperbarui', create: 'Supplier dibuat', delete: 'Supplier dihapus', bank_approved: 'Rekening baru disetujui', bank_rejected: 'Usulan rekening ditolak', no_history: 'Tidak ada riwayat', insert: 'Dibuat (server)', update: 'Diperbarui (server)' }; return m[a] || a; }
 
 // ---------- Brand Mapping ----------
 function brandsTab(st) {

@@ -2,7 +2,8 @@ import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, logAudit } from '../core/store.js';
 import { t } from '../i18n/index.js';
 import { card, badge, btn, icon, modal, field, inputEl, selectEl } from '../ui/components.js';
-import { money, num, fmtDate } from '../core/format.js';
+import { money, num, fmtDate, ppnFor } from '../core/format.js';
+import { newLineId } from '../core/posApi.js';
 import { poDocument } from '../ui/documents.js';
 import { can } from '../auth/roles.js';
 import { downloadBlob } from '../core/dom.js';
@@ -159,7 +160,11 @@ export function approvalScreen() {
 // remove a line, open/close the modal) go through setUI().
 function computeTotals(items, ppnMode) {
   const subtotal = items.reduce((s, it) => s + (it.a || 0), 0);
-  const ppn = ppnMode === 'bayar' ? Math.round(subtotal * 0.11) : 0;
+  // ppnFor() compares against the DOMAIN value 'paid'. This used to test the
+  // FORM value 'bayar', which po.ppnMode never holds — so every saved edit
+  // silently rewrote ppn to 0 and dropped the stored total by 11% while the
+  // printed PO still showed the tax. Same helper as ui/documents.js now.
+  const ppn = ppnFor(subtotal, ppnMode);
   return { subtotal, ppn, total: subtotal + ppn };
 }
 
@@ -226,7 +231,9 @@ function poEditModal() {
           h('div', { style: { width: '130px' } }, 'Unit'), h('div', { style: { width: '90px', textAlign: 'right' } }, 'Amount'), h('div', { style: { width: '58px' } }),
         ]),
         ...itemRows,
-        btn('Tambah Baris', { sm: true, iconName: 'plus', onClick: () => { f.items.push({ erp: '', d: '', dimension: '', cn: '', qty: 0, u: 0, a: 0, unit: '', lineId: '' }); setUI({}); } }),
+        // Opaque id minted here, not left empty: two lines added in one edit
+        // used to both carry lineId '' and collide on the same shipment key.
+        btn('Tambah Baris', { sm: true, iconName: 'plus', onClick: () => { f.items.push({ erp: '', d: '', dimension: '', cn: '', qty: 0, u: 0, a: 0, unit: '', lineId: newLineId() }); setUI({}); } }),
       ]),
       h('div.stack', { style: { gap: '4px', alignItems: 'flex-end', fontSize: '12.5px' } }, [
         h('div.row.gap8', [h('span', 'Subtotal'), subtotalEl]),

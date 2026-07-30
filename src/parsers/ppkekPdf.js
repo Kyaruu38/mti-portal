@@ -4,6 +4,7 @@
 // incoterm, pungutan negara, ASAL PEMASUKAN (LDP / TLDDP -> auto-tab).
 
 import { extractPdf } from './pdf.js';
+import { parseNumber } from './numbers.js';
 
 export async function parsePpkekPdf(file) {
   const pdf = await extractPdf(file);
@@ -93,4 +94,18 @@ export async function parsePpkekPdf(file) {
   return out;
 }
 
-function toNum(v) { return Number(String(v).replace(/[,\s]/g, '')) || 0; }
+// PPKEK is a Bea Cukai (Indonesian customs) form — every monetary field and
+// the NDPBM rate use dot-grouping with a comma decimal ("15.850,00",
+// "45.362.500"). The old helper stripped commas but not dots, so the kurs came
+// out as 15.85 and Nilai Pabean as 0, and those values are written straight
+// into the register row (screens/ppkek.js). Locale is pinned to 'id' — this
+// document is never English-formatted.
+//
+// Returns 0 for an unreadable value ONLY because these fields are all
+// operator-editable in the register UI before save; a NaN would render as
+// "NaN" in an input box. The zero is now a genuine "not found", not a parse
+// failure masquerading as a number.
+function toNum(v) {
+  const n = parseNumber(v, 'id');
+  return Number.isFinite(n) ? n : 0;
+}

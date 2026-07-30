@@ -3,11 +3,24 @@
 // st.suppliers in-memory). Same demo-mode-fallback shape as suratJalanApi.js.
 import { getClient, isConfigured } from './supabase.js';
 
+// ---------------------------------------------------------------------------
+// bank / acct / bank_address  = the APPROVED account. This is the ONLY account
+//                               ui/documents.js prfPaper() ever prints.
+// pending_bank / pending_acct / pending_bank_address
+//                             = an account change waiting for wilbert.
+//
+// Requires supabase_migration_bank_pending.sql (shipped with this change) to
+// have been run. Before that migration the three pending_* columns don't
+// exist and an edit that touches bank details will fail loudly at the UPDATE —
+// which is the correct failure direction: refusing the edit is safe, silently
+// dropping the staging and writing the new account live is not.
+// ---------------------------------------------------------------------------
 function fromRow(row) {
   return {
     id: row.id, name: row.name, nameZh: row.name_zh, city: row.city, address: row.address,
     contact: row.contact, phone: row.phone, bank: row.bank, acct: row.acct, bankAddress: row.bank_address,
     pkp: row.pkp, overseas: row.overseas, top: row.top, bankChangePending: row.bank_change_pending,
+    pendingBank: row.pending_bank || '', pendingAcct: row.pending_acct || '', pendingBankAddress: row.pending_bank_address || '',
   };
 }
 
@@ -17,6 +30,8 @@ function toRow(sup) {
     contact: sup.contact || null, phone: sup.phone || null, bank: sup.bank || null, acct: sup.acct || null,
     bank_address: sup.bankAddress || null, pkp: !!sup.pkp, overseas: !!sup.overseas, top: sup.top || '30 hari',
     bank_change_pending: !!sup.bankChangePending,
+    pending_bank: sup.pendingBank || null, pending_acct: sup.pendingAcct || null,
+    pending_bank_address: sup.pendingBankAddress || null,
   };
 }
 

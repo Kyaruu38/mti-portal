@@ -9,6 +9,30 @@ export function num(n, dp = 0) {
 export const CURRENCIES = ['IDR', 'USD', 'EUR', 'CNY'];
 export function ccyDecimals(ccy) { return ccy === 'IDR' ? 0 : 2; }
 
+// ---------------------------------------------------------------------------
+// PPN — single source of truth.
+//
+// There are TWO vocabularies in this codebase and mixing them up silently
+// zeroes the tax:
+//   FORM values   : 'bayar' | 'kek'        <- radio/select in the PO modals
+//   DOMAIN values : 'paid'  | 'suspended'  <- what's stored on po.ppnMode and
+//                                             in the pos.ppn_mode column
+// Producers normalise form -> domain at creation (labelRequest/poConverter).
+// Anything reading po.ppnMode must compare against the DOMAIN values, and
+// should call this helper instead of re-implementing the comparison.
+//
+// Regression this guards: approval.js's computeTotals() used to test
+// `ppnMode === 'bayar'`, which is never true for a stored PO, so every PO
+// edit rewrote ppn to 0 while the printed document (which recomputed the
+// tax correctly from 'paid') still showed the full amount.
+// ---------------------------------------------------------------------------
+export const PPN_RATE = 0.11;
+export function ppnFor(subtotal, ppnMode) {
+  return ppnMode === 'paid' ? Math.round((Number(subtotal) || 0) * PPN_RATE) : 0;
+}
+// Convert the form value to the stored domain value. Use at creation time.
+export function ppnModeFromForm(formValue) { return formValue === 'bayar' ? 'paid' : 'suspended'; }
+
 // Currency amount. Never mixes currencies in one sum.
 export function money(amount, ccy = 'IDR') {
   if (amount == null || isNaN(amount)) return '—';
@@ -90,10 +114,38 @@ export function addDays(d, days) {
 export const TOP_OPTIONS = ['Bayar di muka', '3 hari', '14 hari', '30 hari', '45 hari', '60 hari', 'T/T 45 days B/L'];
 
 // Parse a TOP string ("30 hari", "45 days", "T/T 45 days B/L", "60") -> integer days.
+// Only used for the SUPPLIER master's `top` field, whose values all come from
+// TOP_OPTIONS above, so the loose "first number anywhere" match is safe here.
 export function topDays(top) {
   if (top == null) return 30;
   const m = String(top).match(/(\d+)/);
   return m ? parseInt(m[1], 10) : 30;
+}
+
+// ---------------------------------------------------------------------------
+// Payment term for a PO -> integer days, or null when the term isn't a day
+// count at all ("Payment in Advance" / "Bayar di muka").
+//
+// Deliberately anchored to the START of the string. po.terms is FREE TEXT that
+// embeds the contract number, e.g.
+//     "45 days after B/L — ref CGDD2509220096"
+// A loose /(\d+)/ match on a term with no leading day count would skip past
+// the words and return 2509220096 — the contract number — which then printed
+// on the sealed Purchase Contract as "2509220096 days after Invoice".
+// Returning null (instead of defaulting to 30) forces the caller to render the
+// real clause rather than inventing a term nobody agreed to.
+// ---------------------------------------------------------------------------
+// Accepted shapes (all anchored at the start):
+//   "45 days after B/L — ref CGDD2509220096"  -> 45   (PO Converter)
+//   "30 hari setelah invoice"                 -> 30   (Label Request)
+//   "TOP 45"                                  -> 45   (Edit PO modal)
+//   "Payment in Advance — ref CGDD…"          -> null
+//   "Bayar di muka"                           -> null
+export function poTermDays(terms) {
+  const m = String(terms == null ? '' : terms).trim().match(/^(?:TOP\s*)?(\d{1,3})\s*(?:hari|days?)?\b/i);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 // Fuzzy-ish string similarity (0..1), used for payee matching.

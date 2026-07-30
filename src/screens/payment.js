@@ -29,7 +29,7 @@ export function paymentScreen() {
   // cania/visca have prfCreate WITHOUT paymentWrite: they raise a PRF against
   // invoices sekar already pushed to "Diproses Wilbert", but they don't own
   // invoice intake and they don't track payment stages. Hiding the intake half
-  // here is UX only - RLS on invoices/prfs is the actual boundary.
+  // here is UX only — RLS on invoices/prfs is the actual boundary.
   const canIntake = can(st.user.role, 'paymentWrite');
   const canPrf = can(st.user.role, 'prfCreate');
   if (!canIntake && canPrf) {
@@ -283,6 +283,13 @@ function prfModal() {
     body: [
       h('div', { style: { background: 'var(--bg)', padding: '20px', borderRadius: '10px' } }, prfPaper(d, d.supplier, d.lines)),
       h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, [icon('warn', 11), ' ', t('prf_bank_from_master'), ' · ', t('prf_desc_hint')]),
+      // The printed block always uses the APPROVED account (masterData.js stages
+      // changes in pending_* until wilbert approves). This flags the remaining
+      // case: a supplier whose account has never been reviewed at all.
+      (d.supplier && d.supplier.bankChangePending)
+        ? h('div.cfg-banner', { style: { marginTop: '8px' } }, [icon('warn', 14),
+            `Rekening ${d.supplier.name} belum direview supervisor — cek ke Master Data sebelum PRF ini dikirim.`])
+        : null,
     ],
     footer: [
       btn(t('close'), { onClick: () => setUI({ prfModal: false }) }),

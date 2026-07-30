@@ -8,6 +8,36 @@ import { getClient, isConfigured, UUID_RE } from './supabase.js';
 
 export { UUID_RE };
 
+// ---------------------------------------------------------------------------
+// Line identity.
+//
+// A lineId is the key surat-jalan rows use to attribute shipped quantity back
+// to a specific PO line (core/outstanding.js receivedQty()). It MUST be opaque
+// and permanent.
+//
+// It used to be `${poId}:${arrayIndex}`, assigned after the insert returned.
+// Two things went wrong with that:
+//   1. An array index is RECYCLED. Delete line C (index 2), add line D — D
+//      lands on index 2 and inherits every shipment ever recorded against C.
+//   2. New lines added through the Edit PO modal were saved with lineId '',
+//      so two new lines in one edit collided on the same empty key: one
+//      shipment counted against both.
+// Opaque ids minted at creation time fix both, and let insertPO() be a single
+// atomic write instead of insert-then-patch.
+// ---------------------------------------------------------------------------
+export function newLineId() {
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === 'function') return `ln_${c.randomUUID()}`;
+  // Fallback for any context without crypto.randomUUID (older/insecure origin).
+  return `ln_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// Defensive: give any line still missing an id a fresh opaque one. Never
+// touches a line that already has one.
+export function stampLineIds(items) {
+  return (items || []).map(it => (it && it.lineId ? it : { ...it, lineId: newLineId() }));
+}
+
 function toRow(po) {
   return {
     no: po.no, contract: po.contract || null, supplier: po.supplier, supplier_zh: po.supplierZh || null,
@@ -20,6 +50,11 @@ function toRow(po) {
 }
 
 function fromRow(row) {
+  // LEGACY ONLY. Rows written before opaque ids carry `${row.id}:${idx}`
+  // already, so recomputing the same value here is a no-op for them. Nothing
+  // writes an empty lineId any more (see newLineId/stampLineIds above), so
+  // this branch should never fire for new data — it exists so historical rows
+  // keep resolving to the ids their surat-jalan rows already reference.
   const items = (row.items || []).map((it, idx) => ({ ...it, lineId: it.lineId || `${row.id}:${idx}` }));
   return {
     id: row.id, no: row.no, contract: row.contract || '', supplier: row.supplier, supplierZh: row.supplier_zh || '',
@@ -48,23 +83,23 @@ export async function fetchPOs() {
   return data.map(fromRow);
 }
 
+// ONE write. This used to be insert-then-update: the INSERT committed, then a
+// second round trip patched the lineIds. If that second call failed, insertPO
+// threw — telling the caller "not saved" — while the first INSERT was already
+// committed, leaving a server row whose every line shared an empty lineId, plus
+// a duplicate local copy of the same PO on the next login.
+//
+// lineIds no longer depend on the server-assigned id, so there is nothing to
+// patch afterwards and the whole failure mode is gone: the insert either
+// commits complete or it doesn't commit at all.
 export async function insertPO(po) {
   if (!isConfigured()) return null;
   const c = await getClient();
   if (!c) throw new Error('Supabase client unavailable');
+  po.items = stampLineIds(po.items);            // keep the local copy in sync
   const { data, error } = await c.from('pos').insert(toRow(po)).select('id').single();
   if (error) throw error;
-  const id = data.id;
-  // lineId is `${po.id}:${idx}` — unknowable until the insert above returns
-  // the real id, so the row above was inserted with whatever placeholder
-  // lineId the caller had (usually ''). Patch it now so the PERSISTED copy
-  // matches what every other session will compute for this PO's items —
-  // otherwise outstanding-qty tracking silently breaks for anyone who didn't
-  // create the PO themselves (all items collapse onto one empty-string key).
-  const items = (po.items || []).map((it, idx) => ({ ...it, lineId: `${id}:${idx}` }));
-  const { error: fixErr } = await c.from('pos').update({ items }).eq('id', id);
-  if (fixErr) throw fixErr;
-  return id;
+  return data.id;
 }
 
 // Approve/reject a PO (the ordinary approval workflow, not the delete-request
@@ -94,6 +129,10 @@ export async function updatePO(poId, po) {
   if (!isConfigured()) return;
   const c = await getClient();
   if (!c) throw new Error('Supabase client unavailable');
+  // Lines added through the Edit PO modal must never reach Postgres without an
+  // id — an empty lineId falls through to fromRow()'s positional fallback on
+  // the next fetch and adopts a deleted line's shipment history.
+  po.items = stampLineIds(po.items);
   const { error } = await c.from('pos').update(toRow(po)).eq('id', poId);
   if (error) throw error;
 }
