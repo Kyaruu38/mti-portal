@@ -1,5 +1,6 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
+import { blockWrite } from '../core/guard.js';
 import { t } from '../i18n/index.js';
 import { card, badge, btn, icon, modal, field, inputEl, selectEl, toggle, searchInput } from '../ui/components.js';
 import { fmtDateTime, TOP_OPTIONS } from '../core/format.js';
@@ -118,6 +119,7 @@ function supModal() {
 }
 
 async function saveSup() {
+  if (blockWrite('simpan supplier')) return;
   const st = getState(); const f = st.ui.supForm;
   if (!f.name) { toast('Nama supplier wajib'); return; }
   if (f.editingId) {
@@ -279,6 +281,7 @@ function auditDrawer(supId) {
 // decision is recorded server-side. Previously Approve only flipped an
 // in-memory flag (lost on next login) and Reject did nothing at all.
 async function resolveBankChange(sup, approve) {
+  if (blockWrite('putuskan usulan rekening')) return;
   const snapshot = { ...sup };
   const proposed = `${sup.pendingBank || ''} ${sup.pendingAcct || ''}`.trim();
   const previous = `${sup.bank || ''} ${sup.acct || ''}`.trim();
@@ -357,6 +360,7 @@ function saveBrandModal() {
 }
 
 async function addBrandMap(zh, canonical) {
+  if (blockWrite('tambah brand map')) return;
   const st = getState();
   const local = { zh, canonical };
   try {
@@ -373,6 +377,7 @@ async function addBrandMap(zh, canonical) {
 }
 
 async function editBrandMap(b, zh, canonical) {
+  if (blockWrite('ubah brand map')) return;
   b.zh = zh; b.canonical = canonical;
   try {
     if (UUID_RE.test(b.id)) await updateBrandMap(b.id, b);
@@ -388,6 +393,7 @@ async function editBrandMap(b, zh, canonical) {
 }
 
 async function deleteBrandMapRow(b) {
+  if (blockWrite('hapus brand map')) return;
   const st = getState();
   try {
     if (UUID_RE.test(b.id)) await deleteBrandMap(b.id);
@@ -448,6 +454,7 @@ function saveDictModal() {
 }
 
 async function addDictEntry(en, zh) {
+  if (blockWrite('tambah kamus')) return;
   const st = getState();
   const local = { en, zh };
   try {
@@ -464,6 +471,7 @@ async function addDictEntry(en, zh) {
 }
 
 async function editDictEntry(d, en, zh) {
+  if (blockWrite('ubah kamus')) return;
   d.en = en; d.zh = zh;
   try {
     if (UUID_RE.test(d.id)) await updateDescDict(d.id, d);
@@ -479,6 +487,7 @@ async function editDictEntry(d, en, zh) {
 }
 
 async function deleteDictEntry(d) {
+  if (blockWrite('hapus kamus')) return;
   const st = getState();
   try {
     if (UUID_RE.test(d.id)) await deleteDescDict(d.id);
@@ -543,6 +552,7 @@ function itemModal() {
 }
 
 async function saveItem() {
+  if (blockWrite('simpan item master')) return;
   const st = getState(); const f = st.ui.itemForm;
   if (!f.erp) { toast('Kode ERP wajib'); return; }
   if (f.id) {
@@ -577,6 +587,7 @@ async function saveItem() {
 }
 
 async function deleteItemRow(i) {
+  if (blockWrite('hapus item master')) return;
   const st = getState();
   try {
     if (UUID_RE.test(i.id)) await deleteItem(i.id);
@@ -637,6 +648,7 @@ function saveUnitModal() {
 }
 
 async function addUnit(u) {
+  if (blockWrite('tambah unit')) return;
   const st = getState();
   const local = { code: u.code, intl: u.intl, note: u.note };
   try {
@@ -653,6 +665,7 @@ async function addUnit(u) {
 }
 
 async function editUnit(u, patch) {
+  if (blockWrite('ubah unit')) return;
   Object.assign(u, patch);
   try {
     if (UUID_RE.test(u.id)) await updateUnit(u.id, u);
@@ -668,6 +681,7 @@ async function editUnit(u, patch) {
 }
 
 async function deleteUnitRow(u) {
+  if (blockWrite('hapus unit')) return;
   const st = getState();
   try {
     if (UUID_RE.test(u.id)) await deleteUnit(u.id);

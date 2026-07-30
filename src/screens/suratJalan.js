@@ -7,6 +7,8 @@ import { romanMonth, nextMonthlySeq, fmtDate, num } from '../core/format.js';
 import { outstandingPOs, closeFullyReceivedPOs, receivedQty, overDeliveredPOs } from '../core/outstanding.js';
 import { wrapPrintable } from './approval.js';
 import { fetchSuratJalan, insertSuratJalan, updateSuratJalan } from '../core/suratJalanApi.js';
+import { can } from '../auth/roles.js';
+import { blockWrite } from '../core/guard.js';
 import { isConfigured } from '../core/supabase.js';
 import { nextSjNo } from '../core/docSeqApi.js';
 import { uploadToDrive } from '../core/drive.js';
@@ -26,7 +28,12 @@ function rowKey(poId, lineId) { return `${poId}::${lineId}`; }
 // browser was about to deliver the click to, silently dropping the click.
 // The clamped value is written straight onto the DOM node instead (no
 // framework re-render involved), which is safe mid-gesture.
-function qtyInput(row, currentValue) {
+function qtyInput(row, currentValue, canWrite = true) {
+  // Plain number when the account cannot ship. A shipped quantity is the input
+  // that decides how much of a PO is considered delivered, so it must not be
+  // typeable by an observer even though the surrounding table is legitimate
+  // reading material.
+  if (!canWrite) return h('span.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } }, String(currentValue));
   return h('input.input.mono', {
     defaultValue: String(currentValue),
     onBlur: e => {
@@ -66,6 +73,11 @@ function getQty(ui, row) {
 
 export function suratJalanScreen() {
   const st = getState(); const ui = st.ui;
+  // sjWrite, mirroring the sj_rw policy (is_purchasing: wilbert/cania/visca).
+  // This file had no capability check at all, so any role holding the screen
+  // could ship goods against a PO. The outstanding list itself is legitimate
+  // reading material for an observer — only the writes are gated.
+  const canWrite = can(st.user.role, 'sjWrite');
   const outstanding = outstandingPOs(st);
   const suppliers = [...new Set(outstanding.map(x => x.po.supplier))];
   const supplier = suppliers.includes(ui.sjSupplier) ? ui.sjSupplier : suppliers[0];
@@ -89,7 +101,7 @@ export function suratJalanScreen() {
   ]);
 
   if (!suppliers.length) {
-    return h('div.stack', [overBanner, summary, card([h('div.card-pad', 'Tidak ada PO dengan barang outstanding untuk dibuat surat jalan.')], { pad: false }), historyCard(st)]);
+    return h('div.stack', [overBanner, summary, card([h('div.card-pad', 'Tidak ada PO dengan barang outstanding untuk dibuat surat jalan.')], { pad: false }), historyCard(st, canWrite)]);
   }
 
   const poSel = ui.sjPoSel || {};
@@ -115,15 +127,17 @@ export function suratJalanScreen() {
           h('td.mono', r.erp), h('td', r.name),
           h('td.mono', { style: { color: 'var(--text-3)' } }, r.poNo),
           h('td.mono.r', num(r.ordered)), h('td.mono.r', num(r.received)), h('td.mono.r', num(r.outstanding)),
-          h('td', qtyInput(r, getQty(ui, r))),
+          h('td', qtyInput(r, getQty(ui, r), canWrite)),
         ]);
       })),
     ])),
   ]) : null;
 
-  const canGenerate = rows.some(r => (ui.sjItemSel || {})[r.key] !== false && getQty(ui, r) > 0);
-  const actionBar = h('div.card', { style: { padding: '12px 18px', display: 'flex', justifyContent: 'flex-end' } }, [
-    btn('Buat Surat Jalan', { variant: 'primary', disabled: !canGenerate, onClick: () => handleGenerateClick(rows) }),
+  const canGenerate = canWrite && rows.some(r => (ui.sjItemSel || {})[r.key] !== false && getQty(ui, r) > 0);
+  const actionBar = h('div.card', { style: { padding: '12px 18px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px' } }, [
+    canWrite
+      ? btn('Buat Surat Jalan', { variant: 'primary', disabled: !canGenerate, onClick: () => handleGenerateClick(rows) })
+      : badge('Read-only — surat jalan dibuat oleh purchasing', 'gray', { iconName: 'eye' }),
   ]);
 
   const supplierBar = h('div.card', { style: { padding: '12px 18px', display: 'flex', alignItems: 'center', gap: '10px' } }, [
@@ -133,7 +147,7 @@ export function suratJalanScreen() {
 
   const preview = ui.sjLastId ? previewCard(st, ui.sjLastId) : null;
 
-  return h('div.stack', [overBanner, summary, supplierBar, poChecklist, itemsTable, rows.length ? actionBar : null, preview, historyCard(st), ui.sjWarnMissing ? missingDesignModal(ui) : null]);
+  return h('div.stack', [overBanner, summary, supplierBar, poChecklist, itemsTable, rows.length ? actionBar : null, preview, historyCard(st, canWrite), ui.sjWarnMissing ? missingDesignModal(ui) : null]);
 }
 
 // Design master is empty at rollout on purpose (built now, filled in later —
@@ -143,6 +157,7 @@ export function suratJalanScreen() {
 // pulled-in row — warning about an item that isn't even being shipped this
 // time would be a false alarm.
 function handleGenerateClick(rows) {
+  if (blockWrite('buat surat jalan')) return;
   const ui = getState().ui;
   const selected = rows.filter(r => (ui.sjItemSel || {})[r.key] !== false && getQty(ui, r) > 0);
   const missing = selected.filter(r => !r.designUrl).map(r => `${r.erp} — ${r.name}`);
@@ -217,6 +232,7 @@ async function refreshFromServer() {
 let sjInFlight = false;
 
 async function createSuratJalan(rows) {
+  if (blockWrite('buat surat jalan')) return;
   if (sjInFlight) { toast('Surat jalan sedang diproses — tunggu sebentar'); return; }
   const st = getState(); const ui = st.ui;
   const selected = rows.filter(r => (ui.sjItemSel || {})[r.key] !== false && getQty(ui, r) > 0);
@@ -247,6 +263,7 @@ async function createSuratJalan(rows) {
 }
 
 async function doCreateSuratJalan(st, ui, rows, selected) {
+  if (blockWrite('simpan surat jalan')) return;
   const poIds = [...new Set(selected.map(r => r.poId))];
   const poNos = [...new Set(selected.map(r => r.poNo))];
   // Derive supplier from the actually-selected PO(s), not raw ui.sjSupplier —
@@ -339,6 +356,7 @@ async function archiveSuratJalanToDrive(sj, { announce = false } = {}) {
 
 // Re-run the archive for a surat jalan whose driveUrl never landed.
 async function reArchive(sj) {
+  if (blockWrite('arsipkan ulang surat jalan')) return;
   await archiveSuratJalanToDrive(sj, { announce: true });
   setState({});
 }
@@ -365,7 +383,7 @@ function previewCard(st, id) {
   return h('div.stack', [bar, h('div.paper-scroll', { style: { justifyContent: 'center' } }, suratJalanPaper(sj))]);
 }
 
-function historyCard(st) {
+function historyCard(st, canWrite) {
   const list = st.suratJalan.slice(0, 20);
   return card([
     h('div.card-head', [h('div.card-title', 'Riwayat Surat Jalan'), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${st.suratJalan.length} dokumen`)]),
@@ -380,7 +398,7 @@ function historyCard(st) {
           // Offered only when there's no Drive link: either the upload failed,
           // or it succeeded and the DB write that stores the link didn't.
           // Without this the file was unreachable forever.
-          (!sj.driveUrl || String(sj.driveUrl).startsWith('drive-'))
+          (canWrite && (!sj.driveUrl || String(sj.driveUrl).startsWith('drive-')))
             ? btn('Arsip ulang', { sm: true, iconName: 'upload', onClick: () => reArchive(sj) })
             : null,
         ])),

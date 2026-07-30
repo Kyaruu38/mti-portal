@@ -8,14 +8,26 @@ import { uploadToDrive, ppkekFolder } from '../core/drive.js';
 import { readWorkbook, writeWorkbook, colLetter } from '../core/xlsx.js';
 import { num, fmtDate } from '../core/format.js';
 import { insertPpkek, updatePpkek } from '../core/ppkekApi.js';
+import { can } from '../auth/roles.js';
+import { blockWrite } from '../core/guard.js';
 
 // Report/register column order (2-tab LDP/TLDDP layout, from PPKEK DECEMBER.xlsx).
 const REPORT_COLS = ['Nopen', 'PPKEK Date', 'Contract No.', 'Suplier Name', 'USD', 'IDR', 'Jalur', 'SO', 'JO', 'Costing', 'PO ERP INA NO.', 'PPKEK Status', 'Tanggal Aktual Diterima', '__ROWID'];
 
 export function ppkekScreen() {
   const st = getState(); const ui = st.ui;
+  // ppkekWrite, mirroring the ppkek_rw policy (wilbert + sekar). This screen had
+  // no capability check at all, and its riskiest write is not a button: every
+  // register row carries four inline inputs and a status dropdown that commit on
+  // blur/change, which is easy to miss when auditing a screen for buttons.
+  const canWrite = can(st.user.role, 'ppkekWrite');
 
-  const dz = dropzone({ title: t('pk_drop'), sub: t('pk_drop_sub'), accept: '.rar,.zip', iconName: 'box', compact: true, onFiles: f => handleArchive(f[0]) });
+  const dz = dropzone({
+    title: t('pk_drop'), sub: t('pk_drop_sub'), accept: '.rar,.zip', iconName: 'box', compact: true,
+    onFiles: f => handleArchive(f[0]),
+    disabled: !canWrite,
+    disabledNote: 'Register PPKEK cuma bisa dilihat dari akun ini',
+  });
 
   const extractCard = ui.pkExtract ? extractStatus(ui.pkExtract) : card([h('div.card-pad', { style: { display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '150px' } }, [h('div.card-title', 'Hasil Ekstraksi'), h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '6px' } }, 'Drop RAR/ZIP untuk mengekstrak & parse dokumen kepabeanan.')])]);
 
@@ -23,7 +35,7 @@ export function ppkekScreen() {
 
   const top = h('div.grid', { style: { gridTemplateColumns: '1fr 1fr 1.25fr' } }, [dz, extractCard, parsedCard]);
 
-  const register = registerTable(st);
+  const register = registerTable(st, canWrite);
 
   return h('div.stack', [top, register, ui.pkDiff ? diffModal() : null]);
 }
@@ -57,7 +69,7 @@ function parsedInfo(p) {
 }
 function kv(l, v) { return h('div', [h('div', { style: { fontSize: '9.5px', fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-3)' } }, l), h('div.mono', { style: { fontSize: '12px', marginTop: '2px', color: 'var(--text)' } }, v)]); }
 
-function registerTable(st) {
+function registerTable(st, canWrite) {
   const rows = st.ppkek;
   const head = h('thead', h('tr', ['Nopen', 'Tanggal', 'Supplier', 'USD', 'IDR', 'Jalur', 'SO ✎', 'JO ✎', 'Costing ✎', 'PO ERP INA ✎', 'Status ✎'].map((c, i) =>
     h('th' + (i === 3 || i === 4 ? '.r' : ''), { style: /✎/.test(c) ? { color: 'var(--accent-tx)' } : {} }, c))));
@@ -68,8 +80,8 @@ function registerTable(st) {
     h('td.mono.r', r.usd ? num(r.usd, 2) : '—'),
     h('td.mono.r', num(r.idr)),
     h('td', badge(r.jalur, r.jalur === 'LDP' ? 'navy' : 'gray')),
-    editCell(r, 'so'), editCell(r, 'jo'), editCell(r, 'costing'), editCell(r, 'poErpIna', 96),
-    h('td', statusSelect(r)),
+    editCell(r, 'so', 84, canWrite), editCell(r, 'jo', 84, canWrite), editCell(r, 'costing', 84, canWrite), editCell(r, 'poErpIna', 96, canWrite),
+    h('td', canWrite ? statusSelect(r) : badge(r.status || 'Open', r.status === 'Closed' ? 'green' : r.status === 'Costed' ? 'blue' : 'gray')),
   ])));
   return h('div.card', [
     h('div.card-head', [
@@ -77,7 +89,9 @@ function registerTable(st) {
       h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, [h('span.mono', String(rows.length)), ' dokumen']),
       h('div.mla.row.gap8', [
         btn(t('pk_export'), { iconName: 'download', onClick: () => exportRegister() }),
-        btn(t('pk_import'), { variant: 'primary', iconName: 'upload', onClick: () => importUpdates() }),
+        canWrite
+          ? btn(t('pk_import'), { variant: 'primary', iconName: 'upload', onClick: () => importUpdates() })
+          : badge('Read-only', 'gray', { iconName: 'eye' }),
       ]),
     ]),
     h('div.tbl-wrap', h('table.tbl', [head, body])),
@@ -89,7 +103,13 @@ function registerTable(st) {
 // every keystroke (no setState/setUI — mount() has no diffing and would drop
 // characters mid-type or eat a blur-then-click), and only sync to Supabase
 // on blur, once the value has settled.
-function editCell(r, key, width = 84) {
+function editCell(r, key, width = 84, canWrite = true) {
+  // Plain text, not a disabled input: a greyed-out input still reads as "you
+  // may type here once something unlocks", which is wrong for this account.
+  if (!canWrite) {
+    return h('td', { style: { padding: '4px 6px' } },
+      h('span.mono', { style: { fontSize: '11px', color: r[key] ? 'var(--text)' : 'var(--text-3)' } }, r[key] || '—'));
+  }
   const inp = h('input.cell-edit' + (r[key] ? '.filled' : ''), {
     value: r[key] || '', placeholder: '—', style: { width: width + 'px' },
     onInput: e => { r[key] = e.target.value; inp.classList.toggle('filled', !!e.target.value); },
@@ -106,12 +126,14 @@ function statusSelect(r) {
 }
 
 async function commitPpkekField(r, key, value) {
+  if (blockWrite('ubah register PPKEK')) return;
   try { await updatePpkek(r.id, { [key]: value }); }
   catch (e) { console.error('Supabase ppkek update failed', e); toast(`Gagal sync ${key} ke server: ` + (e.message || e)); }
 }
 
 async function handleArchive(file) {
   if (!file) return;
+  if (blockWrite('import arsip PPKEK')) return;
   toast(t('loading'));
   try {
     const { files, format } = await extractArchive(file);
@@ -143,6 +165,7 @@ async function handleArchive(file) {
 }
 
 async function addRegisterRow(p, folder, files) {
+  if (blockWrite('tambah baris register PPKEK')) return;
   const local = {
     nopen: p.nopen, date: new Date(), eta: p.eta || '', supplier: p.supplier || '—',
     address: p.address || '', invoiceNo: p.invoiceNo || '', plNo: p.plNo || '',
@@ -182,6 +205,7 @@ async function exportRegister() {
 function driveUrlOf(r) { return r.driveUrl && !r.driveUrl.startsWith('drive-') ? r.driveUrl : 'https://drive.google.com/'; }
 
 async function importUpdates() {
+  if (blockWrite('import update register PPKEK')) return;
   const files = await pickFiles({ accept: '.xlsx,.xls' });
   if (!files || !files[0]) return;
   toast(t('loading'));
@@ -242,6 +266,7 @@ function diffModal() {
 }
 
 async function applyDiff() {
+  if (blockWrite('terapkan perubahan register PPKEK')) return;
   const st = getState(); const d = st.ui.pkDiff;
   for (const c of d.changes) {
     if (c.type === 'update') {

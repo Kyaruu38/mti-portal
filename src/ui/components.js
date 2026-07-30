@@ -65,12 +65,26 @@ export function table(cols, rows, { rowClass, footer, empty } = {}) {
 function text(v) { return v == null ? '—' : String(v); }
 
 // Dropzone. onFiles(File[]).
-export function dropzone({ title, sub, accept, multiple, onFiles, iconName = 'upload', compact }) {
+//
+// `disabled` renders the same box, dimmed and inert — nothing is wired, so no
+// drop and no click can start an upload. It exists because a dropzone had no way
+// to be switched off: on the Finance and PPKEK screens the drop target was the
+// one write path with no gate at all, and a dropzone is easy to miss when
+// auditing a screen for buttons. `disabledNote` replaces the subtitle so the box
+// says why it is inert instead of just looking broken.
+export function dropzone({ title, sub, accept, multiple, onFiles, iconName = 'upload', compact, disabled, disabledNote }) {
   const dz = h('div.dropzone', compact ? { style: { minHeight: '150px', padding: '20px' } } : { style: { minHeight: '220px' } }, [
-    h('span.dz-icon', icon(iconName, 20)),
+    h('span.dz-icon', icon(disabled ? 'eye' : iconName, 20)),
     h('div', { style: { fontSize: '14px', fontWeight: 700, color: 'var(--text)' } }, title),
-    sub ? h('div', { style: { fontSize: '12px', color: 'var(--text-3)' } }, sub) : null,
+    (disabled ? (disabledNote || 'Akun ini cuma bisa memantau') : sub)
+      ? h('div', { style: { fontSize: '12px', color: 'var(--text-3)' } }, disabled ? (disabledNote || 'Akun ini cuma bisa memantau') : sub)
+      : null,
   ]);
+  if (disabled) {
+    dz.style.opacity = '.5';
+    dz.style.pointerEvents = 'none';
+    return dz;
+  }
   wireDrop(dz, { accept, multiple, onFiles });
   return dz;
 }

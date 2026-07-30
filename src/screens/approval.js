@@ -1,11 +1,12 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, logAudit } from '../core/store.js';
+import { blockWrite } from '../core/guard.js';
 import { t } from '../i18n/index.js';
 import { card, badge, btn, icon, modal, field, inputEl, selectEl } from '../ui/components.js';
 import { money, num, fmtDate, ppnFor } from '../core/format.js';
 import { newLineId } from '../core/posApi.js';
 import { poDocument } from '../ui/documents.js';
-import { can } from '../auth/roles.js';
+import { can, isReadOnly } from '../auth/roles.js';
 import { downloadBlob } from '../core/dom.js';
 import { requestPoDelete, approvePoDelete, rejectPoDelete, updatePoStatus, updatePO, UUID_RE } from '../core/posApi.js';
 
@@ -42,6 +43,7 @@ export function approvalScreen() {
   // the server REJECTED still produced a fully sealed, downloadable PO PDF.
   // RLS cannot defend a client-rendered artifact — the ordering is the defence.
   const approve = async () => {
+    if (blockWrite('approve PO')) return;
     const patch = { status: 'Approved', approvedAt: new Date().toISOString(), approvedBy: st.user.username };
     if (UUID_RE.test(po.id)) {
       try {
@@ -58,6 +60,7 @@ export function approvalScreen() {
     setState({});
   };
   const reject = async () => {
+    if (blockWrite('reject PO')) return;
     const note = (draftFor(po.id).note || '').trim();
     if (!note) { toast('Alasan reject wajib diisi'); return; }
     // Server first, same reasoning as approve() above.
@@ -77,6 +80,7 @@ export function approvalScreen() {
     setUI({ rejectOpen: false });
   };
   const requestDelete = async () => {
+    if (blockWrite('request hapus PO')) return;
     const reason = prompt('Alasan hapus PO ini?');
     if (!reason) return;
     try {
@@ -88,6 +92,7 @@ export function approvalScreen() {
     } catch (e) { console.error(e); toast('Gagal ajukan request hapus: ' + (e.message || e)); }
   };
   const approveDelete = async () => {
+    if (blockWrite('approve hapus PO')) return;
     try {
       await approvePoDelete(po.id);
       const idx = st.pos.indexOf(po);
@@ -98,6 +103,7 @@ export function approvalScreen() {
     } catch (e) { console.error(e); toast('Gagal approve hapus: ' + (e.message || e)); }
   };
   const rejectDelete = async () => {
+    if (blockWrite('reject hapus PO')) return;
     try {
       await rejectPoDelete(po.id);
       po.deleteRequested = false; po.deleteReason = null;
@@ -148,7 +154,14 @@ export function approvalScreen() {
         ? [btn(t('ap_reject'), { variant: 'danger', onClick: () => setUI({ rejectOpen: !st.ui.rejectOpen }) }), btn(t('ap_approve'), { variant: 'primary', iconName: 'check', onClick: approve }), btn('Edit', { iconName: 'edit', onClick: () => openPoEdit(po) })]
         : [badge(t('ap_awaiting'), 'amber')];
 
-  const canRequestDelete = UUID_RE.test(po.id) && !po.deleteRequested && (po.by === st.user.username || isWilbert);
+  // Granted by AUTHORSHIP, not by a capability — which is why isReadOnly() is
+  // needed here specifically. A read-only account holds no cap, but the moment a
+  // PO existed whose `by` matched its username (a seed row, an import, a
+  // renamed account) this button would reappear for it. Authorship answers "is
+  // this mine", never "may I write".
+  const canRequestDelete = UUID_RE.test(po.id) && !po.deleteRequested
+    && !isReadOnly(st.user.role)
+    && (po.by === st.user.username || isWilbert);
   if (canRequestDelete) actions.push(btn('Request Delete', { variant: 'danger', onClick: requestDelete }));
 
   const deleteBanner = po.deleteRequested
@@ -291,6 +304,7 @@ function poEditModal() {
 }
 
 async function savePoEdit() {
+  if (blockWrite('simpan perubahan PO')) return;
   const st = getState(); const f = st.ui.poEdit; const po = f.ref;
   f.items.forEach(it => { it.a = (Number(it.qty) || 0) * (Number(it.u) || 0); });
   const { subtotal, ppn, total } = computeTotals(f.items, po.ppnMode);

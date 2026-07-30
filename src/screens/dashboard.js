@@ -3,6 +3,7 @@ import { getState, setState } from '../core/store.js';
 import { t } from '../i18n/index.js';
 import { card, sectionHead, badge, btn } from '../ui/components.js';
 import { money, fmtDate, daysUntil, sumByCurrency, moneyMulti } from '../core/format.js';
+import { outstandingPOs } from '../core/outstanding.js';
 
 function stat(label, value, sub, accent) {
   return card([
@@ -31,6 +32,10 @@ export function dashboardScreen() {
   else if (u.role === 'cania' || u.role === 'visca') body = labelPoBody(st, u);
   else if (u.role === 'sekar') body = sekarBody(st);
   else if (u.role === 'financemti') body = financeBody(st);
+  else if (u.role === 'cenjc') body = observerBody(st);
+  // Still a real fallback: an unknown role reaching here gets the header and
+  // nothing else rather than a thrown error. main.js already refuses to render
+  // any screen for a role missing from ACCESS, so this is the second net.
   else body = [];
 
   return h('div.stack', [header, ...body]);
@@ -59,6 +64,14 @@ function quickActions(st, u) {
   }
   if (u.role === 'financemti') {
     return [btn(t('s_finance'), { iconName: 'dollar', variant: 'primary', onClick: () => setState({ screen: 'finance' }) })];
+  }
+  if (u.role === 'cenjc') {
+    // Navigation only — every destination is read-only for this account.
+    return [
+      btn('Approval', { iconName: 'check', onClick: () => setState({ screen: 'approval' }) }),
+      btn('Surat Jalan', { iconName: 'box', onClick: () => setState({ screen: 'surat-jalan' }) }),
+      btn('Reports', { iconName: 'rep', variant: 'primary', onClick: () => setState({ screen: 'reports' }) }),
+    ];
   }
   return [];
 }
@@ -159,6 +172,75 @@ function financeBody(st) {
     h('div.grid', { style: { gridTemplateColumns: '1fr 1fr', alignItems: 'start' } }, [
       dueCard(st, dueSoon),
       activityCard(st.audit.slice(0, 6)),
+    ]),
+  ];
+}
+
+// MONITORING VIEW — for an account whose whole job is to see where things are
+// stuck, and which can change none of it.
+//
+// Deliberately different from every other body on this screen: the others answer
+// "what should I do next", filtering activity to the viewer's own username. This
+// one answers "where is the pipeline blocked", so it shows EVERY user's activity
+// and counts documents by how long they have been waiting rather than by who
+// owns them. Filtering by username here would have made the account useless.
+function observerBody(st) {
+  const pending = st.pos.filter(p => p.status === 'Menunggu Approval');
+  const overdueInv = st.invoices.filter(i => i.status !== 'Paid' && daysUntil(i.due) < 0);
+  const dueSoon = st.invoices.filter(i => i.status !== 'Paid' && daysUntil(i.due) <= 7).sort((a, b) => new Date(a.due) - new Date(b.due));
+  const unpaidPrf = st.prfs.filter(p => p.stage !== 'Paid');
+  const ppkekOpen = st.ppkek.filter(r => r.status !== 'Closed');
+  // Undelivered goods, from the same source Surat Jalan uses — never a second
+  // implementation, so the two screens cannot disagree about what is outstanding.
+  const outstanding = outstandingPOs(st);
+  // `r.status`, matching labelStock.js's own BUY NOW tab exactly — the tracker's
+  // status field, not the recomputed one, so this tile and that tab can never
+  // report different numbers for the same data.
+  const buyNow = (st.labelStock || []).filter(r => r.status === 'BUY NOW');
+
+  // Age of the oldest thing waiting in each queue — the number that actually
+  // says whether a queue is moving.
+  const ageOf = iso => { const d = daysUntil(iso); return isNaN(d) ? null : -d; };
+  const oldestPending = pending
+    .map(p => ageOf(p.createdAt)).filter(v => v != null)
+    .reduce((a, b) => Math.max(a, b), 0);
+  const oldestPrf = unpaidPrf
+    .map(p => ageOf(p.createdAt)).filter(v => v != null)
+    .reduce((a, b) => Math.max(a, b), 0);
+
+  const stuck = [
+    { label: 'PO menunggu approval Wilbert', n: pending.length, sub: pending.length ? `paling lama ${oldestPending} hari` : 'kosong', screen: 'approval' },
+    { label: 'PO barang belum lengkap dikirim', n: outstanding.length, sub: `${outstanding.reduce((a, x) => a + x.lines.filter(l => l.outstanding > 0).length, 0)} baris item`, screen: 'surat-jalan' },
+    { label: 'Invoice lewat jatuh tempo', n: overdueInv.length, sub: overdueInv.length ? moneyMulti(sumByCurrency(overdueInv)) : 'kosong', screen: 'payment' },
+    { label: 'PRF belum dibayar', n: unpaidPrf.length, sub: unpaidPrf.length ? `${moneyMulti(sumByCurrency(unpaidPrf))} · paling lama ${oldestPrf} hari` : 'kosong', screen: 'finance' },
+    { label: 'PPKEK belum Closed', n: ppkekOpen.length, sub: `${ppkekOpen.filter(r => r.status === 'Open').length} belum costing`, screen: 'ppkek' },
+    { label: 'SKU label perlu dibeli', n: buyNow.length, sub: buyNow.length ? 'status BUY NOW di tracker' : 'stok aman', screen: 'label-stock' },
+  ];
+
+  return [
+    h('div.grid.g4', [
+      stat('PO menunggu approval', String(pending.length), pending.length ? `paling lama ${oldestPending} hari` : 'antrian kosong', !!pending.length),
+      stat('Invoice overdue', String(overdueInv.length), overdueInv.length ? moneyMulti(sumByCurrency(overdueInv)) : 'tidak ada'),
+      stat('PRF belum lunas', String(unpaidPrf.length), unpaidPrf.length ? moneyMulti(sumByCurrency(unpaidPrf)) : 'tidak ada'),
+      stat('PPKEK belum Closed', String(ppkekOpen.length), `${ppkekOpen.filter(r => r.status === 'Open').length} belum costing`),
+    ]),
+    h('div.grid', { style: { gridTemplateColumns: '1.55fr 1fr', alignItems: 'start' } }, [
+      card([
+        sectionHead(h('div.row.gap8', ['Yang sedang nyangkut', badge('Read-only', 'gray', { iconName: 'eye' })]), null),
+        ...stuck.map(row => h('div.row.gap14', { style: { padding: '12px 18px', borderBottom: '1px solid var(--border)', cursor: 'pointer' }, onClick: () => setState({ screen: row.screen }) }, [
+          h('div.grow', [
+            h('div', { style: { fontSize: '12px', fontWeight: 600, color: 'var(--text)' } }, row.label),
+            h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '2px' } }, row.sub),
+          ]),
+          badge(String(row.n), row.n ? 'amber' : 'green'),
+        ])),
+      ]),
+      // EVERY user, not just this one — see the note above this function.
+      activityCard(st.audit.slice(0, 8)),
+    ]),
+    h('div.grid', { style: { gridTemplateColumns: '1fr 1fr', alignItems: 'start' } }, [
+      dueCard(st, dueSoon),
+      chartCard(st),
     ]),
   ];
 }

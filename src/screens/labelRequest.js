@@ -7,6 +7,7 @@ import { parseLabelSheet } from '../parsers/excelLabels.js';
 import { money, num, ppnFor, ppnModeFromForm } from '../core/format.js';
 import { can } from '../auth/roles.js';
 import { insertPO, newLineId } from '../core/posApi.js';
+import { blockWrite } from '../core/guard.js';
 
 export function labelRequestScreen() {
   const st = getState();
@@ -34,11 +35,17 @@ function stepEl(n, label, cur) {
 }
 
 function step1() {
+  const st = getState();
+  // labelParse: reading a label Excel rewrites the ITEM MASTER via upsertItems()
+  // and appends an upload batch, so it is a write even though nothing is sent to
+  // Supabase on this step.
+  const canParse = can(st.user.role, 'labelParse');
   const dz = dropzone({
     title: t('lr_drop'), sub: t('lr_or_browse'), accept: '.xls,.xlsx', iconName: 'upload',
     onFiles: (files) => handleFile(files[0]),
+    disabled: !canParse,
+    disabledNote: 'Upload label dipegang purchasing — akun ini cuma lihat riwayat',
   });
-  const st = getState();
   return card([
     h('div.card-pad', [
       dz,
@@ -55,6 +62,7 @@ function step1() {
 }
 
 async function handleFile(file) {
+  if (blockWrite('upload file label')) return;
   if (!file) return;
   try {
     toast(t('loading'));
@@ -102,6 +110,7 @@ function step2() {
 }
 
 function parseNow() {
+  if (blockWrite('parse label Excel')) return;
   const st = getState(); const ui = st.ui;
   try {
     const rows = ui.labelWb.rows(ui.labelSheet);
@@ -180,7 +189,9 @@ function step3() {
     h('div.mla.row.gap8', [
       h('span', { style: { fontSize: '11px', fontWeight: 600, color: 'var(--text-3)' } }, t('lr_assign_sup')),
       selectEl(supplierNames, { value: ui.assignSup || supplierNames[0], onChange: v => setUI({ assignSup: v }) }),
-      btn(t('lr_assign_gen'), { variant: 'primary', onClick: () => openPoModal() }),
+      can(st.user.role, 'poCreate')
+        ? btn(t('lr_assign_gen'), { variant: 'primary', onClick: () => openPoModal() })
+        : badge('Read-only', 'gray', { iconName: 'eye' }),
     ]),
   ]);
 
@@ -242,6 +253,7 @@ function row2(a, b, strong) { return h('div.row', { style: { justifyContent: 'sp
 function fmtToday() { const d = new Date(); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`; }
 
 async function genPO() {
+  if (blockWrite('generate PO label')) return;
   const st = getState(); const f = st.ui.poForm;
   if (!f.no || !f.no.trim()) { toast('No. PO wajib diisi'); return; }
   const selItems = (st.ui.labelResult.items || []).filter((_, i) => st.ui.labelSel[i]);

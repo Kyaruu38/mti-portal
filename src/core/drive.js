@@ -13,6 +13,18 @@ export function driveConfigured() { return FEATURES.useDrive; }
 // Returns { url, id, name, placeholder }.
 export async function uploadToDrive(file, folderPath, filename, category) {
   const name = filename || file.name || 'document';
+  // A Drive upload is the ONE write RLS cannot see, and three flows upload the
+  // file before touching Postgres (payment proof, design library, surat jalan
+  // archive). Without this, a read-only account whose database write is
+  // correctly refused could still drop files into the company Drive.
+  //
+  // Returns the same placeholder shape as the unconfigured path instead of
+  // throwing, so a caller that only wants a link keeps working and the business
+  // action it belongs to fails on its own guard rather than on this one.
+  const { blockWrite } = await import('./guard.js');
+  if (blockWrite(`upload "${name}" ke Drive`)) {
+    return { url: '', id: null, name, placeholder: true, blocked: true };
+  }
   if (!driveConfigured()) {
     // Graceful placeholder — real link filled once Drive is configured.
     return {

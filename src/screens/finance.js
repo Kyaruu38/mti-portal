@@ -8,6 +8,7 @@ import { parseNumber } from '../parsers/numbers.js';
 import { uploadToDrive } from '../core/drive.js';
 import { can } from '../auth/roles.js';
 import { updatePrfStage } from '../core/prfsApi.js';
+import { blockWrite } from '../core/guard.js';
 import { confirmPrfPaid } from '../core/paymentsApi.js';
 import { isConfigured } from '../core/supabase.js';
 
@@ -41,7 +42,15 @@ export function financeScreen() {
     ])),
   ]);
 
-  const dz = dropzone({ title: t('fn_drop_proof'), sub: t('fn_drop_proof_sub'), accept: '.pdf', iconName: 'upload', compact: true, onFiles: f => handleProof(f[0]) });
+  // The proof dropzone had NO capability check — it was the only write path on
+  // this screen that wasn't behind canPay, and it uploads the transfer proof to
+  // Drive before any database write, so RLS could not have stopped it either.
+  const dz = dropzone({
+    title: t('fn_drop_proof'), sub: t('fn_drop_proof_sub'), accept: '.pdf', iconName: 'upload', compact: true,
+    onFiles: f => handleProof(f[0]),
+    disabled: !canPay,
+    disabledNote: 'Bukti transfer diupload oleh Finance',
+  });
   const matchPanel = ui.proofMatch ? matchCard(ui.proofMatch) : (ui.proofManual ? manualCard(ui.proofManual) : card([h('div.card-pad', { style: { minHeight: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, h('span', { style: { fontSize: '12px', color: 'var(--text-3)' } }, t('fn_no_proof')))]));
 
   return h('div.stack', [
@@ -79,6 +88,7 @@ function receiveModal(prfId) {
 // atomicity concern — only touches prfs — so a plain update is correct here,
 // unlike confirmPaid() below.
 async function receivePrf(prf) {
+  if (blockWrite('terima PRF di Finance')) return;
   prf.stage = 'Diterima Finance'; prf.receivedAt = new Date().toISOString();
   try {
     await updatePrfStage(prf.id, { stage: prf.stage, receivedAt: prf.receivedAt, receiveChecklist: prf.receiveChecklist });
@@ -94,6 +104,7 @@ async function receivePrf(prf) {
 }
 
 async function handleProof(file) {
+  if (blockWrite('upload bukti transfer')) return;
   if (!file) return;
   toast(t('loading'));
   try {
@@ -231,6 +242,7 @@ function manualCard(m) {
 // attached. uploadToDrive() never throws — it degrades to a placeholder — so
 // this can't block the confirmation.
 async function confirmPaidManual(file, fields, prf) {
+  if (blockWrite('tandai PRF lunas')) return;
   if (!prf) { toast('Pilih PRF yang dibayar dulu'); return; }
   const up = await uploadToDrive(file, '', file.name, 'Bukti Bayar');
   confirmPaid({ file, fields, prf, driveUrl: up.url });
@@ -244,6 +256,7 @@ async function confirmPaidManual(file, fields, prf) {
 // nothing below runs and nothing local changes — matching what actually
 // happened server-side (everything rolled back).
 async function confirmPaid(m) {
+  if (blockWrite('tandai PRF lunas')) return;
   const st = getState(); const prf = m.prf;
   const method = m.template || 'transfer';
   const driveUrl = m.driveUrl || '';

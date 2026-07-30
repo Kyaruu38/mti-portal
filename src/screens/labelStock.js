@@ -17,6 +17,7 @@ import { labelOrders, erpCandidates } from '../core/labelOrders.js';
 import { applyLabelStockUpload, fetchLabelStock, fetchLabelUploads, setLabelStockErp } from '../core/labelStockApi.js';
 import { isConfigured } from '../core/supabase.js';
 import { can } from '../auth/roles.js';
+import { blockWrite } from '../core/guard.js';
 
 const TONE = { 'BUY NOW': 'red', 'SUFFICIENT': 'green', 'OVERSTOCK': 'amber', 'IDLE STOCK': 'gray' };
 
@@ -121,6 +122,7 @@ function uploadCard(st) {
 }
 
 async function handleFile(file) {
+  if (blockWrite('upload file stok label')) return;
   if (!file) return;
   toast('Membaca file…');
   try {
@@ -250,6 +252,7 @@ function mismatchBlock(list) {
 }
 
 async function applyUpload() {
+  if (blockWrite('simpan upload stok label')) return;
   const st = getState(); const p = st.ui.lsPreview;
   if (!p) return;
   const { res, fileName, sheetName } = p;
@@ -496,6 +499,11 @@ function matchTab(st) {
 }
 
 function matchTable(st, unmatched, cands) {
+  // Confirming an ERP match WRITES to label_stock (setLabelStockErp), so this
+  // tab needs the same capability as the weekly upload. uploadCard() was gated;
+  // this tab was not, which made it the one write path left open on a screen
+  // whose obvious write button was already locked.
+  const canWrite = can(st.user.role, 'labelStockWrite');
   if (!unmatched.length) {
     return card([h('div.card-pad', { style: { fontSize: '12px', color: 'var(--st-green-tx)', fontWeight: 600 } },
       'Semua SKU sudah punya kode ERP. Order Tracking bisa nyambungin order ke SKU.')]);
@@ -509,11 +517,13 @@ function matchTable(st, unmatched, cands) {
     h('div.row.gap8', [
       h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } },
         `Menampilkan ${shown.length} dari ${unmatched.length} yang belum kecocok`),
-      h('div.mla', btn(`Terima semua tebakan yakin (skor ≥ 0.8)`, {
-        sm: true, variant: 'primary',
-        disabled: !guesses.some(g => g && g.score >= 0.8),
-        onClick: () => acceptConfident(shown, guesses),
-      })),
+      h('div.mla', canWrite
+        ? btn(`Terima semua tebakan yakin (skor ≥ 0.8)`, {
+            sm: true, variant: 'primary',
+            disabled: !guesses.some(g => g && g.score >= 0.8),
+            onClick: () => acceptConfident(shown, guesses),
+          })
+        : badge('Read-only — pencocokan ERP dipegang purchasing', 'gray', { iconName: 'eye' })),
     ]),
     h('div.card', h('div.tbl-wrap', h('table.tbl', [
       h('thead', h('tr', ['Spec (dari tracker)', 'Market', 'Tebakan ERP', 'Spec kandidat', 'Yakin', 'Aksi'].map(c => h('th', c)))),
@@ -525,10 +535,10 @@ function matchTable(st, unmatched, cands) {
           h('td.mono', { style: { fontWeight: 700 } }, g ? g.erp : h('span', { style: { color: 'var(--text-3)', fontWeight: 400 } }, 'tidak ketemu')),
           h('td', { style: { fontSize: '10.5px', color: 'var(--text-3)', maxWidth: '240px' } }, g ? g.spec : '—'),
           h('td', g ? badge(`${Math.round(g.score * 100)}%`, g.score >= 0.8 ? 'green' : g.score >= 0.6 ? 'amber' : 'gray') : badge('—', 'gray')),
-          h('td', h('div.row.gap8', [
+          h('td', canWrite ? h('div.row.gap8', [
             g ? btn('Terima', { sm: true, variant: 'primary', onClick: () => acceptErp(r, g.erp) }) : null,
             btn('Ketik manual', { sm: true, onClick: () => setUI({ lsManual: r.id }) }),
-          ])),
+          ]) : h('span', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, '—')),
         ]);
       })),
     ]))),
@@ -559,6 +569,7 @@ function manualErpModal(st) {
 }
 
 async function acceptErp(row, erp, closeModal) {
+  if (blockWrite('cocokkan kode ERP')) return;
   try {
     await setLabelStockErp(row.id, erp);
   } catch (e) {
@@ -576,6 +587,7 @@ async function acceptErp(row, erp, closeModal) {
 // Bulk-accept only the guesses the matcher is confident about. Anything below
 // the threshold stays for a human, on purpose.
 async function acceptConfident(rows, guesses) {
+  if (blockWrite('cocokkan kode ERP massal')) return;
   const pairs = rows.map((r, i) => [r, guesses[i]]).filter(([, g]) => g && g.score >= 0.8);
   if (!pairs.length) return;
   let ok = 0, fail = 0;

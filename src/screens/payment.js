@@ -1,5 +1,6 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
+import { blockWrite } from '../core/guard.js';
 import { t } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, statusTone, driveLink } from '../ui/components.js';
 import { money, num, fmtDate, romanMonth, daysUntil, topDays, addDays } from '../core/format.js';
@@ -32,6 +33,21 @@ export function paymentScreen() {
   // here is UX only — RLS on invoices/prfs is the actual boundary.
   const canIntake = can(st.user.role, 'paymentWrite');
   const canPrf = can(st.user.role, 'prfCreate');
+
+  // OBSERVE ONLY — neither half. This branch was missing, and its absence
+  // inverted the whole screen: `!canIntake && canPrf` is false when BOTH caps
+  // are false, so a role with zero capabilities fell through to the full intake
+  // layout below and received MORE write buttons than cania/visca, who at least
+  // land in the PRF-only branch. It must come first, because it is the
+  // narrowest case.
+  if (!canIntake && !canPrf) {
+    return h('div.stack', [
+      observeOnlyNote(),
+      prfTrackingCard(st, true),
+      invoiceTable(st, { readonly: true }),
+    ]);
+  }
+
   if (!canIntake && canPrf) {
     return h('div.stack', [
       prfOnlyNote(),
@@ -126,14 +142,18 @@ function printPrf(prf) {
 function poPpnPaid(inv) { const po = getState().pos.find(p => p.no.includes(inv.poRef.replace('PO ', '')) || (p.contract && inv.poRef.includes(p.contract))); return po ? po.ppnMode === 'paid' : inv.ppnPaid; }
 function trStage(s) { const m = { 'Diterima Purchasing': t('st_diterima_purchasing'), 'Diproses Wilbert': t('st_diproses_wilbert'), 'Diterima Finance': t('st_diterima_finance'), 'Paid': t('st_paid') }; return m[s] || s; }
 
-function invoiceTable(st) {
+function invoiceTable(st, opts) {
+  // readonly: render the same table with no action buttons. Used by the
+  // observe-only branch, which needs the invoice list for monitoring but must
+  // offer no way to advance a stage or add a row.
+  const readonly = !!(opts && opts.readonly);
   const head = h('thead', h('tr', ['Invoice', t('col_supplier'), 'PO Ref', t('col_amount'), t('col_due'), t('pay_faktur'), 'File', t('col_status')].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c))));
   const body = h('tbody', st.invoices.map(inv => {
     const d = daysUntil(inv.due);
     const dueTone = inv.status === 'Paid' ? '' : d < 0 ? 'red' : d <= 1 ? 'amber' : '';
     // Handing off to Wilbert is purchasing-side work (sekar's job), not a
     // finance-stage mutation — not gated by the finance "readonly" cap.
-    const canAdvance = inv.status === 'Diterima Purchasing';
+    const canAdvance = !readonly && inv.status === 'Diterima Purchasing';
     return h('tr', { style: inv.status === 'Diterima Purchasing' && !inv.faktur && poPpnPaid(inv) ? { background: 'var(--st-amber-bg)' } : {} }, [
       h('td.mono.cell-strong', inv.no),
       h('td', inv.supplier),
@@ -149,12 +169,17 @@ function invoiceTable(st) {
     ]);
   }));
   return h('div.card', [
-    h('div.card-head', [h('div.card-title', t('pay_inv_in')), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${st.invoices.length} invoice`), h('div.mla', btn('Add Invoice', { sm: true, variant: 'primary', iconName: 'plus', onClick: () => openInvoiceModal() }))]),
+    h('div.card-head', [
+      h('div.card-title', t('pay_inv_in')),
+      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${st.invoices.length} invoice`),
+      readonly ? null : h('div.mla', btn('Add Invoice', { sm: true, variant: 'primary', iconName: 'plus', onClick: () => openInvoiceModal() })),
+    ]),
     h('div.tbl-wrap', h('table.tbl', [head, body])),
   ]);
 }
 
 async function uploadFaktur(inv) {
+  if (blockWrite('upload faktur pajak')) return;
   // Faktur number is still simulated (no real OCR/upload pipeline) — this
   // fix is scoped to persistence, not to building real faktur-pajak intake.
   inv.faktur = '010.005-26.' + Math.floor(Math.random() * 1e8);
@@ -171,6 +196,7 @@ async function uploadFaktur(inv) {
 }
 
 async function handToWilbert(inv) {
+  if (blockWrite('serahkan invoice ke Wilbert')) return;
   inv.status = 'Diproses Wilbert';
   try {
     await updateInvoice(inv.id, { status: inv.status });
@@ -217,6 +243,7 @@ function invoiceModal() {
 }
 
 async function saveInvoiceModal() {
+  if (blockWrite('simpan invoice')) return;
   const st = getState(); const f = st.ui.invoiceForm;
   const supplier = st.suppliers.find(s => s.id === f.supplierId);
   if (!f.no || !supplier || !f.due) { toast('No. Invoice, supplier, dan tanggal jatuh tempo wajib diisi'); return; }
@@ -255,6 +282,20 @@ function prfOnlyNote() {
     ]),
     h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '8px', lineHeight: 1.5 } },
       'Invoice masuk & tracking status dipegang sekar/finance. Di sini cuma bikin PRF: yang muncul adalah invoice yang statusnya minimal "Diproses Wilbert" dan belum pernah masuk PRF. Satu PRF = satu currency. Detail rekening diambil otomatis dari master supplier.'),
+  ])]);
+}
+
+// Shown to an account that holds neither half of this screen — it sees where
+// every invoice and PRF got to, and can act on none of it.
+function observeOnlyNote() {
+  return card([h('div.card-pad', [
+    h('div.row.gap8', [
+      icon('eye', 15, { stroke: 'var(--text-3)' }),
+      h('div.card-title', 'Payment — Pantau'),
+      badge('Read-only', 'gray', { iconName: 'eye' }),
+    ]),
+    h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '8px', lineHeight: 1.5 } },
+      'Akun ini cuma memantau. Invoice masuk dipegang sekar, PRF dibikin sekar/cania/visca, status bayar diubah Finance. Di sini kelihatan posisi tiap dokumen tanpa tombol aksi apa pun.'),
   ])]);
 }
 
@@ -370,6 +411,7 @@ function prfModal() {
 }
 
 async function submitPrf() {
+  if (blockWrite('kirim PRF')) return;
   const st = getState(); const d = st.ui.prfDraft;
   // Learn descriptions — sync to Supabase too (desc_dict is wired since
   // Batch 1) so this PRF-side side-effect doesn't silently stay local-only

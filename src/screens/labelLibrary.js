@@ -4,6 +4,8 @@ import { t } from '../i18n/index.js';
 import { badge, btn, icon, driveLink, selectEl, inputEl, searchInput } from '../ui/components.js';
 import { uploadToDrive } from '../core/drive.js';
 import { insertDesign } from '../core/designsApi.js';
+import { can } from '../auth/roles.js';
+import { blockWrite } from '../core/guard.js';
 import { renderThumb } from '../parsers/pdf.js';
 
 export function labelLibraryScreen() {
@@ -24,7 +26,11 @@ export function labelLibraryScreen() {
     selectEl(brands, { value: brand, onChange: v => setUI({ libBrand: v }) }),
     selectEl(markets, { value: market, onChange: v => setUI({ libMarket: v }) }),
     h('span', { style: { fontSize: '11.5px', color: 'var(--text-3)' } }, [h('span.mono', String(st.designs.length)), ` ${t('lib_designs')}`]),
-    h('div.mla', btn(t('lib_upload'), { variant: 'primary', iconName: 'upload', onClick: () => uploadDesign() })),
+    // designWrite, not screen presence. This file had no capability check at
+    // all: every role that could open the library could also add to it.
+    can(st.user.role, 'designWrite')
+      ? h('div.mla', btn(t('lib_upload'), { variant: 'primary', iconName: 'upload', onClick: () => uploadDesign() }))
+      : h('div.mla', badge('Read-only', 'gray', { iconName: 'eye' })),
   ]);
 
   const grid = h('div.lib-grid', designs.map(d => card(d)));
@@ -50,6 +56,7 @@ function card(d) {
 function brandTone(b) { const m = { MATAROAD: 'navy', HARIMAU: 'accent', SOLARIS: 'amber', ARJUNA: 'green' }; return m[b] || 'gray'; }
 
 async function uploadDesign() {
+  if (blockWrite('upload desain label')) return;
   const files = await pickFiles({ accept: 'image/*,.pdf', multiple: false });
   if (!files || !files[0]) return;
   const file = files[0];

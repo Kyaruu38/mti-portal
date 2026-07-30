@@ -6,6 +6,7 @@ import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNo
 import { parseZcPo } from '../parsers/zcPoPdf.js';
 import { money, num, ppnFor, ppnModeFromForm } from '../core/format.js';
 import { insertPO, newLineId } from '../core/posApi.js';
+import { blockWrite } from '../core/guard.js';
 
 export function poConverterScreen() {
   const st = getState(); const ui = st.ui;
@@ -33,7 +34,12 @@ export function poConverterScreen() {
       ? badge(`${res.skippedRows.length} baris TIDAK terbaca`, 'red', { iconName: 'warn' })
       : badge('Rule-based parse', 'green'),
     btn('Upload PDF lain', { onClick: () => setUI({ cvResult: null }) }),
-    btn(t('cv_send_appr') + ' →', { variant: 'primary', onClick: () => openPopup() }),
+    // poCreate, mirroring pos_insert (is_label_staff). can(...,'approve') was
+    // already used further down, but ONLY to pick the status string — it never
+    // gated the insert itself, so screen presence was the real permission.
+    can(st.user.role, 'poCreate')
+      ? btn(t('cv_send_appr') + ' →', { variant: 'primary', onClick: () => openPopup() })
+      : badge('Read-only — PO dibuat oleh purchasing', 'gray', { iconName: 'eye' }),
   ]);
 
   const fields = card([
@@ -160,6 +166,7 @@ function popup() {
 }
 
 async function genConverterPO() {
+  if (blockWrite('generate PO dari PDF')) return;
   const st = getState(); const res = st.ui.cvResult; const f = st.ui.cvForm;
   if (!f.no || !f.no.trim()) { toast('No. PO wajib diisi'); return; }
   if (res.items.some(li => !li.unit)) { toast('Unit belum dipilih untuk salah satu item — lengkapi dulu di panel Extracted'); return; }

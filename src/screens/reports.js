@@ -127,7 +127,13 @@ async function exportReport(rows, f) {
   // (RLS already scopes what audit rows a user can fetch, so this is defence in
   // depth rather than the only control — but the export shouldn't widen it.)
   const auditEntities = new Set(allowedReportModules(st.user.role).map(m => ({ PO: 'po', PRF: 'prf', Payment: 'payment', PPKEK: 'ppkek', Label: 'label' }[m])));
-  const auditRows = st.audit.filter(a => auditEntities.has(a.entity) || a.entity === 'supplier');
+  // `|| a.entity === 'supplier'` used to be unconditional, which defeated the
+  // filter it sits right next to: a role with NO audit modules still received
+  // every supplier row — and supplier audit detail spells out proposed bank
+  // accounts verbatim (masterData.js logs `usulan {bank} {acct}`). Only a role
+  // that may see PO activity has any business reading the supplier trail.
+  const seesSuppliers = auditEntities.has('po');
+  const auditRows = st.audit.filter(a => auditEntities.has(a.entity) || (seesSuppliers && a.entity === 'supplier'));
   const auditAoa = [['Waktu', 'User', 'Entity', 'Target', 'Aksi', 'Detail'], ...auditRows.map(a => [fmtDate(a.at), a.user, a.entity, a.target || '', a.action, a.detail || ''])];
   await writeWorkbook(`MTI_Report_${f.module}_${f.month}_${f.year}.xlsx`.replace(/\s/g, ''), [
     { name: 'Report', aoa }, { name: 'Audit Trail', aoa: auditAoa },
