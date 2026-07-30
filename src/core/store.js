@@ -27,6 +27,9 @@ const state = {
   payments: [],        // payment history (proofs)
   audit: [],           // audit trail entries
   suratJalan: [],      // generated verification documents
+  labelStock: [],      // Label Inventory Tracker: current stock per SKU
+  labelUploads: [],    // upload history (who/when/counts/quarantined rows)
+  labelSettings: null, // { moq, leadNormal, leadUrgent, leadSuper, overstockMultiple }
 
   // transient module state
   ui: {},              // per-screen scratch space

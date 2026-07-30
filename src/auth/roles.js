@@ -22,27 +22,30 @@ export const USERS = {
 //  sekar      = PPKEK + Payment(purchasing) + payment-status READ-ONLY
 //  financemti = Finance dashboard only
 export const ACCESS = {
-  wilbert: ['dashboard', 'approval', 'label-request', 'label-library', 'surat-jalan', 'po-converter', 'ppkek', 'payment', 'finance', 'master-data', 'reports'],
-  cania:   ['dashboard', 'label-request', 'label-library', 'surat-jalan', 'po-converter', 'payment', 'master-data', 'reports'],
-  visca:   ['dashboard', 'label-request', 'label-library', 'surat-jalan', 'po-converter', 'payment', 'master-data', 'reports'],
+  wilbert: ['dashboard', 'approval', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'ppkek', 'payment', 'finance', 'master-data', 'reports'],
+  cania:   ['dashboard', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'payment', 'master-data', 'reports'],
+  visca:   ['dashboard', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'payment', 'master-data', 'reports'],
   sekar:   ['dashboard', 'ppkek', 'payment', 'reports'],
   financemti: ['dashboard', 'finance'],
 };
 
 // Fine-grained capabilities (used to hide buttons + enforced by RLS).
+//  labelStockWrite = upload a new Label Inventory Tracker sheet. Read access to
+//                 the screen is granted by ACCESS above; this gates the upload
+//                 card, because overwriting 984 rows is not a read.
 //  paymentWrite = purchasing-side INTAKE half of the Payment screen
 //                 (add invoice, upload faktur, hand invoice to Wilbert).
 //  prfCreate    = PRF builder + preview + "Kirim ke Wilbert".
 //                 Split out from paymentWrite so cania/visca can generate a
 //                 PRF without owning invoice intake or stage tracking.
 export const CAPS = {
-  wilbert:    { approve: true, markPaid: false, financeReceive: false, editMaster: true, paymentWrite: true, prfCreate: true, paymentReadonly: false },
-  cania:      { approve: false, markPaid: false, financeReceive: false, editMaster: true, paymentWrite: false, prfCreate: true, paymentReadonly: false },
-  visca:      { approve: false, markPaid: false, financeReceive: false, editMaster: true, paymentWrite: false, prfCreate: true, paymentReadonly: false },
+  wilbert:    { approve: true, markPaid: false, financeReceive: false, editMaster: true, labelStockWrite: true, paymentWrite: true, prfCreate: true, paymentReadonly: false },
+  cania:      { approve: false, markPaid: false, financeReceive: false, editMaster: true, labelStockWrite: true, paymentWrite: false, prfCreate: true, paymentReadonly: false },
+  visca:      { approve: false, markPaid: false, financeReceive: false, editMaster: true, labelStockWrite: true, paymentWrite: false, prfCreate: true, paymentReadonly: false },
   // sekar: purchasing-side payment + PPKEK; payment STATUS is read-only for sekar.
-  sekar:      { approve: false, markPaid: false, financeReceive: false, editMaster: false, paymentWrite: true, prfCreate: true, paymentReadonly: true },
+  sekar:      { approve: false, markPaid: false, financeReceive: false, editMaster: false, labelStockWrite: false, paymentWrite: true, prfCreate: true, paymentReadonly: true },
   // finance: only mark paid / receive; cannot approve POs or raise a PRF.
-  financemti: { approve: false, markPaid: true, financeReceive: true, editMaster: false, paymentWrite: false, prfCreate: false, paymentReadonly: false },
+  financemti: { approve: false, markPaid: true, financeReceive: true, editMaster: false, labelStockWrite: false, paymentWrite: false, prfCreate: false, paymentReadonly: false },
 };
 
 // Which Reports modules a role may see.

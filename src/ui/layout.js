@@ -20,6 +20,7 @@ const NAV = [
   { label: 'nav_labelpo', items: [
     { id: 'label-request', t: 's_label', ic: 'tag' },
     { id: 'label-library', t: 's_library', ic: 'layers' },
+    { id: 'label-stock', t: 's_labelstock', ic: 'box' },
     { id: 'surat-jalan', t: 's_surat', ic: 'file' },
     { id: 'po-converter', t: 's_converter', ic: 'rep' },
   ] },
@@ -36,7 +37,7 @@ const NAV = [
 
 const TITLES = {
   dashboard: 's_dashboard', approval: 's_approval', 'label-request': 's_label',
-  'label-library': 's_library', 'surat-jalan': 's_surat', 'po-converter': 's_converter',
+  'label-library': 's_library', 'label-stock': 's_labelstock', 'surat-jalan': 's_surat', 'po-converter': 's_converter',
   ppkek: 's_ppkek', payment: 's_payment', finance: 's_finance', 'master-data': 's_master', reports: 's_reports',
 };
 

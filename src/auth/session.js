@@ -17,6 +17,7 @@ import { fetchInvoices } from '../core/invoicesApi.js';
 import { fetchPrfs } from '../core/prfsApi.js';
 import { fetchPayments } from '../core/paymentsApi.js';
 import { fetchPpkek } from '../core/ppkekApi.js';
+import { fetchLabelStock, fetchLabelUploads, fetchLabelSettings } from '../core/labelStockApi.js';
 
 // Log in by username. Uses Supabase Auth when configured; otherwise a demo check.
 export async function login(username, password) {
@@ -127,6 +128,16 @@ export async function login(username, password) {
     }));
   }
 
+  // Label Inventory Tracker. RLS scopes these to is_purchasing(), so for sekar
+  // and financemti the fetches return null and their (empty) local arrays are
+  // left alone — same null-means-couldn't-read contract as every fetch above.
+  const labelFromServer = await fetchLabelStock();
+  if (labelFromServer) getState().labelStock = labelFromServer;
+  const labelUploadsFromServer = await fetchLabelUploads();
+  if (labelUploadsFromServer) getState().labelUploads = labelUploadsFromServer;
+  const labelSettingsFromServer = await fetchLabelSettings();
+  if (labelSettingsFromServer) getState().labelSettings = labelSettingsFromServer;
+
   // Force-change-password gate: checked on every login, not cached anywhere
   // client-side — main.js's router reads user.mustChangePassword before
   // rendering ANY other screen, regardless of st.screen.
@@ -162,5 +173,6 @@ export async function logout() {
     suppliers: [], units: [], items: [], brandMap: [], designs: [], descDict: [],
     pos: [], labelBatches: [], ppkek: [], invoices: [], prfs: [], payments: [],
     audit: [], suratJalan: [],
+    labelStock: [], labelUploads: [], labelSettings: null,
   });
 }

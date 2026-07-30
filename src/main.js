@@ -11,6 +11,7 @@ import { changePasswordScreen } from './screens/changePassword.js';
 import { dashboardScreen } from './screens/dashboard.js';
 import { labelRequestScreen } from './screens/labelRequest.js';
 import { labelLibraryScreen } from './screens/labelLibrary.js';
+import { labelStockScreen } from './screens/labelStock.js';
 import { suratJalanScreen } from './screens/suratJalan.js';
 import { poConverterScreen } from './screens/poConverter.js';
 import { approvalScreen } from './screens/approval.js';
@@ -24,6 +25,7 @@ const SCREENS = {
   dashboard: dashboardScreen,
   'label-request': labelRequestScreen,
   'label-library': labelLibraryScreen,
+  'label-stock': labelStockScreen,
   'surat-jalan': suratJalanScreen,
   'po-converter': poConverterScreen,
   approval: approvalScreen,
@@ -53,8 +55,25 @@ function render() {
   } else {
     // RLS-mirroring guard: if current screen not allowed for role, redirect.
     const allowed = allowedScreens(st.user.role);
-    // Guard against redirect storms: only redirect when we actually have a valid target.
-    if (allowed.length && !allowed.includes(st.screen)) { setState({ screen: allowed[0] }); return; }
+    // FAIL CLOSED on an unknown role.
+    //
+    // This used to be `if (allowed.length && !allowed.includes(...))`, which
+    // FAILS OPEN: a role missing from ACCESS produced an empty `allowed`, the
+    // guard was skipped entirely, and that account got EVERY screen — approval,
+    // master data, finance. It was unreachable while ACCESS covered all five
+    // built-in accounts, but it is a one-character-class trap for whoever adds
+    // the sixth. An account with no configured screens must get NOTHING, not
+    // everything.
+    if (!allowed.length) {
+      console.error(`Role "${st.user.role}" tidak ada di ACCESS (auth/roles.js) — akses ditolak.`);
+      view = errorBox(new Error(
+        `Akun "${st.user.username}" belum punya hak akses layar apa pun.\n` +
+        `Role "${st.user.role}" belum didaftarkan di ACCESS. Hubungi wilbert.`
+      ));
+      mount(root, view);
+      return;
+    }
+    if (!allowed.includes(st.screen)) { setState({ screen: allowed[0] }); return; }
     let screenEl;
     try { screenEl = (SCREENS[st.screen] || dashboardScreen)(); }
     catch (e) { console.error('Screen render error:', e); screenEl = errorBox(e); }

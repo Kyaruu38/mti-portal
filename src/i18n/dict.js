@@ -40,6 +40,7 @@ export const DICT = {
   s_approval: { id: 'Approval Queue', en: 'Approval Queue', zh: '审批队列' },
   s_label: { id: 'Label Request', en: 'Label Request', zh: '标签申请' },
   s_library: { id: 'Design Library', en: 'Design Library', zh: '设计库' },
+  s_labelstock: { id: 'Stok Label', en: 'Label Stock', zh: '标签库存' },
   s_surat: { id: 'Surat Jalan', en: 'Delivery Note', zh: '送货单' },
   s_converter: { id: 'PO Converter', en: 'PO Converter', zh: '采购单转换' },
   s_ppkek: { id: 'PPKEK', en: 'PPKEK', zh: '报关 PPKEK' },
