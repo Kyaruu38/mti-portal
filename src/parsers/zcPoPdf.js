@@ -186,13 +186,35 @@ export async function parseZcPo(file) {
       // to B (as B's "prev") — so a tyre's dimension string ended up labelling
       // the natural-rubber line underneath it.
       const descParts = tokens.slice(1, qtyIdx);
+      const hasInlineDesc = descParts.length > 0;
+
+      // The row ABOVE belongs to this item unless a previous anchor already
+      // took it.
       if (i > 0 && !consumedRows.has(i - 1)) {
         const prevTokens = rows[i - 1].parts.map(p => p.str.trim()).filter(Boolean);
         if (isDescContinuation(prevTokens)) { descParts.unshift(...prevTokens); consumedRows.add(i - 1); }
       }
+
+      // The row BELOW is contested: it may be this item's wrap, or the NEXT
+      // item's description sitting above its own anchor.
+      //
+      // First-come-first-served here was wrong. For the layout
+      //     itemA(desc inline) / wrapRow / itemB(anchor)
+      // A grabbed wrapRow as its "next" and B — whose description that actually
+      // was — ended up EMPTY. The old double-claiming code polluted A but at
+      // least left B correct; naive bookkeeping made it strictly worse.
+      //
+      // Rule: only claim the row below when the row after THAT is not another
+      // anchor, or when this item has no inline description of its own (so the
+      // wrap is far more likely to be ours).
       if (i + 1 < rows.length && !consumedRows.has(i + 1)) {
         const nextTokens = rows[i + 1].parts.map(p => p.str.trim()).filter(Boolean);
-        if (isDescContinuation(nextTokens)) { descParts.push(...nextTokens); consumedRows.add(i + 1); }
+        const afterTokens = (i + 2 < rows.length) ? rows[i + 2].parts.map(p => p.str.trim()).filter(Boolean) : [];
+        const nextIsNextItemsHeader = afterTokens.length > 0 && ERP.test(afterTokens[0]);
+        if (isDescContinuation(nextTokens) && !(nextIsNextItemsHeader && hasInlineDesc)) {
+          descParts.push(...nextTokens);
+          consumedRows.add(i + 1);
+        }
       }
       const desc = descParts.join(' ').trim();
 

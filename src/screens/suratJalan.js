@@ -4,7 +4,7 @@ import { t } from '../i18n/index.js';
 import { card, badge, btn, checkRow, selectEl, icon, driveLink, modal } from '../ui/components.js';
 import { suratJalanPaper } from '../ui/documents.js';
 import { romanMonth, nextMonthlySeq, fmtDate, num } from '../core/format.js';
-import { outstandingPOs, closeFullyReceivedPOs, receivedQty } from '../core/outstanding.js';
+import { outstandingPOs, closeFullyReceivedPOs, receivedQty, overDeliveredPOs } from '../core/outstanding.js';
 import { wrapPrintable } from './approval.js';
 import { fetchSuratJalan, insertSuratJalan, updateSuratJalan } from '../core/suratJalanApi.js';
 import { isConfigured } from '../core/supabase.js';
@@ -71,6 +71,17 @@ export function suratJalanScreen() {
   const supplier = suppliers.includes(ui.sjSupplier) ? ui.sjSupplier : suppliers[0];
   const supplierPOs = outstanding.filter(x => x.po.supplier === supplier);
 
+  // Surface over-delivery. poOutstanding() computes it, but nothing rendered it,
+  // so a PO shipped beyond its ordered qty stayed invisible on every screen.
+  const over = overDeliveredPOs(st);
+  const overBanner = over.length
+    ? h('div.cfg-banner', { style: { background: 'var(--st-red-bg)', color: 'var(--st-red-tx)', borderColor: 'var(--st-red-tx)', display: 'block' } }, [
+        h('div', { style: { fontWeight: 700, marginBottom: '4px' } }, [icon('warn', 14), ` ${over.length} PO KELEBIHAN KIRIM — cek ke gudang:`]),
+        ...over.slice(0, 6).map(x => h('div.mono', { style: { fontSize: '10.5px' } },
+          `• ${x.po.contract || x.po.no} — ${x.po.supplier} — lebih ${x.totalOver}`)),
+      ])
+    : null;
+
   const summary = h('div.card', { style: { padding: '12px 18px', display: 'flex', alignItems: 'center', gap: '10px' } }, [
     icon('box', 15, { stroke: 'var(--text-3)' }),
     h('span.grow', { style: { fontSize: '12px', color: 'var(--text-2)' } }, `${outstanding.length} PO dengan barang outstanding · ${outstanding.reduce((s, x) => s + x.lines.filter(l => l.outstanding > 0).length, 0)} baris item`),
@@ -78,7 +89,7 @@ export function suratJalanScreen() {
   ]);
 
   if (!suppliers.length) {
-    return h('div.stack', [summary, card([h('div.card-pad', 'Tidak ada PO dengan barang outstanding untuk dibuat surat jalan.')], { pad: false }), historyCard(st)]);
+    return h('div.stack', [overBanner, summary, card([h('div.card-pad', 'Tidak ada PO dengan barang outstanding untuk dibuat surat jalan.')], { pad: false }), historyCard(st)]);
   }
 
   const poSel = ui.sjPoSel || {};
@@ -122,7 +133,7 @@ export function suratJalanScreen() {
 
   const preview = ui.sjLastId ? previewCard(st, ui.sjLastId) : null;
 
-  return h('div.stack', [summary, supplierBar, poChecklist, itemsTable, rows.length ? actionBar : null, preview, historyCard(st), ui.sjWarnMissing ? missingDesignModal(ui) : null]);
+  return h('div.stack', [overBanner, summary, supplierBar, poChecklist, itemsTable, rows.length ? actionBar : null, preview, historyCard(st), ui.sjWarnMissing ? missingDesignModal(ui) : null]);
 }
 
 // Design master is empty at rollout on purpose (built now, filled in later —

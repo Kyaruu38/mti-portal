@@ -123,7 +123,20 @@ async function saveSup() {
   if (f.editingId) {
     const sup = st.suppliers.find(s => s.id === f.editingId);
     if (!sup) { setUI({ supModal: false }); return; }
-    const bankChanged = sup.bank !== f.bank || sup.acct !== f.acct || sup.bankAddress !== f.bankAddress;
+    // Compare the form against the STAGED values when a proposal exists,
+    // otherwise against the live ones. Comparing only against live meant:
+    //   * retyping the ORIGINAL account read as "no change", leaving the bad
+    //     proposal queued with no way to withdraw it; and
+    //   * editing just a phone number on a supplier with a pending proposal
+    //     re-fired a bank_change audit entry.
+    const stagedBank = sup.pendingBank || sup.bank;
+    const stagedAcct = sup.pendingAcct || sup.acct;
+    const stagedAddr = sup.pendingBankAddress || sup.bankAddress;
+    const matchesApproved = sup.bank === f.bank && sup.acct === f.acct && sup.bankAddress === f.bankAddress;
+    const matchesStaged = stagedBank === f.bank && stagedAcct === f.acct && stagedAddr === f.bankAddress;
+    // Typing the approved account back in WITHDRAWS a pending proposal.
+    const withdraw = !!sup.bankChangePending && matchesApproved;
+    const bankChanged = !matchesApproved && !(sup.bankChangePending && matchesStaged);
     const before = `${sup.bank} ${sup.acct}`;
 
     // ANTI-FRAUD: a changed account is STAGED, not applied. bank/acct/
@@ -138,7 +151,10 @@ async function saveSup() {
       name: f.name, address: f.address, contact: f.contact, phone: f.phone,
       pkp: f.pkp, top: f.top, city: (f.address || '').split(',').pop().trim(),
     };
-    if (bankChanged) {
+    if (withdraw) {
+      patch.pendingBank = ''; patch.pendingAcct = ''; patch.pendingBankAddress = '';
+      patch.bankChangePending = false;
+    } else if (bankChanged) {
       patch.pendingBank = f.bank;
       patch.pendingAcct = f.acct;
       patch.pendingBankAddress = f.bankAddress;
@@ -162,13 +178,23 @@ async function saveSup() {
       // in-memory record — and a PRF printed in that session showed an account
       // the server had refused.
       console.error('Supabase supplier sync failed', e);
+      // Object.assign cannot DELETE keys the patch introduced. Supplier objects
+      // that never went through suppliersApi.fromRow() (seeded/demo rows, or any
+      // environment where the pending_* migration hasn't run) have no pending*
+      // keys, so a rolled-back proposal stayed staged in memory and could then
+      // be approved into the live account — despite the toast saying it was
+      // cancelled.
+      for (const k of Object.keys(sup)) if (!(k in snapshot)) delete sup[k];
       Object.assign(sup, snapshot);
       toast('Gagal sync ke server — perubahan dibatalkan: ' + (e.message || e));
       setState({});
       return;
     }
 
-    if (bankChanged) {
+    if (withdraw) {
+      logAudit({ entity: 'supplier', target: sup.name, action: 'bank_withdrawn', detail: `usulan dibatalkan — tetap ${before}` });
+      toast('Usulan rekening dibatalkan — rekening lama tetap aktif');
+    } else if (bankChanged) {
       logAudit({ entity: 'supplier', target: sup.name, action: 'bank_change', detail: `usulan ${f.bank} ${f.acct} (aktif tetap ${before})`, status: 'menunggu review' });
       toast('Supplier diperbarui — rekening BARU belum aktif, menunggu approval Wilbert');
     } else {
@@ -285,7 +311,7 @@ async function resolveBankChange(sup, approve) {
   setState({});
 }
 
-function actLabel(a) { const m = { bank_change: 'Rekening bank diubah', top_change: 'Default TOP diubah', contact_update: 'Kontak PIC diperbarui', create: 'Supplier dibuat', delete: 'Supplier dihapus', bank_approved: 'Rekening baru disetujui', bank_rejected: 'Usulan rekening ditolak', no_history: 'Tidak ada riwayat', insert: 'Dibuat (server)', update: 'Diperbarui (server)' }; return m[a] || a; }
+function actLabel(a) { const m = { bank_change: 'Rekening bank diubah', top_change: 'Default TOP diubah', contact_update: 'Kontak PIC diperbarui', create: 'Supplier dibuat', delete: 'Supplier dihapus', bank_approved: 'Rekening baru disetujui', bank_rejected: 'Usulan rekening ditolak', bank_withdrawn: 'Usulan rekening dibatalkan', no_history: 'Tidak ada riwayat', insert: 'Dibuat (server)', update: 'Diperbarui (server)' }; return m[a] || a; }
 
 // ---------- Brand Mapping ----------
 function brandsTab(st) {

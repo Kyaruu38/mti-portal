@@ -30,9 +30,21 @@ function toRow(sup) {
     contact: sup.contact || null, phone: sup.phone || null, bank: sup.bank || null, acct: sup.acct || null,
     bank_address: sup.bankAddress || null, pkp: !!sup.pkp, overseas: !!sup.overseas, top: sup.top || '30 hari',
     bank_change_pending: !!sup.bankChangePending,
-    pending_bank: sup.pendingBank || null, pending_acct: sup.pendingAcct || null,
-    pending_bank_address: sup.pendingBankAddress || null,
+    // Only sent when something is actually staged. Emitting them
+    // unconditionally meant that on a database where the migration hasn't run,
+    // PostgREST rejected EVERY supplier write (PGRST204) — creating a supplier
+    // or fixing a phone number failed identically to a bank edit, which is not
+    // what the docstring above promises.
+    ...(hasStaging(sup) ? {
+      pending_bank: sup.pendingBank || null,
+      pending_acct: sup.pendingAcct || null,
+      pending_bank_address: sup.pendingBankAddress || null,
+    } : {}),
   };
+}
+
+function hasStaging(sup) {
+  return !!(sup.pendingBank || sup.pendingAcct || sup.pendingBankAddress || sup.bankChangePending);
 }
 
 export async function fetchSuppliers() {

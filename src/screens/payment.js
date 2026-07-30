@@ -100,10 +100,27 @@ function prfTrackingCard(st, readonly) {
         h('td', h('div.row.gap8', [
           badge(trStage(p.stage), tone(p.stage)),
           p.paidAt ? h('span', { style: { fontSize: '10px', color: 'var(--text-3)' } }, fmtDate(p.paidAt)) : null,
+          // Second route to the document. Previously prfPaper() was reachable
+          // ONLY from the preview modal, so once a PRF was submitted there was
+          // no way back to it.
+          btn('PDF', { sm: true, iconName: 'download', onClick: () => printPrf(p) }),
         ])),
       ]))),
     ])) : h('div', { style: { padding: '16px', fontSize: '12px', color: 'var(--text-3)' } }, 'Belum ada PRF dibuat.'),
   ]);
+}
+
+// Render + print any stored PRF. `prf.supplier` is a name string on a stored
+// row, so the master record is looked up for the bank block — matching the
+// anti-fraud rule that bank details always come from master, never the row.
+function printPrf(prf) {
+  const st = getState();
+  const supplier = st.suppliers.find(s => s.name === prf.supplier) || { name: prf.supplier };
+  const html = wrapPrintable(prfPaper(prf, supplier, prf.lines || []).outerHTML, prf.no, 'landscape');
+  const w = window.open('', '_blank');
+  if (!w) { toast('Popup diblokir — izinkan popup buat Save PDF'); return; }
+  w.document.write(html); w.document.close();
+  w.onload = () => { w.focus(); w.onafterprint = () => w.close(); setTimeout(() => w.print(), 300); };
 }
 
 function poPpnPaid(inv) { const po = getState().pos.find(p => p.no.includes(inv.poRef.replace('PO ', '')) || (p.contract && inv.poRef.includes(p.contract))); return po ? po.ppnMode === 'paid' : inv.ppnPaid; }
@@ -345,7 +362,9 @@ function prfModal() {
         w.document.write(html); w.document.close();
         w.onload = () => { w.focus(); w.onafterprint = () => w.close(); setTimeout(() => w.print(), 300); };
       } }),
-      btn(t('prf_send_wilbert'), { variant: 'primary', onClick: () => submitPrf() }),
+      d.submitted
+        ? btn(t('close') + ' & selesai', { variant: 'primary', onClick: () => setUI({ prfModal: false, prfDraft: null }) })
+        : btn(t('prf_send_wilbert'), { variant: 'primary', onClick: () => submitPrf() }),
     ],
   });
 }
@@ -394,6 +413,12 @@ async function submitPrf() {
   if (!prf.id) prf.id = uid('prf'); // demo mode: insertPrf no-ops, keep a local id
   st.prfs.unshift(prf);
   logAudit({ entity: 'prf', target: prf.no, action: 'create', detail: `${prf.invoices.length} invoices · ${money(prf.amount, prf.currency)}` });
-  setUI({ prfModal: false, prfSel: {} });
-  toast(`${prf.no} dibuat & dikirim ke Wilbert untuk approval`);
+  // REGRESSION FIX: the number was written onto a NEW object (`prf`) and the
+  // modal was closed immediately, so ui.prfDraft.no stayed '' forever and the
+  // PDF button's `if (!d.no)` guard fired 100% of the time — with prfPaper()
+  // rendered in exactly one place, the statutory 付款申请单 became impossible to
+  // print at all. Keep the modal open, now carrying the real number, so the
+  // document can be produced right after submission.
+  setUI({ prfSel: {}, prfDraft: { ...d, no: prf.no, id: prf.id, stage: prf.stage, submitted: true } });
+  toast(`${prf.no} dibuat & dikirim ke Wilbert — silakan unduh PDF-nya`);
 }

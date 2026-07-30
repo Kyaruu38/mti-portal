@@ -139,6 +139,9 @@ export async function login(username, password) {
 
 export async function logout() {
   try { await signOut(); } catch { /* ignore */ }
+  // Module-level drafts live outside the store, so resetting state isn't enough
+  // — a typed rejection reason survived logout into the next user's session.
+  try { const m = await import('../screens/approval.js'); m.resetApprovalDrafts(); } catch { /* ignore */ }
   // Wipe EVERYTHING, not just the user.
   //
   // This used to clear only user/screen/menuOpen, leaving state.ui and every

@@ -12,7 +12,14 @@ import { requestPoDelete, approvePoDelete, rejectPoDelete, updatePoStatus, updat
 // Reject-note draft. Lives OUTSIDE the store on purpose: writing it into
 // st.ui via setUI() on every keystroke rebuilt the DOM mid-type and truncated
 // the note to one character (see the textarea in previewPanel below).
-const rejectDraft = { note: '' };
+// Keyed by PO id: a module-level bare string leaked a typed reason to whatever
+// PO the user clicked next, and PO B could be rejected carrying PO A's reason.
+const rejectDraft = { poId: null, note: '' };
+export function resetApprovalDrafts() { rejectDraft.poId = null; rejectDraft.note = ''; }
+function draftFor(poId) {
+  if (rejectDraft.poId !== poId) { rejectDraft.poId = poId; rejectDraft.note = ''; }
+  return rejectDraft;
+}
 
 // Only POs mirrored to Supabase (real UUID id, see labelRequest.js/poConverter.js
 // genPO()/genConverterPO()) have a backing row the delete-request RPCs can act
@@ -51,7 +58,7 @@ export function approvalScreen() {
     setState({});
   };
   const reject = async () => {
-    const note = (rejectDraft.note || '').trim();
+    const note = (draftFor(po.id).note || '').trim();
     if (!note) { toast('Alasan reject wajib diisi'); return; }
     // Server first, same reasoning as approve() above.
     if (UUID_RE.test(po.id)) {
@@ -171,11 +178,11 @@ export function approvalScreen() {
       h('textarea.input', {
         rows: 2,
         placeholder: 'Contoh: harga unit naik vs kontrak — minta renegosiasi…',
-        value: rejectDraft.note,
-        onInput: e => { rejectDraft.note = e.target.value; },
+        value: draftFor(po.id).note,
+        onInput: e => { draftFor(po.id).note = e.target.value; },
       }),
       h('div.row.gap8', { style: { justifyContent: 'flex-end', marginTop: '8px' } }, [
-        btn(t('cancel'), { sm: true, onClick: () => { rejectDraft.note = ''; setUI({ rejectOpen: false }); } }),
+        btn(t('cancel'), { sm: true, onClick: () => { resetApprovalDrafts(); setUI({ rejectOpen: false }); } }),
         h('button.btn.btn-sm', { style: { background: 'var(--st-red-tx)', color: '#fff', border: 'none', fontWeight: 700 }, onClick: reject }, t('ap_reject_confirm')),
       ]),
     ]) : null,
@@ -293,16 +300,30 @@ async function savePoEdit() {
   // PO could be re-priced from 10,000,000 to 500,000,000 and the regenerated
   // PDF still carried the chop — with nothing re-entering the approval queue.
   // Cosmetic edits (supplier spelling, contract no.) don't trigger this.
+  //
+  // REGRESSION FIX: this used to compare the freshly RECOMPUTED subtotal/total
+  // against the STORED po.subtotal/po.total. Every pre-existing PO with
+  // ppnMode 'paid' has a stale ppn of 0 (that is the very bug the ppnFor() fix
+  // addressed), so recomputation always differed and a no-op save de-approved
+  // a signed contract and inflated its total by 11%.
+  //
+  // Compare only what the USER can actually edit in this modal. The totals are
+  // derived, so they can never diverge unless one of these did.
+  const itemsKey = list => JSON.stringify((list || []).map(i => [i.d, Number(i.qty) || 0, Number(i.u) || 0, i.unit || '']));
   const commercialChange = po.status === 'Approved' && (
-    subtotal !== po.subtotal || total !== po.total ||
-    f.currency !== po.currency || f.terms !== po.terms ||
-    JSON.stringify(f.items.map(i => [i.d, i.qty, i.u, i.unit])) !==
-      JSON.stringify((po.items || []).map(i => [i.d, i.qty, i.u, i.unit]))
+    f.currency !== po.currency ||
+    f.terms !== po.terms ||
+    itemsKey(f.items) !== itemsKey(po.items)
   );
 
-  const before = { status: po.status, approvedBy: po.approvedBy, approvedAt: po.approvedAt };
+  // Full snapshot. The old rollback restored only status/approvedBy/approvedAt,
+  // so a server-rejected edit left the NEW prices on a PO still rendered as
+  // Approved — chop and all — which is exactly the artifact this was meant to
+  // prevent. Items are cloned because `po.items = f.items` aliases the modal's
+  // own array.
+  const before = { ...po, items: (po.items || []).map(i => ({ ...i })) };
   po.supplier = f.supplier; po.supplierZh = f.supplierZh; po.currency = f.currency;
-  po.terms = f.terms; po.contract = f.contract; po.items = f.items;
+  po.terms = f.terms; po.contract = f.contract; po.items = f.items.map(i => ({ ...i }));
   po.subtotal = subtotal; po.ppn = ppn; po.total = total;
   if (commercialChange) {
     po.status = 'Menunggu Approval';
@@ -315,7 +336,9 @@ async function savePoEdit() {
       await updatePO(po.id, po);
     } catch (e) {
       console.error('Supabase PO edit sync failed', e);
-      Object.assign(po, before);   // don't leave the approval reset applied locally
+      // Restore the FULL pre-edit object, not just the approval fields.
+      for (const k of Object.keys(po)) if (!(k in before)) delete po[k];
+      Object.assign(po, before);
       toast('Gagal simpan edit PO ke server: ' + (e.message || e));
       return; // keep the modal open so nothing is lost
     }

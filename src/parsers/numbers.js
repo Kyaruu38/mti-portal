@@ -43,7 +43,12 @@ export function parseNumber(value, locale = 'auto') {
   // Keep digits, separators and a leading sign. Strips "IDR", "Rp", spaces,
   // non-breaking spaces and any stray letters the PDF text layer picked up.
   let s = String(value).replace(/[\s  ]/g, '');
-  const negative = /^-/.test(s) || /^\(.*\)$/.test(s);   // -1.000 or (1.000)
+  // Normalise the Unicode dashes a PDF text layer routinely emits (U+2212 MINUS
+  // and friends), and accept a TRAILING sign — Indonesian bank and ERP
+  // statements print "1.000-". Both used to survive the [^\d.,] strip below and
+  // silently yield a POSITIVE number.
+  s = s.replace(/[−‒–—―]/g, '-');
+  const negative = /^-/.test(s) || /-$/.test(s) || /^\(.*\)$/.test(s);
   s = s.replace(/[^\d.,]/g, '');
   if (!/\d/.test(s)) return NaN;
 

@@ -6,6 +6,8 @@ import { money, num, fmtDate } from '../core/format.js';
 import { writeWorkbook } from '../core/xlsx.js';
 import { outstandingPOs } from '../core/outstanding.js';
 import { allowedReportModules } from '../auth/roles.js';
+// NOTE: buildRows() filtering alone was not enough — outstandingCard() and the
+// audit sheet in exportReport() each read state directly and bypassed it.
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
@@ -71,7 +73,11 @@ export function reportsScreen() {
     ])),
   ]);
 
-  return h('div.stack', [filterBar, tableCard, outstandingCard(st)]);
+  // outstandingCard reads st.pos DIRECTLY and has its OWN Excel export, so the
+  // buildRows() role filter never touched it — sekar (PPKEK/PRF only) still saw
+  // every outstanding PO with supplier names and values, and could export them.
+  const canSeePO = allowedReportModules(st.user.role).includes('PO');
+  return h('div.stack', [filterBar, tableCard, canSeePO ? outstandingCard(st) : null]);
 }
 
 // Outstanding POs (goods not yet fully shipped via Surat Jalan). This is a
@@ -116,7 +122,13 @@ async function exportReport(rows, f) {
   rows.forEach((r, i) => { if (r.driveUrl && !r.driveUrl.startsWith('drive-')) hyperlinks.push({ sheet: 'Report', cell: `H${i + 2}`, url: r.driveUrl, text: 'Drive' }); });
   // Audit trail tab.
   const st = getState();
-  const auditAoa = [['Waktu', 'User', 'Entity', 'Target', 'Aksi', 'Detail'], ...st.audit.map(a => [fmtDate(a.at), a.user, a.entity, a.target || '', a.action, a.detail || ''])];
+  // The audit sheet bypassed the role filter too: it wrote the WHOLE trail,
+  // including PRF and payment activity, into a purchasing role's workbook.
+  // (RLS already scopes what audit rows a user can fetch, so this is defence in
+  // depth rather than the only control — but the export shouldn't widen it.)
+  const auditEntities = new Set(allowedReportModules(st.user.role).map(m => ({ PO: 'po', PRF: 'prf', Payment: 'payment', PPKEK: 'ppkek', Label: 'label' }[m])));
+  const auditRows = st.audit.filter(a => auditEntities.has(a.entity) || a.entity === 'supplier');
+  const auditAoa = [['Waktu', 'User', 'Entity', 'Target', 'Aksi', 'Detail'], ...auditRows.map(a => [fmtDate(a.at), a.user, a.entity, a.target || '', a.action, a.detail || ''])];
   await writeWorkbook(`MTI_Report_${f.module}_${f.month}_${f.year}.xlsx`.replace(/\s/g, ''), [
     { name: 'Report', aoa }, { name: 'Audit Trail', aoa: auditAoa },
   ], hyperlinks);

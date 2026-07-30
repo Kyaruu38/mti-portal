@@ -189,7 +189,17 @@ function manualCard(m) {
         placeholder: '2.862.720.000',
         // parseNumber understands both 1.234.567,89 and 1,234,567.89 and
         // yields NaN (not 0) for junk, so a typo can't read as "zero".
-        onInput: e => { f.prfId = f.prfId || ''; f.amount = parseNumber(e.target.value); },
+        // Commit on BLUR (not per keystroke — mount() has no diffing) so the
+        // mismatch warning and the pre-select actually re-evaluate. Previously
+        // nothing re-rendered when the amount changed, so a retyped amount left
+        // a stale PRF selected and the "nominal beda" warning never appeared.
+        onBlur: e => {
+          const next = parseNumber(e.target.value);
+          if (next === f.amount || (Number.isNaN(next) && Number.isNaN(f.amount))) return;
+          f.amount = next;
+          f.prfId = undefined;   // re-run the amount-based pre-select
+          setUI({});
+        },
       })]),
       h('div', [h('div.field-label', t('fn_proof_payee')), h('input.input', { value: f.beneficiary || '', onInput: e => (f.beneficiary = e.target.value) })]),
       h('div', [h('div.field-label', t('fn_proof_date')), h('input.input.mono', { value: f.date || '', onInput: e => (f.date = e.target.value) })]),
@@ -205,7 +215,11 @@ function manualCard(m) {
     h('div.row.gap8', { style: { justifyContent: 'flex-end', marginTop: '14px' } }, [
       btn(t('fn_confirm_paid'), {
         variant: 'primary',
-        disabled: !canPay || !chosen,
+        // An unparseable amount used to leave the button enabled: parseNumber
+        // returned NaN, amountKnown went false, the mismatch check silently
+        // short-circuited, and confirming marked the PRF Paid for ITS OWN
+        // amount against a proof nobody had read.
+        disabled: !canPay || !chosen || !amountKnown,
         onClick: () => confirmPaidManual(m.file, f, chosen),
       }),
     ]),

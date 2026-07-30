@@ -5,7 +5,7 @@
 // All render on WHITE paper regardless of theme (see print.css .paper).
 import { h } from '../core/dom.js';
 import { num, fmtDate } from '../core/format.js';
-import { ccyDecimals, ppnFor, poTermDays } from '../core/format.js';
+import { ccyDecimals, ppnFor, poTermDays, isAdvanceTerm } from '../core/format.js';
 import { COMPANY } from '../config.js';
 import { CAP_MTI, LOGO_MTI } from '../assets/images.js';
 import { amountInWords } from '../parsers/amountWords.js';
@@ -33,10 +33,19 @@ export function poDocument(po) {
   const poNo = po.contract || po.no;
   // null => the term isn't a day count (e.g. "Payment in Advance"). Render the
   // real clause instead of inventing "30 days".
+  // THREE cases, not two:
+  //   a day count      -> "N days after Invoice"
+  //   explicit advance -> the prepayment clause
+  //   anything else    -> print po.terms VERBATIM.
+  // Collapsing (b) and (c) meant a legacy "T/T 45 days after B/L date" contract
+  // printed as "Payment in Advance" — commercially the wrong direction, on a
+  // sealed document.
   const topN = poTermDays(po.terms);
-  const termLine = topN == null
-    ? ['3.付款条件：预付款。', '   Payment Terms: Payment in Advance.']
-    : ['3.付款条件：收到发票后' + topN + '天。', '   Payment Terms: ' + topN + ' days after Invoice.'];
+  const termLine = topN != null
+    ? ['3.付款条件：收到发票后' + topN + '天。', '   Payment Terms: ' + topN + ' days after Invoice.']
+    : isAdvanceTerm(po.terms)
+      ? ['3.付款条件：预付款。', '   Payment Terms: Payment in Advance.']
+      : ['3.付款条件：' + (po.terms || '—') + '。', '   Payment Terms: ' + (po.terms || '—') + '.'];
 
   // 7 numbered bilingual terms (verbatim from the sample), PO no embedded in #1.
   const terms = [

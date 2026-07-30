@@ -2,7 +2,7 @@
 // Dictionary tab). Same shape as suppliersApi.js: fromRow/toRow + fetch/insert/
 // update/delete, matching the CRUD the existing UI (masterData.js dictTab)
 // already exposes (edit + delete both present, so delete is wired here too).
-import { getClient, isConfigured } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
 
 function fromRow(row) { return { id: row.id, en: row.en, zh: row.zh }; }
 function toRow(d) { return { en: d.en, zh: d.zh || null }; }

@@ -124,6 +124,11 @@ export function inputEl({ value = '', placeholder, mono, type = 'text', onInput,
 export function searchInput({ id, value = '', placeholder, mono, onChange, delay = 160 }) {
   const el = h('input.input' + (mono ? '.mono' : ''), { value, placeholder, id, autocomplete: 'off' });
   let timer = null;
+  // Commit immediately on blur as well as on the debounce. qtyInput in
+  // suratJalan.js documents the same hazard: a user who types and instantly
+  // clicks a button would otherwise lose the last keystrokes when the timer
+  // never fires.
+  el.addEventListener('blur', () => { clearTimeout(timer); if (el.value !== value) onChange(el.value); });
   el.addEventListener('input', () => {
     const v = el.value;
     const caret = el.selectionStart;
@@ -134,6 +139,19 @@ export function searchInput({ id, value = '', placeholder, mono, onChange, delay
       requestAnimationFrame(() => requestAnimationFrame(() => {
         const next = document.getElementById(id);
         if (!next || next === document.activeElement) return;
+        // ONLY reclaim focus if the rebuild actually dropped it to <body>.
+        //
+        // This used to focus() unconditionally. Every call site keeps rendering
+        // behind its screen's modal, so ~190 ms after the last keystroke focus
+        // was yanked out of whatever the user had moved on to — including the
+        // supplier bank-account field in the Edit Supplier modal, which sits
+        // over this input and shows no sign anything went wrong. Digits of an
+        // account number ended up in a search box hidden behind the overlay.
+        const active = document.activeElement;
+        const stolen = active && active !== document.body && active.tagName !== 'HTML';
+        if (stolen) return;
+        // Don't grab focus from under an open modal/drawer either.
+        if (document.querySelector('.overlay, .modal, .drawer')) return;
         next.value = v;
         next.focus();
         try { next.setSelectionRange(caret, caret); } catch { /* not text-selectable */ }

@@ -64,6 +64,9 @@ export function outstandingPOs(st) {
 // POs that have been shipped MORE than ordered. Nothing surfaced this before.
 export function overDeliveredPOs(st) {
   return st.pos
+    // Same scope as outstandingPOs — without this it surfaced rejected and
+    // soft-deleted POs too.
+    .filter(p => (p.source === 'label' || p.source === 'converter') && p.status === 'Approved')
     .map(p => ({ po: p, ...poOutstanding(st, p) }))
     .filter(x => x.hasOverDelivery);
 }
@@ -75,13 +78,17 @@ export function closeFullyReceivedPOs(st, poIds, logAudit) {
     if (!po || po.closed) return;
     const roll = poOutstanding(st, po);
     if (!roll.isFullyReceived) return;
+    // NEVER auto-close an over-delivered PO. Closing it hides the discrepancy
+    // in the one place someone would notice it. Leave it open and flagged.
+    if (roll.hasOverDelivery) {
+      logAudit({
+        entity: 'po', target: po.no, action: 'over_delivery',
+        detail: `kelebihan kirim ${roll.totalOver} — PO TIDAK ditutup otomatis, cek ke gudang`,
+      });
+      return;
+    }
     po.closed = true;
     po.closedAt = new Date().toISOString();
-    logAudit({
-      entity: 'po', target: po.no, action: 'auto_close',
-      detail: roll.hasOverDelivery
-        ? `semua item diterima — PERINGATAN: kelebihan kirim ${roll.totalOver}`
-        : 'semua item diterima penuh',
-    });
+    logAudit({ entity: 'po', target: po.no, action: 'auto_close', detail: 'semua item diterima penuh' });
   });
 }

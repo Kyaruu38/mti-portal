@@ -39,7 +39,25 @@
      deliberately — the deploy target is Chrome and PDF output already relies on
      Chrome's native print renderer.
      ====================================================================== */
-  .content *:not(:has(.paper)):not(.paper):not(.paper *) { display:none !important; }
+  /*
+  // SCOPED TO body:has(.paper).
+  //
+  // Unscoped, this hid EVERYTHING under .content whenever no .paper existed —
+  // which is 9 of the 11 screens (dashboard, master data, reports, PPKEK, label
+  // request/library, PO converter, finance, payment). Ctrl+P on any of them
+  // produced a single blank sheet. Printing the Reports table — the screen with
+  // the most obvious "print this" use case — gave you nothing.
+  //
+  // With the guard, a screen holding a document isolates it, and a screen with
+  // no document falls back to the previous (whole-screen) behaviour.
+  */
+  body:has(.paper) .content *:not(:has(.paper)):not(.paper):not(.paper *) { display:none !important; }
+  /* The toast is a SIBLING of .app-shell, so the rule above never touched it —
+     a warehouse sheet printed with "✓ Surat jalan … dibuat" in the corner. */
+  .toast, .toast-wrap { display:none !important; }
+  /* Neutralise the modal scrim: with "Background graphics" on (needed for the
+     navy/orange letterhead) it inked a full grey page behind the document. */
+  .overlay, [class*='overlay'] { background:transparent !important; }
   /* Strip the card chrome from whatever wraps the paper. */
   .content .card:has(.paper),
   .content .card-pad:has(.paper) {

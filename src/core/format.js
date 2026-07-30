@@ -142,10 +142,23 @@ export function topDays(top) {
 //   "Payment in Advance — ref CGDD…"          -> null
 //   "Bayar di muka"                           -> null
 export function poTermDays(terms) {
-  const m = String(terms == null ? '' : terms).trim().match(/^(?:TOP\s*)?(\d{1,3})\s*(?:hari|days?)?\b/i);
+  const raw = String(terms == null ? '' : terms).trim();
+  // "T/T 45 days after B/L date" is a first-class shape here — it's in
+  // TOP_OPTIONS and in seed.js. Anchoring without allowing the T/T prefix made
+  // every existing T/T contract fall through to null, and documents.js then
+  // printed "Payment in Advance" on a chopped 45-day contract.
+  const m = raw.match(/^(?:TOP|T\/T)?\s*(\d{1,3})\s*(?:hari|days?)?\b/i);
   if (!m) return null;
   const n = parseInt(m[1], 10);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+// Is this term explicitly a prepayment? Separate from poTermDays() returning
+// null, which only means "no day count found" — those are NOT the same thing
+// and collapsing them printed prepayment terms onto legacy contracts.
+export function isAdvanceTerm(terms) {
+  return /^\s*(payment\s+in\s+advance|bayar\s+di\s+muka|prepay(ment)?|advance\s+payment)\b/i
+    .test(String(terms == null ? '' : terms));
 }
 
 // Fuzzy-ish string similarity (0..1), used for payee matching.
