@@ -64,7 +64,12 @@ function idInt(n) {
 // ---------- Chinese (financial 大写) ----------
 const ZH_DIGITS = ['零','壹','贰','叁','肆','伍','陆','柒','捌','玖'];
 const ZH_SMALL = ['', '拾', '佰', '仟'];
-const ZH_BIG = ['', '万', '亿', '兆'];
+// 10^0, 10^4, 10^8, 10^12, 10^16. The table used to stop at 兆, so any amount
+// of 10^16 or more indexed past the end and printed the literal word
+// "undefined" inside the amount-in-words line on a PRF headed for the bank.
+// A number that big is a typo or a misparse rather than a real order, but a
+// document that says 壹undefined印尼盾 is worse than one that says the digits.
+const ZH_BIG = ['', '万', '亿', '兆', '京'];
 
 function zhFour(n) {
   // n: 0..9999 -> financial string without trailing big-unit
@@ -97,6 +102,12 @@ function zhFour(n) {
 function zhInt(n) {
   n = Math.floor(Math.abs(n));
   if (n === 0) return '零';
+  // Past the end of the myriad table (>= 10^20) fall back to plain digits
+  // rather than emitting an undefined unit.
+  if (n >= Math.pow(10, 4 * ZH_BIG.length)) {
+    // BigInt, not String(n): String(1e21) is "1e+21".
+    try { return BigInt(n).toString(); } catch { return String(n); }
+  }
   const groups = [];
   while (n > 0) { groups.push(n % 10000); n = Math.floor(n / 10000); }
 

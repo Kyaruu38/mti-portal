@@ -48,7 +48,13 @@ export function parseNumber(value, locale = 'auto') {
   // statements print "1.000-". Both used to survive the [^\d.,] strip below and
   // silently yield a POSITIVE number.
   s = s.replace(/[−‒–—―]/g, '-');
-  const negative = /^-/.test(s) || /-$/.test(s) || /^\(.*\)$/.test(s);
+  // A trailing dash is ambiguous in Indonesian documents, and the two readings
+  // are 2x apart with the sign flipped:
+  //     "1.000-"      accounting negative -> -1000   (ERP / bank statements)
+  //     "Rp 1.000,-"  no-cents marker     ->  1000   (invoices, quotations)
+  // In "1.000,-" the dash stands in for "00" after the decimal comma; it is not
+  // a sign at all. Only a dash sitting directly after a DIGIT is negative.
+  const negative = /^-/.test(s) || /\d-$/.test(s) || /^\(.*\)$/.test(s);
   s = s.replace(/[^\d.,]/g, '');
   if (!/\d/.test(s)) return NaN;
 

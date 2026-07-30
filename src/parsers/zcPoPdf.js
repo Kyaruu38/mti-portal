@@ -140,42 +140,180 @@ export async function parseZcPo(file) {
       && !/共计|合计|总计|PPN|增值税|In total|Amount|ERP Code|Description|Dimension|Quantity|Unit\b|Price|货物如下|Goods as follows/i.test(joined);
   };
 
+  // -------------------------------------------------------------------------
+  // TWO LAYOUTS, TWO PASSES.
+  //
+  // Pass 1 assumes ERP + qty + unit + price + amount all sit on the ERP
+  // anchor row. That is true of the ZC (中策) export the parser was built from.
+  //
+  // It is NOT true of every supplier. In the PT INCLUSION PO
+  // (samples/inclusion gabungan.pdf) each item occupies a vertical BAND of
+  // 4-5 text rows and the price sits on the row ABOVE the anchor, with its
+  // decimal tail wrapping onto the row BELOW:
+  //
+  //     y=594  MTI锂基脂（lithium grease）【SEP2，        1,058,829.38000   <- price
+  //     y=590  0107010024ID          80 桶   84,706,350.40                <- anchor, NO price
+  //     y=584  15KG/Pail】安美                    0                        <- price tail
+  //     y=581                        DRUMP                                 <- unit cont.
+  //
+  // Pass 1 finds no price on the anchor row, so every one of the 5 items was
+  // dropped and the converted PO came out empty.
+  //
+  // Pass 2 retries using the item's BAND: the rows nearer to THIS anchor than
+  // to any other anchor (a Voronoi split on y — no magic pixel window, so it
+  // adapts to whatever row spacing a supplier uses). Pass 1 is left completely
+  // untouched, so a layout that already worked cannot regress: pass 2 only ever
+  // runs on a row pass 1 was about to throw away.
+  // -------------------------------------------------------------------------
+  const tokensOf = row => row.parts.map(p => p.str.trim()).filter(Boolean);
+
+  // qty / unit / price / description, given a token list and the anchor's
+  // amount token. Returns null when the price can't be located.
+  const resolveLine = (tokens, stopIdx) => {
+    let priceIdx = -1;
+    for (let k = stopIdx - 1; k >= 1; k--) {
+      if (PRICE_RE.test(tokens[k])) { priceIdx = k; break; }
+    }
+    if (priceIdx === -1) return null;
+
+    // Quantity token = the last digit-bearing token before price (qty is
+    // always closer to price than any digits inside the description, e.g.
+    // "100#" mid-desc). Unit is either merged into that same token
+    // ("3,000 张PC") or sits in the token(s) between it and price ("千克kg").
+    let qtyIdx = -1;
+    for (let k = priceIdx - 1; k >= 1; k--) {
+      if (/\d/.test(tokens[k])) { qtyIdx = k; break; }
+    }
+    if (qtyIdx === -1) return { noQty: true };
+
+    // `[\d,]+` stopped at the decimal point, so "17,000.50" parsed as qty
+    // 17000 and dumped ".50" into mergedUnit — which then failed the
+    // `!li.unit` gate in poConverter.js and printed verbatim on the PO.
+    // Weight-priced lines (千克kg) routinely carry decimals.
+    const qtyMatch = tokens[qtyIdx].match(/^(-?[\d,]+(?:\.\d+)?)(.*)$/);
+    const mergedUnit = qtyMatch ? qtyMatch[2].trim() : '';
+    const unitTokens = tokens.slice(qtyIdx + 1, priceIdx).join(' ').trim();
+    return {
+      priceIdx, qtyIdx,
+      qty: qtyMatch ? toNum(qtyMatch[1]) : 0,
+      // Keep BOTH halves: INCLUSION splits the unit as "80 桶" + "DRUMP", and
+      // dropping either loses information the operator needs in the picker.
+      unit: [mergedUnit, unitTokens].filter(Boolean).join(' ').trim(),
+      price: toNum(tokens[priceIdx]),
+      descParts: tokens.slice(1, qtyIdx),
+    };
+  };
+
   for (const page of pdf.pages) {
     const rows = page.lines;
     // Rows already claimed as another item's wrapped description, per page.
     const consumedRows = new Set();
+
+    // Anchor rows, found up front so pass 2 can work out band boundaries.
+    const anchorIdx = [];
     for (let i = 0; i < rows.length; i++) {
-      const tokens = rows[i].parts.map(p => p.str.trim()).filter(Boolean);
-      if (!tokens.length || !ERP.test(tokens[0])) continue;
+      const tk = tokensOf(rows[i]);
+      if (tk.length && ERP.test(tk[0]) && AMOUNT_RE.test(tk[tk.length - 1])) anchorIdx.push(i);
+    }
+    // THE ITEM TABLE'S VERTICAL EXTENT — a hard fence for pass 2.
+    //
+    // Without it the first item's band is unbounded upward and the last item's
+    // unbounded downward, and both reached into text that isn't an item:
+    //   item 1  read qty "60 天付款"          from the Payment terms block above
+    //   item 5  read qty 3,090,741,801.10     from the 共计/增值税/费用总计 block below
+    // Both look like a plausible number and neither raises an error, which is
+    // exactly the kind of quiet wrong value that must not reach a PO.
+    //
+    // rows are sorted y-descending, so a HIGHER index is FURTHER DOWN the page.
+    const rowText = i => tokensOf(rows[i]).join(' ');
+    const HEADER_RE = /ERP\s*Code|物料编码|Material\s*Code/i;
+    const TOTALS_RE = /共计|合计|总计|增值税|费用总计|in\s*total\b/i;
+    let headerIdx = -1;
+    let totalsIdx = rows.length;
+    if (anchorIdx.length) {
+      const last = anchorIdx[anchorIdx.length - 1];
+      for (let i = anchorIdx[0] - 1; i >= 0; i--) if (HEADER_RE.test(rowText(i))) { headerIdx = i; break; }
+      for (let i = last + 1; i < rows.length; i++) if (TOTALS_RE.test(rowText(i))) { totalsIdx = i; break; }
+    }
 
+    // Rows belonging to anchor k.
+    //
+    // Boundary rule, read straight off the sample rather than guessed: an item's
+    // block STARTS on the row directly above its anchor (the first line of its
+    // description) and RUNS DOWN to just before the next item's own first
+    // description row — i.e. two rows before the next anchor. Everything in
+    // between (wrapped description, the unit continuation "DRUMP", the price's
+    // wrapped decimal tail) falls inside without needing a pixel window.
+    //
+    // A y-midpoint (Voronoi) split was tried first and mis-assigned rows for the
+    // one item whose description wraps three lines: geometry alone can't tell
+    // whether a line between two anchors is the upper item's tail or the lower
+    // item's head, but index adjacency can.
+    //
+    // Below the LAST anchor there is no next anchor to fence against, so the
+    // totals row does the job. A supplier whose PO carries no totals row at all
+    // would leave that edge open onto the footer terms ("...2% per day",
+    // "9:00-17:00"), so the reach is additionally capped at the tallest gap
+    // observed between two anchors on this page — an item block is never taller
+    // than the tallest block.
+    let maxSpan = 4;
+    for (let k = 1; k < anchorIdx.length; k++) maxSpan = Math.max(maxSpan, anchorIdx[k] - anchorIdx[k - 1]);
+
+    const bandRange = (k) => {
+      // The row above the anchor is only ours if it isn't the PREVIOUS anchor.
+      // Two anchors on consecutive rows (an item with no wrapped description at
+      // all) otherwise let the lower one read the upper one's price and amount.
+      const from = Math.max(
+        headerIdx + 1,
+        anchorIdx[k] - 1,
+        k > 0 ? anchorIdx[k - 1] + 1 : 0,
+      );
+      const downTo = k < anchorIdx.length - 1
+        ? anchorIdx[k + 1] - 2
+        : Math.min(totalsIdx - 1, anchorIdx[k] + maxSpan);
+      // max() with the anchor itself: two adjacent anchor rows would otherwise
+      // produce a range that excludes the very row being resolved.
+      const to = Math.min(rows.length - 1, Math.max(anchorIdx[k], downTo));
+      return { from, to };
+    };
+    const bandTokens = ({ from, to }) => {
+      const parts = [];
+      for (let i = from; i <= to; i++) parts.push(...rows[i].parts);
+      // x order, so the right-to-left column walk still holds across rows.
+      return parts.map(p => ({ s: String(p.str).trim(), x: p.x }))
+        .filter(p => p.s).sort((a, b) => a.x - b.x).map(p => p.s);
+    };
+
+    for (let a = 0; a < anchorIdx.length; a++) {
+      const i = anchorIdx[a];
+      const tokens = tokensOf(rows[i]);
       const amountTok = tokens[tokens.length - 1];
-      if (!AMOUNT_RE.test(amountTok)) continue; // not an item row (header/total/blank) — not counted
 
-      let priceIdx = -1;
-      for (let k = tokens.length - 2; k >= 1; k--) {
-        if (PRICE_RE.test(tokens[k])) { priceIdx = k; break; }
+      // PASS 1 — anchor row only (unchanged behaviour).
+      let hit = resolveLine(tokens, tokens.length - 1);
+      let src = tokens;
+      let banded = false;
+
+      // PASS 2 — the whole band, only if pass 1 found no price.
+      if (!hit || hit.noQty) {
+        const range = bandRange(a);
+        const band = bandTokens(range);
+        // The amount is still taken from the anchor row; only stop the price
+        // search before the anchor's amount token wherever it landed in x order.
+        const stop = band.lastIndexOf(amountTok);
+        const alt = resolveLine(band, stop > 0 ? stop : band.length - 1);
+        if (alt && !alt.noQty) {
+          hit = alt; src = band; banded = true;
+          // Every row in the band is now attributed to THIS item, so a later
+          // pass-1 item can't also claim one of them as its wrapped description.
+          for (let r = range.from; r <= range.to; r++) consumedRows.add(r);
+        }
       }
-      if (priceIdx === -1) { out.skippedRows.push({ erp: tokens[0], reason: 'harga tidak terbaca', raw: tokens.join(' ') }); continue; }
 
-      // Quantity token = the last digit-bearing token before price (qty is
-      // always closer to price than any digits inside the description, e.g.
-      // "100#" mid-desc). Unit is either merged into that same token
-      // ("3,000 张PC") or sits in the token(s) between it and price ("千克kg").
-      let qtyIdx = -1;
-      for (let k = priceIdx - 1; k >= 1; k--) {
-        if (/\d/.test(tokens[k])) { qtyIdx = k; break; }
-      }
-      if (qtyIdx === -1) { out.skippedRows.push({ erp: tokens[0], reason: 'qty tidak terbaca', raw: tokens.join(' ') }); continue; }
+      if (!hit) { out.skippedRows.push({ erp: tokens[0], reason: 'harga tidak terbaca', raw: tokens.join(' ') }); continue; }
+      if (hit.noQty) { out.skippedRows.push({ erp: tokens[0], reason: 'qty tidak terbaca', raw: tokens.join(' ') }); continue; }
 
-      // `[\d,]+` stopped at the decimal point, so "17,000.50" parsed as qty
-      // 17000 and dumped ".50" into mergedUnit — which then failed the
-      // `!li.unit` gate in poConverter.js and printed verbatim on the PO.
-      // Weight-priced lines (千克kg) routinely carry decimals.
-      const qtyMatch = tokens[qtyIdx].match(/^(-?[\d,]+(?:\.\d+)?)(.*)$/);
-      const qty = qtyMatch ? toNum(qtyMatch[1]) : 0;
-      const mergedUnit = qtyMatch ? qtyMatch[2].trim() : '';
-      const unitTokens = tokens.slice(qtyIdx + 1, priceIdx).join(' ').trim();
-      const unit = unitTokens || mergedUnit;
+      const { priceIdx, qty, unit } = hit;
 
       // BOOKKEEPING: a wrapped description row may only be consumed ONCE.
       //
@@ -185,12 +323,13 @@ export async function parseZcPo(file) {
       // `wrapA` was appended to A (as A's "next") and simultaneously prepended
       // to B (as B's "prev") — so a tyre's dimension string ended up labelling
       // the natural-rubber line underneath it.
-      const descParts = tokens.slice(1, qtyIdx);
+      const descParts = hit.descParts.slice();
       const hasInlineDesc = descParts.length > 0;
 
       // The row ABOVE belongs to this item unless a previous anchor already
-      // took it.
-      if (i > 0 && !consumedRows.has(i - 1)) {
+      // took it. SKIPPED in banded mode: the band already swept every row that
+      // belongs to this item, so scanning neighbours again would duplicate them.
+      if (!banded && i > 0 && !consumedRows.has(i - 1)) {
         const prevTokens = rows[i - 1].parts.map(p => p.str.trim()).filter(Boolean);
         if (isDescContinuation(prevTokens)) { descParts.unshift(...prevTokens); consumedRows.add(i - 1); }
       }
@@ -207,7 +346,7 @@ export async function parseZcPo(file) {
       // Rule: only claim the row below when the row after THAT is not another
       // anchor, or when this item has no inline description of its own (so the
       // wrap is far more likely to be ours).
-      if (i + 1 < rows.length && !consumedRows.has(i + 1)) {
+      if (!banded && i + 1 < rows.length && !consumedRows.has(i + 1)) {
         const nextTokens = rows[i + 1].parts.map(p => p.str.trim()).filter(Boolean);
         const afterTokens = (i + 2 < rows.length) ? rows[i + 2].parts.map(p => p.str.trim()).filter(Boolean) : [];
         const nextIsNextItemsHeader = afterTokens.length > 0 && ERP.test(afterTokens[0]);
@@ -218,7 +357,7 @@ export async function parseZcPo(file) {
       }
       const desc = descParts.join(' ').trim();
 
-      const price = toNum(tokens[priceIdx]);
+      const price = hit.price;
       const amount = toNum(amountTok);
 
       out.items.push({
