@@ -23,6 +23,23 @@ export function paymentScreen() {
   // must NOT disable invoice hand-off or PRF creation — only informs the badge.
   const readonly = can(st.user.role, 'paymentReadonly');
 
+  // Two independent halves of this screen:
+  //   paymentWrite -> INTAKE   (drop-zone, invoice table, faktur, hand-off)
+  //   prfCreate    -> PRF      (builder + preview + send to Wilbert)
+  // cania/visca have prfCreate WITHOUT paymentWrite: they raise a PRF against
+  // invoices sekar already pushed to "Diproses Wilbert", but they don't own
+  // invoice intake and they don't track payment stages. Hiding the intake half
+  // here is UX only - RLS on invoices/prfs is the actual boundary.
+  const canIntake = can(st.user.role, 'paymentWrite');
+  const canPrf = can(st.user.role, 'prfCreate');
+  if (!canIntake && canPrf) {
+    return h('div.stack', [
+      prfOnlyNote(),
+      prfBuilder(st),
+      ui.prfModal ? prfModal() : null,
+    ]);
+  }
+
   // Faktur reminder ONLY when linked PO has PPN=Dibayar (paid) and faktur missing.
   const needFaktur = st.invoices.filter(i => !i.faktur && poPpnPaid(i) && i.status !== 'Paid');
   const banner = (ui.pfBannerClosed ? [] : needFaktur.slice(0, 1)).map(inv => h('div.cfg-banner', { style: { justifyContent: 'flex-start' } }, [
@@ -175,6 +192,20 @@ async function saveInvoiceModal() {
   logAudit({ entity: 'invoice', target: local.no, action: 'create', detail: `${supplier.name} · ${money(local.amount, local.currency)}` });
   setUI({ invoiceModal: false });
   toast(`Invoice ${local.no} ditambahkan`);
+}
+
+// Shown only in PRF-generate-only mode (cania/visca) so it's obvious why the
+// invoice intake table isn't here and where the outstanding list comes from.
+function prfOnlyNote() {
+  return card([h('div.card-pad', [
+    h('div.row.gap8', [
+      icon('card', 15, { stroke: 'var(--text-3)' }),
+      h('div.card-title', 'Buat PRF'),
+      badge('Generate only', 'gray', { iconName: 'eye' }),
+    ]),
+    h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '8px', lineHeight: 1.5 } },
+      'Invoice masuk & tracking status dipegang sekar/finance. Di sini cuma bikin PRF: yang muncul adalah invoice yang statusnya minimal "Diproses Wilbert" dan belum pernah masuk PRF. Satu PRF = satu currency. Detail rekening diambil otomatis dari master supplier.'),
+  ])]);
 }
 
 function prfBuilder(st) {

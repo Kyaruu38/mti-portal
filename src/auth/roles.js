@@ -17,25 +17,32 @@ export const USERS = {
 // Screen access per role (menus hidden + RLS enforced).
 //  wilbert    = full access + approval queue
 //  cania/visca= Label + PO Converter + Master data (+ their label sub-screens)
+//               + Payment screen in PRF-GENERATE-ONLY mode (no invoice intake,
+//               no stage tracking) - see paymentScreen()'s canIntake branch
 //  sekar      = PPKEK + Payment(purchasing) + payment-status READ-ONLY
 //  financemti = Finance dashboard only
 export const ACCESS = {
   wilbert: ['dashboard', 'approval', 'label-request', 'label-library', 'surat-jalan', 'po-converter', 'ppkek', 'payment', 'finance', 'master-data', 'reports'],
-  cania:   ['dashboard', 'label-request', 'label-library', 'surat-jalan', 'po-converter', 'master-data', 'reports'],
-  visca:   ['dashboard', 'label-request', 'label-library', 'surat-jalan', 'po-converter', 'master-data', 'reports'],
+  cania:   ['dashboard', 'label-request', 'label-library', 'surat-jalan', 'po-converter', 'payment', 'master-data', 'reports'],
+  visca:   ['dashboard', 'label-request', 'label-library', 'surat-jalan', 'po-converter', 'payment', 'master-data', 'reports'],
   sekar:   ['dashboard', 'ppkek', 'payment', 'reports'],
   financemti: ['dashboard', 'finance'],
 };
 
 // Fine-grained capabilities (used to hide buttons + enforced by RLS).
+//  paymentWrite = purchasing-side INTAKE half of the Payment screen
+//                 (add invoice, upload faktur, hand invoice to Wilbert).
+//  prfCreate    = PRF builder + preview + "Kirim ke Wilbert".
+//                 Split out from paymentWrite so cania/visca can generate a
+//                 PRF without owning invoice intake or stage tracking.
 export const CAPS = {
-  wilbert:    { approve: true, markPaid: false, financeReceive: false, editMaster: true, paymentWrite: true, paymentReadonly: false },
-  cania:      { approve: false, markPaid: false, financeReceive: false, editMaster: true, paymentWrite: false, paymentReadonly: false },
-  visca:      { approve: false, markPaid: false, financeReceive: false, editMaster: true, paymentWrite: false, paymentReadonly: false },
+  wilbert:    { approve: true, markPaid: false, financeReceive: false, editMaster: true, paymentWrite: true, prfCreate: true, paymentReadonly: false },
+  cania:      { approve: false, markPaid: false, financeReceive: false, editMaster: true, paymentWrite: false, prfCreate: true, paymentReadonly: false },
+  visca:      { approve: false, markPaid: false, financeReceive: false, editMaster: true, paymentWrite: false, prfCreate: true, paymentReadonly: false },
   // sekar: purchasing-side payment + PPKEK; payment STATUS is read-only for sekar.
-  sekar:      { approve: false, markPaid: false, financeReceive: false, editMaster: false, paymentWrite: true, paymentReadonly: true },
-  // finance: only mark paid / receive; cannot approve POs.
-  financemti: { approve: false, markPaid: true, financeReceive: true, editMaster: false, paymentWrite: false, paymentReadonly: false },
+  sekar:      { approve: false, markPaid: false, financeReceive: false, editMaster: false, paymentWrite: true, prfCreate: true, paymentReadonly: true },
+  // finance: only mark paid / receive; cannot approve POs or raise a PRF.
+  financemti: { approve: false, markPaid: true, financeReceive: true, editMaster: false, paymentWrite: false, prfCreate: false, paymentReadonly: false },
 };
 
 export function allowedScreens(role) { return ACCESS[role] || []; }
