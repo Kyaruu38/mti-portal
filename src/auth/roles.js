@@ -30,7 +30,12 @@ export const ACCESS = {
   wilbert: ['dashboard', 'approval', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'ppkek', 'payment', 'finance', 'master-data', 'reports'],
   cania:   ['dashboard', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'payment', 'master-data', 'reports'],
   visca:   ['dashboard', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'payment', 'master-data', 'reports'],
-  sekar:   ['dashboard', 'ppkek', 'payment', 'reports'],
+  // 'finance' added 31 Jul 2026 so sekar can post the transfer proof. Finance
+  // shares proofs into a group chat rather than entering them one by one, so
+  // the person who actually transcribes them is sekar. She gets the SCREEN, not
+  // finance's decisions: financeReceive stays finance-only, so nothing can be
+  // paid until finance has signed off the 4-point document checklist.
+  sekar:   ['dashboard', 'ppkek', 'payment', 'finance', 'reports'],
   financemti: ['dashboard', 'finance'],
   // sona owns the weekly label-stock routine (the workbook's own Instructions
   // sheet says as much) and raises label requests. Nothing else — deliberately
@@ -99,8 +104,10 @@ export const CAPS = {
   cania:      grant('editMaster labelStockWrite prfCreate sjWrite designWrite poCreate labelParse'),
   visca:      grant('editMaster labelStockWrite prfCreate sjWrite designWrite poCreate labelParse'),
   // sekar: purchasing-side payment + PPKEK; payment STATUS is read-only for sekar.
-  sekar:      grant('paymentWrite prfCreate paymentReadonly ppkekWrite'),
-  // finance: only mark paid / receive; cannot approve POs or raise a PRF.
+  sekar:      grant('paymentWrite prfCreate paymentReadonly ppkekWrite markPaid'),
+  // finance: receive + mark paid; cannot approve POs or raise a PRF. Keeps
+  // markPaid even though sekar now has it — finance posting its own proof must
+  // not stop working just because someone else usually does it.
   financemti: grant('markPaid financeReceive'),
   // sona: label stock upload + ERP matching, label parse, and raising a label
   // request PO. Still NOT in is_purchasing() server-side — no sjWrite, no

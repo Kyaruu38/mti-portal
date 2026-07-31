@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v10.0';
+export const VERSION = 'v10.1';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v10.1', date: '31 Jul 2026',
+    what: {
+      id: 'sekar dapat layar Finance Dashboard dan bisa memposting bukti transfer — Finance membagikan buktinya ke grup, bukan menginput satu per satu. Finance tetap yang menandatangani checklist 4 dokumen sebelum apa pun bisa dilunasi.',
+      en: 'sekar gets the Finance Dashboard and can post transfer proofs — Finance shares them to a group chat rather than entering them one by one. Finance still signs the 4-document checklist before anything can be paid.',
+      zh: 'sekar 获得财务看板权限，可录入转账凭证 — 财务将凭证发到群里，而非逐条录入。付款前仍须由财务签核四项单据清单。',
+    },
+  },
   {
     v: 'v10.0', date: '31 Jul 2026',
     what: {
