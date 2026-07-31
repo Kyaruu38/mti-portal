@@ -163,3 +163,30 @@ export async function rejectPoDelete(poId) {
   const { error } = await c.rpc('reject_po_delete', { p_po_id: poId });
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// Is this insert failure PERMANENT, i.e. will retrying the exact same PO fail
+// the exact same way?
+//
+// Both PO screens wrap insertPO() in a try/catch that keeps the PO in local
+// state and warns "tersimpan lokal, tapi gagal sync ke server". That is the
+// right call for a dropped connection — the document is real, the network
+// wasn't. It is the WRONG call for a rejection the server will repeat forever:
+// the PO shows up in the list as if it were created, and quietly disappears on
+// the next login.
+//
+// The unique index on pos(no) where deleted_at is null (added 31 Jul, after
+// CGDD2607200143 was found recorded five times) turns a duplicate PO number
+// into exactly that kind of permanent rejection. Postgres reports it as SQLSTATE
+// 23505; the raw message reads
+//   duplicate key value violates unique constraint "pos_no_unik"
+// which means nothing to whoever typed the number.
+//
+// Matching on the SQLSTATE first and the text only as a fallback, because the
+// message wording is a Postgres implementation detail and the code is not.
+// ---------------------------------------------------------------------------
+export function duplicatePoNumber(e) {
+  if (!e) return false;
+  if (e.code === '23505') return true;
+  return /duplicate key value|pos_no_unik|already exists/i.test(String(e.message || e));
+}

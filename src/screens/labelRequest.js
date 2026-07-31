@@ -6,7 +6,7 @@ import { readWorkbook } from '../core/xlsx.js';
 import { parseLabelSheet } from '../parsers/excelLabels.js';
 import { money, num, ppnFor, ppnModeFromForm } from '../core/format.js';
 import { can } from '../auth/roles.js';
-import { insertPO, newLineId } from '../core/posApi.js';
+import { insertPO, newLineId, duplicatePoNumber } from '../core/posApi.js';
 import { blockWrite } from '../core/guard.js';
 
 export function labelRequestScreen() {
@@ -284,7 +284,17 @@ async function genPO() {
     const supabaseId = await insertPO(po);
     if (supabaseId) po.id = supabaseId;
   } catch (e) {
-    console.error('insertPO failed — PO stays local-only', e);
+    console.error('insertPO failed', e);
+    // PERMANENT rejection: the number is taken and always will be. Abort
+    // instead of falling through to the local-only path, which would show the
+    // PO as created and then lose it on the next login. The modal stays open,
+    // so the number can be corrected and sent again.
+    if (duplicatePoNumber(e)) {
+      toast(`No. PO ${po.no} sudah dipakai — ganti nomornya`);
+      return;
+    }
+    // Anything else (network, timeout) may well succeed on a retry, so the
+    // original behaviour stands: keep it locally and say so.
     toast('PO tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e));
   }
   st.pos.unshift(po);
