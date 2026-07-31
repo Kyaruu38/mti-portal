@@ -109,3 +109,23 @@ export async function updatePpkek(id, patch) {
   const { error } = await c.from('ppkek').update(row).eq('id', id);
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// Duplicate nopen, rejected by the database.
+//
+// screens/ppkek.js already refuses to insert a nopen it can see in the register
+// and updates that row instead. But it decides from state fetched at login, so
+// two people importing the same bundle at the same moment both look, both see
+// nothing, and both insert — the same race that let one surat jalan be recorded
+// three times and one PO five times.
+//
+// The unique index in supabase_ppkek_unique_nopen.sql closes it for good. This
+// tells a rejection caused by that index apart from a transient failure, so the
+// screen can say "this document is already in the register" instead of showing
+// a raw Postgres constraint string.
+// ---------------------------------------------------------------------------
+export function duplicateNopen(e) {
+  if (!e) return false;
+  if (e.code === '23505') return true;
+  return /duplicate key value|ppkek_nopen_unik|already exists/i.test(String(e.message || e));
+}

@@ -7,7 +7,7 @@ import { parsePpkekPdf, parseSppbPdf } from '../parsers/ppkekPdf.js';
 import { uploadToDrive, ppkekFolder } from '../core/drive.js';
 import { readWorkbook, writeWorkbook, colLetter } from '../core/xlsx.js';
 import { num, fmtDate } from '../core/format.js';
-import { insertPpkek, updatePpkek } from '../core/ppkekApi.js';
+import { insertPpkek, updatePpkek, duplicateNopen } from '../core/ppkekApi.js';
 import { can } from '../auth/roles.js';
 import { blockWrite } from '../core/guard.js';
 
@@ -256,6 +256,13 @@ async function addRegisterRow(p, folder, files) {
     Object.assign(local, saved);
   } catch (e) {
     console.error('Supabase ppkek insert failed', e);
+    // Lost the race: another session inserted this same nopen between our check
+    // and our write. Not an error the user did anything about — the document IS
+    // in the register, just not in the copy this tab is holding.
+    if (duplicateNopen(e)) {
+      toast(`Nopen ${local.nopen} sudah ada di register (baru saja dimasukkan sesi lain) — refresh untuk melihatnya.`);
+      return;
+    }
     toast('PPKEK terparse tapi gagal simpan ke server: ' + (e.message || e));
     return;
   }
