@@ -70,13 +70,39 @@ function parsedInfo(p) {
 function kv(l, v) { return h('div', [h('div', { style: { fontSize: '9.5px', fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-3)' } }, l), h('div.mono', { style: { fontSize: '12px', marginTop: '2px', color: 'var(--text)' } }, v)]); }
 
 function registerTable(st, canWrite) {
-  const rows = st.ppkek;
+  // NEWEST FIRST, and by the date on the document — not by whatever order the
+  // server happened to return. A register is read top-down to answer "what just
+  // came in", so fetch order is the wrong thing to trust. Ties fall back to the
+  // row's own position so the sort stays stable instead of shuffling on rerender.
+  const rows = (st.ppkek || []).map((r, i) => [r, i]).sort((a, b) => {
+    const ta = new Date(a[0].date).getTime(), tb = new Date(b[0].date).getTime();
+    const va = isNaN(ta) ? -Infinity : ta, vb = isNaN(tb) ? -Infinity : tb;
+    return vb - va || a[1] - b[1];
+  }).map(x => x[0]);
   // The pencil marks mean "you can edit this". Strip them when the cells are
   // read-only, otherwise the header promises an affordance the row doesn't have.
   const head = h('thead', h('tr', ['Nopen', 'Tanggal', 'Supplier', 'USD', 'IDR', 'Jalur', 'Dok', 'SO ✎', 'JO ✎', 'Costing ✎', 'PO ERP INA ✎', 'Status ✎']
     .map(c => (canWrite ? c : c.replace(' ✎', '')))
     .map((c, i) => h('th' + (i === 3 || i === 4 ? '.r' : ''), { style: /✎/.test(c) ? { color: 'var(--accent-tx)' } : {} }, c))));
-  const body = h('tbody', rows.map(r => h('tr', [
+  const body = h('tbody', rows.map(r => h('tr', {
+    // Clicking a row pulls it back up into the parse panel, so the documents
+    // attached to it (and their Drive links) are reachable again after the
+    // import that created it has scrolled away. Editable cells stop the event
+    // themselves, so clicking into SO/JO/Costing does not also fire this.
+    style: { cursor: 'pointer' },
+    onClick: (e) => {
+      if (e.target.closest('input, select, button, a')) return;
+      setUI({
+        pkExtract: { name: `Nopen ${r.nopen}`, format: 'register', files: (r.files || []).map(f => ({ name: f.name, url: f.url })) },
+        pkParsed: {
+          nopen: r.nopen, ppkekDate: r.date, eta: r.eta, supplier: r.supplier,
+          address: r.address, contractNo: r.contractNo, kursNDPBM: r.kurs,
+          valuta: 'USD', valueForeign: r.usd, valueIDR: r.idr, asal: r.jalur,
+        },
+      });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+  }, [
     h('td.mono.cell-strong', r.nopen),
     h('td.mono', fmtDate(r.date)),
     h('td', r.supplier),
@@ -107,7 +133,10 @@ function registerTable(st, canWrite) {
           : badge('Read-only', 'gray', { iconName: 'eye' }),
       ]),
     ]),
-    h('div.tbl-wrap', h('table.tbl', [head, body])),
+    // maxHeight + overflowY: the register grows without limit, and a table taller
+    // than the viewport pushed the page itself into a scroll the wheel could not
+    // reach from inside the table. Bounded here so the wheel scrolls the rows.
+    h('div.tbl-wrap', { style: { maxHeight: '58vh', overflowY: 'auto' } }, h('table.tbl', [head, body])),
     h('div.tbl-foot', t('pk_manual_note')),
   ]);
 }
