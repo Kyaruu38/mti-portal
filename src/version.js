@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v3.9';
+export const VERSION = 'v4.0';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v4.0', date: '31 Jul 2026',
+    what: {
+      id: 'Kolom SWIFT/BIC untuk supplier import — muncul kalau Import dinyalakan, lewat review supervisor seperti nomor rekening, dan tercetak di PRF.',
+      en: 'A SWIFT/BIC field for import suppliers — appears when Import is on, goes through supervisor review like the account number, and prints on the PRF.',
+      zh: '进口供应商新增 SWIFT/BIC 字段 — 开启“进口”后出现，与账号一样需主管审核，并打印在付款申请单上。',
+    },
+  },
   {
     v: 'v3.9', date: '31 Jul 2026',
     what: {

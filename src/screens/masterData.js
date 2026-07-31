@@ -101,8 +101,9 @@ function openSup(existing) {
       // supplier mid-review doesn't silently revert someone's pending proposal.
       ? { editingId: existing.id, name: existing.name, address: existing.address || '', contact: existing.contact || '', phone: existing.phone || '',
           bank: existing.pendingBank || existing.bank || '', acct: existing.pendingAcct || existing.acct || '', bankAddress: existing.pendingBankAddress || existing.bankAddress || '',
+          swift: existing.pendingSwift || existing.swift || '',
           pkp: !!existing.pkp, overseas: !!existing.overseas, top: existing.top || '30 hari' }
-      : { name: '', address: '', contact: '', phone: '', bank: '', acct: '', bankAddress: '', pkp: true, overseas: false, top: '30 hari' },
+      : { name: '', address: '', contact: '', phone: '', bank: '', acct: '', bankAddress: '', swift: '', pkp: true, overseas: false, top: '30 hari' },
   });
 }
 
@@ -118,6 +119,24 @@ function supModal() {
       h('div.divider'),
       h('div.grid.g2', [field(t('md_bank'), inputEl({ placeholder: 'BCA / Mandiri…', value: f.bank, onInput: v => (f.bank = v) })), field(t('md_acct'), inputEl({ mono: true, value: f.acct, onInput: v => (f.acct = v) }))]),
       field(tr({ id: 'Alamat Bank', en: 'Bank Address', zh: '开户行地址' }), inputEl({ value: f.bankAddress, onInput: v => (f.bankAddress = v) })),
+      // SWIFT/BIC appears only for an overseas supplier, and that is not
+      // decoration: a domestic transfer between Indonesian banks does not use
+      // one, so on a local supplier the field is a question with no answer. A
+      // disabled box would still say "you are missing something".
+      //
+      // It sits directly under Bank Address because it is part of the same
+      // instruction, and it goes through the SAME supervisor review as the
+      // account number — a payment routed to the right account number at the
+      // wrong SWIFT still lands in the wrong bank.
+      f.overseas ? field(tr({ id: 'SWIFT / BIC', en: 'SWIFT / BIC', zh: 'SWIFT / BIC' }), (() => {
+        // SWIFT codes are upper case by definition (ISO 9362). Stored upper via
+        // toUpperCase, and DISPLAYED upper via CSS rather than by rewriting the
+        // input's value: mount() has no diffing, so re-rendering on every
+        // keystroke would take the cursor out of the box mid-code.
+        const el = inputEl({ mono: true, placeholder: 'HSBCSGSG / ICBKCNBJ…', value: f.swift, onInput: v => (f.swift = v.toUpperCase()) });
+        el.style.textTransform = 'uppercase';
+        return el;
+      })()) : null,
       // IMPORT / OVERSEAS.
       //
       // The database and the supplier list have carried `overseas` all along —
@@ -173,8 +192,9 @@ async function saveSup() {
     const stagedBank = sup.pendingBank || sup.bank;
     const stagedAcct = sup.pendingAcct || sup.acct;
     const stagedAddr = sup.pendingBankAddress || sup.bankAddress;
-    const matchesApproved = sup.bank === f.bank && sup.acct === f.acct && sup.bankAddress === f.bankAddress;
-    const matchesStaged = stagedBank === f.bank && stagedAcct === f.acct && stagedAddr === f.bankAddress;
+    const stagedSwift = sup.pendingSwift || sup.swift || '';
+    const matchesApproved = sup.bank === f.bank && sup.acct === f.acct && sup.bankAddress === f.bankAddress && (sup.swift || '') === (f.swift || '');
+    const matchesStaged = stagedBank === f.bank && stagedAcct === f.acct && stagedAddr === f.bankAddress && stagedSwift === (f.swift || '');
     // Typing the approved account back in WITHDRAWS a pending proposal.
     const withdraw = !!sup.bankChangePending && matchesApproved;
     const bankChanged = !matchesApproved && !(sup.bankChangePending && matchesStaged);
@@ -193,12 +213,13 @@ async function saveSup() {
       pkp: f.pkp, overseas: !!f.overseas, top: f.top, city: (f.address || '').split(',').pop().trim(),
     };
     if (withdraw) {
-      patch.pendingBank = ''; patch.pendingAcct = ''; patch.pendingBankAddress = '';
+      patch.pendingBank = ''; patch.pendingAcct = ''; patch.pendingBankAddress = ''; patch.pendingSwift = '';
       patch.bankChangePending = false;
     } else if (bankChanged) {
       patch.pendingBank = f.bank;
       patch.pendingAcct = f.acct;
       patch.pendingBankAddress = f.bankAddress;
+      patch.pendingSwift = f.swift || '';
       patch.bankChangePending = true;
     }
 
@@ -261,7 +282,7 @@ async function saveSup() {
   // at all and block a legitimate first PRF). It's still flagged
   // bankChangePending so the review queue picks it up and the PRF preview warns
   // — see prfModal() in screens/payment.js.
-  const localSup = { id: uid('sup'), name: f.name, address: f.address, contact: f.contact, phone: f.phone, bank: f.bank, acct: f.acct, bankAddress: f.bankAddress, pkp: f.pkp, overseas: !!f.overseas, top: f.top, city: (f.address || '').split(',').pop().trim(), bankChangePending: true, pendingBank: '', pendingAcct: '', pendingBankAddress: '' };
+  const localSup = { id: uid('sup'), name: f.name, address: f.address, contact: f.contact, phone: f.phone, bank: f.bank, acct: f.acct, bankAddress: f.bankAddress, swift: f.swift || '', pkp: f.pkp, overseas: !!f.overseas, top: f.top, city: (f.address || '').split(',').pop().trim(), bankChangePending: true, pendingBank: '', pendingAcct: '', pendingBankAddress: '', pendingSwift: '' };
   try {
     const saved = await insertSupplier(localSup);
     localSup.id = saved.id;

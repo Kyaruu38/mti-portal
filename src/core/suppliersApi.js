@@ -20,7 +20,9 @@ function fromRow(row) {
     id: row.id, name: row.name, nameZh: row.name_zh, city: row.city, address: row.address,
     contact: row.contact, phone: row.phone, bank: row.bank, acct: row.acct, bankAddress: row.bank_address,
     pkp: row.pkp, overseas: row.overseas, top: row.top, bankChangePending: row.bank_change_pending,
+    swift: row.swift || '',
     pendingBank: row.pending_bank || '', pendingAcct: row.pending_acct || '', pendingBankAddress: row.pending_bank_address || '',
+    pendingSwift: row.pending_swift || '',
   };
 }
 
@@ -30,6 +32,7 @@ function toRow(sup) {
     contact: sup.contact || null, phone: sup.phone || null, bank: sup.bank || null, acct: sup.acct || null,
     bank_address: sup.bankAddress || null, pkp: !!sup.pkp, overseas: !!sup.overseas, top: sup.top || '30 hari',
     bank_change_pending: !!sup.bankChangePending,
+    swift: sup.swift || null,
     // Only sent when something is actually staged. Emitting them
     // unconditionally meant that on a database where the migration hasn't run,
     // PostgREST rejected EVERY supplier write (PGRST204) — creating a supplier
@@ -39,12 +42,31 @@ function toRow(sup) {
       pending_bank: sup.pendingBank || null,
       pending_acct: sup.pendingAcct || null,
       pending_bank_address: sup.pendingBankAddress || null,
+      pending_swift: sup.pendingSwift || null,
     } : {}),
   };
 }
 
 function hasStaging(sup) {
-  return !!(sup.pendingBank || sup.pendingAcct || sup.pendingBankAddress || sup.bankChangePending);
+  return !!(sup.pendingBank || sup.pendingAcct || sup.pendingBankAddress || sup.pendingSwift || sup.bankChangePending);
+}
+
+// Columns added after this table shipped. PostgREST rejects the WHOLE write
+// over one it does not know (PGRST204), so without this a portal deployed
+// before its migration cannot save a supplier at all — not even a phone number.
+// The same failure the staged-bank columns already caused once.
+const OPTIONAL_COLUMNS = ['swift', 'pending_swift'];
+
+function missingColumn(e) {
+  const msg = `${(e && e.message) || ''} ${(e && e.details) || ''}`.toLowerCase();
+  if (e && e.code === 'PGRST204') return true;
+  return /could not find the .* column|column .* does not exist|schema cache/.test(msg);
+}
+
+function withoutOptional(row) {
+  const out = { ...row };
+  for (const k of OPTIONAL_COLUMNS) delete out[k];
+  return out;
 }
 
 export async function fetchSuppliers() {
@@ -60,7 +82,12 @@ export async function insertSupplier(sup) {
   if (!isConfigured()) return sup;
   const c = await getClient();
   if (!c) throw new Error('Supabase client unavailable');
-  const { data, error } = await c.from('suppliers').insert(toRow(sup)).select().single();
+  const row = toRow(sup);
+  let { data, error } = await c.from('suppliers').insert(row).select().single();
+  if (error && missingColumn(error)) {
+    console.warn('suppliers: kolom opsional belum ada di database, insert diulang tanpa itu.', error.message);
+    ({ data, error } = await c.from('suppliers').insert(withoutOptional(row)).select().single());
+  }
   if (error) throw error;
   return fromRow(data);
 }
@@ -71,7 +98,12 @@ export async function updateSupplier(id, sup) {
   if (!isConfigured()) return sup;
   const c = await getClient();
   if (!c) throw new Error('Supabase client unavailable');
-  const { data, error } = await c.from('suppliers').update(toRow(sup)).eq('id', id).select().single();
+  const row = toRow(sup);
+  let { data, error } = await c.from('suppliers').update(row).eq('id', id).select().single();
+  if (error && missingColumn(error)) {
+    console.warn('suppliers: kolom opsional belum ada di database, update diulang tanpa itu.', error.message);
+    ({ data, error } = await c.from('suppliers').update(withoutOptional(row)).eq('id', id).select().single());
+  }
   if (error) throw error;
   return fromRow(data);
 }

@@ -261,6 +261,10 @@ export function prfPaper(prf, supplier, lines) {
       row2('Contact information\n联系方式', supplier ? `${supplier.contact || ''} ${supplier.phone || ''}`.trim() : '-'),
       row2('Bank and account number\n开户银行及账号', bank),
       row2('Bank address\n银行地址', supplier ? (supplier.bankAddress || '-') : '-'),
+      // A SWIFT recorded but never printed is a SWIFT nobody can act on — the
+      // bank executing an overseas transfer needs it on the instruction. Only
+      // rendered when the supplier has one, so a domestic PRF is unchanged.
+      supplier && supplier.swift ? row2('SWIFT / BIC', supplier.swift) : null,
       // Amount in words + numeric
       h('tr', [
         h('td', { style: L() }, 'Amount of payment (in capitals)\n付款金额 （大写）'),
