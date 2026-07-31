@@ -218,11 +218,27 @@ function ambiguousDate(raw) {
   return !!m && Number(m[1]) <= 12 && Number(m[2]) <= 12 && m[1] !== m[2];
 }
 
+// Calendar arithmetic in UTC, start to finish.
+//
+// The obvious version is wrong everywhere east of Greenwich, and silently:
+//
+//     new Date('2026-09-02T00:00:00')   // LOCAL midnight
+//     .setDate(+90)                     // local 1 Dec 2026 00:00 — correct
+//     .toISOString()                    // 30 Nov 2026 17:00Z in Jakarta
+//     .slice(0, 10)                     // "2026-11-30"  <- a day early
+//
+// Ninety days after 2 September is 1 December. Kyaru's browser showed 30
+// November, and the test suite did not, because this sandbox runs on UTC and
+// his office is UTC+7. A payment term that quietly loses a day is exactly the
+// kind of error nobody reports and everybody works around.
+//
+// Parsing with the 'Z' and stepping with setUTCDate keeps one clock throughout,
+// so the answer no longer depends on where the browser is standing.
 function addDaysIso(iso, days) {
   if (!iso || !days) return '';
-  const d = new Date(`${iso}T00:00:00`);
+  const d = new Date(`${iso}T00:00:00Z`);
   if (isNaN(d)) return '';
-  d.setDate(d.getDate() + days);
+  d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
 

@@ -362,8 +362,11 @@ async function openInvoiceModal(file) {
       const sup = getState().suppliers.find(s => s.id === form.supplierId);
       const days = sup ? topDays(sup.top) : 0;
       if (days > 0) {
-        const d = new Date(`${r.date}T00:00:00`);
-        d.setDate(d.getDate() + days);
+        // UTC throughout — see addDaysIso() in parsers/invoicePdf.js. Mixing a
+        // local-midnight Date with toISOString() lands a day early in every
+        // timezone east of Greenwich, Jakarta included.
+        const d = new Date(`${r.date}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + days);
         form.due = d.toISOString().slice(0, 10);
         r.dueFromMaster = days;
       }
@@ -644,10 +647,16 @@ function prfBuilder(st) {
       h('span', { style: { fontSize: '11px', fontWeight: 600, color: 'var(--text-3)' } }, t('pay_supplier') + ':'),
       h('select.input', { style: { width: 'auto', minWidth: '260px' }, onChange: e => setUI({ prfSupplierId: e.target.value, prfSel: {}, prfCcy: null }) }, st.suppliers.map(s => h('option', { value: s.id, selected: s.id === supplierId }, s.name))),
       // Currency selector — enforces one currency per PRF (never mixed).
-      ...(currencies.length > 1
+      //
+      // Shown only when there is something to detect it FROM. With no eligible
+      // invoice the fallback is 'IDR', and printing that next to "currency
+      // detected from invoices" claimed a detection that never happened —
+      // beside a USD invoice sitting one panel above, it read as though the
+      // portal had decided the invoice was rupiah.
+      ...(currencies.length === 0 ? [] : currencies.length > 1
         ? currencies.map(c => h('button.btn.btn-sm' + (c === currency ? '.btn-navy' : ''), { onClick: () => setUI({ prfCcy: c, prfSel: {} }) }, c))
         : [badge(currency, ccyTone(currency))]),
-      h('span', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, t('pay_ccy_detected')),
+      currencies.length ? h('span', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, t('pay_ccy_detected')) : null,
     ]),
     ...(outstanding.length ? outstanding.map((inv) => h('div.row.gap12', { style: { padding: '10px 16px', borderBottom: '1px solid var(--border)', background: sel[inv.no] ? 'var(--sel-row)' : 'transparent', cursor: 'pointer' }, onClick: () => { const s = { ...sel }; s[inv.no] = !s[inv.no]; setUI({ prfSel: s }); } }, [
       h('input', { type: 'checkbox', checked: !!sel[inv.no], style: { accentColor: 'var(--accent)' } }),

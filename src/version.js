@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v5.1';
+export const VERSION = 'v5.2';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v5.2', date: '31 Jul 2026',
+    what: {
+      id: 'Jatuh tempo tidak lagi meleset satu hari. Perhitungan tanggal dulu memakai jam lokal lalu dikonversi ke UTC — di WIB (UTC+7) hasilnya mundur sehari: 90 hari dari 2 Sep tampil 30 Nov, seharusnya 1 Des.',
+      en: 'Due dates are no longer a day early. Date arithmetic mixed local midnight with a UTC conversion — in WIB (UTC+7) that lost a day: 90 days from 2 Sep showed 30 Nov instead of 1 Dec.',
+      zh: '到期日不再提前一天。日期计算此前以本地零点起算却按 UTC 转换，在 WIB（UTC+7）下少算一天：9 月 2 日起 90 天显示为 11 月 30 日，应为 12 月 1 日。',
+    },
+  },
   {
     v: 'v5.1', date: '31 Jul 2026',
     what: {

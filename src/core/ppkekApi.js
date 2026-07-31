@@ -52,9 +52,16 @@ function fromRow(row) {
 // the raw string while every other row printed '24 Jul 2026' — visible on the
 // two re-imported rows in the register and nowhere else, which made it look
 // like a re-import bug rather than a formatting one.
+// A Date that stands for a CALENDAR DAY must be read with the same clock that
+// built it. SheetJS hands back local midnight, so toISOString() — which
+// converts to UTC — reports the previous day everywhere east of Greenwich.
+// Jakarta is UTC+7, so an imported Excel date would land one day early. Same
+// bug that cost a payment term a day in the invoice reader.
+const localDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 export function toIsoDate(v) {
   if (!v) return null;
-  if (v instanceof Date) return isNaN(v) ? null : v.toISOString().slice(0, 10);
+  if (v instanceof Date) return isNaN(v) ? null : localDay(v);
   const s = String(v).trim();
   if (!s || s === '-') return null;
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);      // already ISO
@@ -67,7 +74,7 @@ export function toIsoDate(v) {
     return null;
   }
   const parsed = new Date(s);
-  return isNaN(parsed) ? null : parsed.toISOString().slice(0, 10);
+  return isNaN(parsed) ? null : localDay(parsed);
 }
 
 function toRow(r) {
