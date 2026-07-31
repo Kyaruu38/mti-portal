@@ -139,7 +139,24 @@ function printPrf(prf) {
   w.onload = () => { w.focus(); w.onafterprint = () => w.close(); setTimeout(() => w.print(), 300); };
 }
 
-function poPpnPaid(inv) { const po = getState().pos.find(p => p.no.includes(inv.poRef.replace('PO ', '')) || (p.contract && inv.poRef.includes(p.contract))); return po ? po.ppnMode === 'paid' : inv.ppnPaid; }
+// PRE-EXISTING CRASH, fixed here because this screen now has one more reader.
+//
+// `inv.poRef` is nullable — invoicesApi.js toRow() writes `po_ref: inv.poRef || null`
+// — and `po.no` can be empty on a local-only row. Either one made
+// `.replace(...)` / `.includes(...)` throw, and because this runs from
+// invoiceTable() on EVERY render, a single invoice with no PO Ref replaced the
+// whole Payment screen with the red "Terjadi kesalahan di layar ini" box. Not
+// just for the observer: for sekar and wilbert too.
+//
+// A missing PO Ref simply means the invoice can't be matched to a PO, so fall
+// back to the invoice's own ppnPaid flag — exactly what happens when the lookup
+// finds nothing.
+function poPpnPaid(inv) {
+  const ref = inv && inv.poRef ? String(inv.poRef) : '';
+  if (!ref) return !!(inv && inv.ppnPaid);
+  const po = getState().pos.find(p => (p.no && p.no.includes(ref.replace('PO ', ''))) || (p.contract && ref.includes(p.contract)));
+  return po ? po.ppnMode === 'paid' : inv.ppnPaid;
+}
 function trStage(s) { const m = { 'Diterima Purchasing': t('st_diterima_purchasing'), 'Diproses Wilbert': t('st_diproses_wilbert'), 'Diterima Finance': t('st_diterima_finance'), 'Paid': t('st_paid') }; return m[s] || s; }
 
 function invoiceTable(st, opts) {

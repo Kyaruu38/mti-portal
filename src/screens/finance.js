@@ -6,7 +6,7 @@ import { money, num, fmtDate, fmtDateTime, daysUntil, similarity, normalize, sum
 import { parsePaymentProof } from '../parsers/bankProof.js';
 import { parseNumber } from '../parsers/numbers.js';
 import { uploadToDrive } from '../core/drive.js';
-import { can } from '../auth/roles.js';
+import { can, isReadOnly } from '../auth/roles.js';
 import { updatePrfStage } from '../core/prfsApi.js';
 import { blockWrite } from '../core/guard.js';
 import { confirmPrfPaid } from '../core/paymentsApi.js';
@@ -42,14 +42,24 @@ export function financeScreen() {
     ])),
   ]);
 
-  // The proof dropzone had NO capability check — it was the only write path on
-  // this screen that wasn't behind canPay, and it uploads the transfer proof to
-  // Drive before any database write, so RLS could not have stopped it either.
+  // The proof dropzone had NO capability check, and it uploads to Drive before
+  // any database write, so RLS could not have stopped a read-only account.
+  //
+  // Gated on isReadOnly, NOT on canPay. Gating it on canPay was wrong and broke
+  // wilbert: he holds this screen but not markPaid, so the dropzone went inert
+  // for him — and since ui.proofMatch / ui.proofManual are set ONLY inside
+  // handleProof(), the entire right-hand panel became permanently stuck on its
+  // empty placeholder. He could no longer even LOOK at a transfer proof.
+  //
+  // The dropzone is an entry point for READING a proof (parse + fuzzy-match
+  // against open PRFs); the actual money action is "Confirm Paid", which has
+  // always been behind canPay separately (see :148 and :222). Those are two
+  // different gates and conflating them cost the supervisor his review step.
   const dz = dropzone({
     title: t('fn_drop_proof'), sub: t('fn_drop_proof_sub'), accept: '.pdf', iconName: 'upload', compact: true,
     onFiles: f => handleProof(f[0]),
-    disabled: !canPay,
-    disabledNote: 'Bukti transfer diupload oleh Finance',
+    disabled: isReadOnly(st.user.role),
+    disabledNote: 'Akun ini cuma bisa memantau',
   });
   const matchPanel = ui.proofMatch ? matchCard(ui.proofMatch) : (ui.proofManual ? manualCard(ui.proofManual) : card([h('div.card-pad', { style: { minHeight: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, h('span', { style: { fontSize: '12px', color: 'var(--text-3)' } }, t('fn_no_proof')))]));
 

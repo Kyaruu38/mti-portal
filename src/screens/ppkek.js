@@ -71,8 +71,11 @@ function kv(l, v) { return h('div', [h('div', { style: { fontSize: '9.5px', font
 
 function registerTable(st, canWrite) {
   const rows = st.ppkek;
-  const head = h('thead', h('tr', ['Nopen', 'Tanggal', 'Supplier', 'USD', 'IDR', 'Jalur', 'SO ✎', 'JO ✎', 'Costing ✎', 'PO ERP INA ✎', 'Status ✎'].map((c, i) =>
-    h('th' + (i === 3 || i === 4 ? '.r' : ''), { style: /✎/.test(c) ? { color: 'var(--accent-tx)' } : {} }, c))));
+  // The pencil marks mean "you can edit this". Strip them when the cells are
+  // read-only, otherwise the header promises an affordance the row doesn't have.
+  const head = h('thead', h('tr', ['Nopen', 'Tanggal', 'Supplier', 'USD', 'IDR', 'Jalur', 'SO ✎', 'JO ✎', 'Costing ✎', 'PO ERP INA ✎', 'Status ✎']
+    .map(c => (canWrite ? c : c.replace(' ✎', '')))
+    .map((c, i) => h('th' + (i === 3 || i === 4 ? '.r' : ''), { style: /✎/.test(c) ? { color: 'var(--accent-tx)' } : {} }, c))));
   const body = h('tbody', rows.map(r => h('tr', [
     h('td.mono.cell-strong', r.nopen),
     h('td.mono', fmtDate(r.date)),
@@ -81,7 +84,13 @@ function registerTable(st, canWrite) {
     h('td.mono.r', num(r.idr)),
     h('td', badge(r.jalur, r.jalur === 'LDP' ? 'navy' : 'gray')),
     editCell(r, 'so', 84, canWrite), editCell(r, 'jo', 84, canWrite), editCell(r, 'costing', 84, canWrite), editCell(r, 'poErpIna', 96, canWrite),
-    h('td', canWrite ? statusSelect(r) : badge(r.status || 'Open', r.status === 'Closed' ? 'green' : r.status === 'Costed' ? 'blue' : 'gray')),
+    // `r.status || 'Open'` would have been a lie: a row whose status was never
+    // filled in is NOT Open, it is unset. statusSelect() shows no selection for
+    // those, so the read-only view must not invent one — this register is what
+    // a monitoring account reads to decide what still needs costing.
+    h('td', canWrite ? statusSelect(r) : (r.status
+      ? badge(r.status, r.status === 'Closed' ? 'green' : r.status === 'Costed' ? 'blue' : 'gray')
+      : h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, '—'))),
   ])));
   return h('div.card', [
     h('div.card-head', [

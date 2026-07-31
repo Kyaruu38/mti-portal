@@ -127,12 +127,22 @@ async function exportReport(rows, f) {
   // (RLS already scopes what audit rows a user can fetch, so this is defence in
   // depth rather than the only control — but the export shouldn't widen it.)
   const auditEntities = new Set(allowedReportModules(st.user.role).map(m => ({ PO: 'po', PRF: 'prf', Payment: 'payment', PPKEK: 'ppkek', Label: 'label' }[m])));
-  // `|| a.entity === 'supplier'` used to be unconditional, which defeated the
-  // filter it sits right next to: a role with NO audit modules still received
-  // every supplier row — and supplier audit detail spells out proposed bank
-  // accounts verbatim (masterData.js logs `usulan {bank} {acct}`). Only a role
-  // that may see PO activity has any business reading the supplier trail.
-  const seesSuppliers = auditEntities.has('po');
+  // `|| a.entity === 'supplier'` used to be unconditional, so even a role with
+  // NO audit modules received every supplier row — and supplier audit detail
+  // spells out proposed bank accounts verbatim (masterData.js logs
+  // `usulan {bank} {acct}`).
+  //
+  // The first attempt tied this to auditEntities.has('po') and that was wrong.
+  // It silently stripped the supplier trail from sekar and financemti, and
+  // finance is precisely who needs it: they execute the transfer, so "this
+  // supplier's bank account was just changed" is their single most useful
+  // anti-fraud signal. Narrowing it there traded a theoretical leak for a real
+  // loss of oversight.
+  //
+  // Condition is now simply "this role has some audit scope at all", which
+  // restores every role that actually holds the Reports screen while still
+  // refusing a zero-module role.
+  const seesSuppliers = auditEntities.size > 0;
   const auditRows = st.audit.filter(a => auditEntities.has(a.entity) || (seesSuppliers && a.entity === 'supplier'));
   const auditAoa = [['Waktu', 'User', 'Entity', 'Target', 'Aksi', 'Detail'], ...auditRows.map(a => [fmtDate(a.at), a.user, a.entity, a.target || '', a.action, a.detail || ''])];
   await writeWorkbook(`MTI_Report_${f.module}_${f.month}_${f.year}.xlsx`.replace(/\s/g, ''), [
