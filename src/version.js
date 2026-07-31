@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v10.2';
+export const VERSION = 'v10.3';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v10.3', date: '31 Jul 2026',
+    what: {
+      id: 'Tombol Konfirmasi Lunas sekarang muncul untuk Supervisor juga. Database memang sudah mengizinkannya sejak awal — layarnya yang belum ikut, jadi izin itu ada tapi tidak kelihatan.',
+      en: 'The Confirm Paid button now appears for the Supervisor too. The database had always permitted it — only the screen had not caught up, so the permission existed but was invisible.',
+      zh: '"确认已付款"按钮现在对主管也可见。数据库本就允许该操作，只是界面未同步，导致权限存在却不可见。',
+    },
+  },
   {
     v: 'v10.2', date: '31 Jul 2026',
     what: {

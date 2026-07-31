@@ -59,7 +59,13 @@ export const ACCESS = {
 //  approve         PO approve / reject / edit, and the auto-approve status on a
 //                  PO this role generates. wilbert only.
 //  markPaid        move a PRF to Paid + attach the transfer proof. finance only.
-//  financeReceive  move a PRF to Diterima Finance. finance only.
+//  financeReceive  move a PRF to Diterima Finance. finance only — and this is
+//                  now the ONLY step in the payment chain that purchasing
+//                  cannot perform. Everything either side of it (raise the PRF,
+//                  confirm it paid) is reachable from the purchasing side, so
+//                  this single checklist is what keeps a second pair of eyes in
+//                  the chain at all. Worth remembering before it is ever
+//                  granted more widely.
 //  editMaster      add/edit/delete suppliers, items, brand map, dictionary, units.
 //  labelStockWrite upload a new Label Inventory Tracker sheet AND confirm ERP
 //                  matches. Read access to the screen comes from ACCESS; this
@@ -100,7 +106,7 @@ export const ACCESS = {
 const grant = (...names) => Object.fromEntries(names.join(' ').split(/\s+/).filter(Boolean).map(n => [n, true]));
 
 export const CAPS = {
-  wilbert:    grant('approve editMaster labelStockWrite paymentWrite prfCreate prfReceive sjWrite ppkekWrite designWrite poCreate labelParse'),
+  wilbert:    grant('approve editMaster labelStockWrite paymentWrite prfCreate prfReceive markPaid sjWrite ppkekWrite designWrite poCreate labelParse'),
   cania:      grant('editMaster labelStockWrite prfCreate sjWrite designWrite poCreate labelParse'),
   visca:      grant('editMaster labelStockWrite prfCreate sjWrite designWrite poCreate labelParse'),
   // sekar: purchasing-side payment + PPKEK; payment STATUS is read-only for sekar.
