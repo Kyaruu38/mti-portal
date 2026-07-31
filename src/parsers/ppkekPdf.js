@@ -65,9 +65,25 @@ export async function parsePpkekPdf(file) {
   const kurs = text.match(/NDPBM[^\d]*([\d.,]+)/i) || text.match(/Kurs[^\d]*([\d.,]+)/i);
   if (kurs) out.kursNDPBM = toNum(kurs[1]);
 
-  // Valuta / currency
-  const val = text.match(/\b(USD|CNY|EUR|SGD|JPY|IDR)\b/);
-  if (val) out.valuta = val[1];
+  // ---------------------------------------------------------------------------
+  // CURRENCY — read from the form's own field, not guessed from the page.
+  //
+  // This used to be a bare scan for the first currency word anywhere in the
+  // document, against a fixed list of six. Two things wrong with it, and both
+  // showed up on nopen 010177 and 010242 (Hangzhou Zhongce, priced in CNY):
+  //
+  //   * the LIST. A currency not on it silently fell back to 'USD'.
+  //   * the SCAN. The goods table's column header is printed "Amount (CIF USD)"
+  //     on the blank template regardless of what the shipment is actually
+  //     denominated in, so a loose search can find a currency the document does
+  //     not use.
+  //
+  // The form states it outright, on its own line, in section K:
+  //     2. Valuta : USD
+  // Anchored there, any three-letter code works — CNY, EUR, JPY, KRW, THB, or
+  // one nobody has invoiced in yet. Nothing to add to a list next time.
+  const val = text.match(/\bValuta\s*[:：]\s*([A-Z]{3})\b/i);
+  if (val) out.valuta = val[1].toUpperCase();
 
   // Foreign & IDR values (CIF).
   // ANCHORED TO THE FULL LABEL, on purpose.
@@ -89,15 +105,34 @@ export async function parsePpkekPdf(file) {
   //     8. Nilai Pabean - IDR : 387.439.200,00
   // so the currency is matched as part of the label and the number has to sit
   // on the same side of it. [^\d\n]* (no newline) keeps the match on one line.
-  const usdVal = text.match(/Nilai\s*Pabean\s*[-–]?\s*USD[^\d\n]*([\d.,]+)/i);
-  if (usdVal) out.valueForeign = toNum(usdVal[1]);
-  else {
-    // Fallback: FOB line, same shape. Some documents carry FOB but not CIF.
-    const fob = text.match(/Nilai\s*[-–]?\s*FOB\s*USD[^\d\n]*([\d.,]+)/i);
-    if (fob) out.valueForeign = toNum(fob[1]);
+  // The currency in the label was HARDCODED to USD here, which is why a CNY
+  // shipment landed in the register with an empty foreign value and a correct
+  // IDR one: the IDR line matched (that label is always "IDR"), the other never
+  // could. Read every "Nilai Pabean - <CCY>" line instead and key them by the
+  // code the form printed.
+  const pabean = {};
+  for (const m of text.matchAll(/Nilai\s*Pabean\s*[-–]?\s*([A-Z]{3})\s*[:：][^\d\n]*([\d.,]+)/gi)) {
+    pabean[m[1].toUpperCase()] = toNum(m[2]);
   }
-  const idrVal = text.match(/Nilai\s*Pabean\s*[-–]?\s*IDR[^\d\n]*([\d.,]+)/i);
-  if (idrVal) out.valueIDR = toNum(idrVal[1]);
+  if (pabean.IDR) out.valueIDR = pabean.IDR;
+
+  // The foreign figure is the one in the document's own valuta. An IDR-
+  // denominated document (domestic TLDDP) has no separate foreign line, so the
+  // two are the same number rather than a blank column.
+  if (out.valuta && pabean[out.valuta] != null) {
+    out.valueForeign = pabean[out.valuta];
+  } else {
+    // Valuta unreadable: take whichever Nilai Pabean line is not IDR, and let
+    // the document tell us its currency after all.
+    const other = Object.keys(pabean).find(c => c !== 'IDR');
+    if (other) { out.valueForeign = pabean[other]; out.valuta = other; }
+  }
+  if (!out.valueForeign) {
+    // Fallback: FOB line, same shape, same generalisation.
+    //     4. Nilai - FOB USD : 21,600
+    const fob = text.match(/Nilai\s*[-–]?\s*FOB\s*([A-Z]{3})[^\d\n]*([\d.,]+)/i);
+    if (fob) { out.valueForeign = toNum(fob[2]); if (!val) out.valuta = fob[1].toUpperCase(); }
+  }
   // Derived only as a last resort, and it must agree with the printed figure
   // when both exist — see the invariant check in the test harness.
   if (!out.valueIDR && out.valueForeign && out.kursNDPBM) out.valueIDR = Math.round(out.valueForeign * out.kursNDPBM);

@@ -7,7 +7,7 @@ import { parsePpkekPdf, parseSppbPdf } from '../parsers/ppkekPdf.js';
 import { uploadToDrive, ppkekFolder } from '../core/drive.js';
 import { readWorkbook, writeWorkbook, colLetter } from '../core/xlsx.js';
 import { num, fmtDate } from '../core/format.js';
-import { insertPpkek, updatePpkek, duplicateNopen } from '../core/ppkekApi.js';
+import { insertPpkek, updatePpkek, duplicateNopen, toIsoDate } from '../core/ppkekApi.js';
 import { can } from '../auth/roles.js';
 import { blockWrite } from '../core/guard.js';
 
@@ -219,7 +219,9 @@ function registerTable(st, canWrite) {
     tr({ id: 'Nopen', en: 'Nopen', zh: '报关单号' }),
     tr({ id: 'Tanggal', en: 'Date', zh: '日期' }),
     tr({ id: 'Supplier', en: 'Supplier', zh: '供应商' }),
-    'USD', 'IDR',
+    // Was literally 'USD'. The column holds the value in whatever currency the
+    // document is denominated in, and the cell now prints the code next to it.
+    tr({ id: 'Valuta', en: 'Currency', zh: '外币' }), 'IDR',
     tr({ id: 'Jalur', en: 'Lane', zh: '通道' }),
     tr({ id: 'Dok', en: 'Docs', zh: '单据' }),
     'SO ✎', 'JO ✎',
@@ -242,7 +244,7 @@ function registerTable(st, canWrite) {
         pkParsed: {
           nopen: r.nopen, ppkekDate: r.date, eta: r.eta, supplier: r.supplier,
           address: r.address, contractNo: r.contractNo, kursNDPBM: r.kurs,
-          valuta: 'USD', valueForeign: r.usd, valueIDR: r.idr, asal: r.jalur,
+          valuta: r.valuta || 'USD', valueForeign: r.usd, valueIDR: r.idr, asal: r.jalur,
         },
       });
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -251,7 +253,10 @@ function registerTable(st, canWrite) {
     h('td.mono.cell-strong', r.nopen),
     h('td.mono', fmtDate(r.date)),
     h('td', r.supplier),
-    h('td.mono.r', r.usd ? num(r.usd, 2) : '—'),
+    // A row with no foreign value used to render a bare '—' with no hint why.
+    // Now the code is always shown, so an unparsed amount reads as "CNY, amount
+    // missing" rather than as "no amount".
+    h('td.mono.r', r.usd ? `${r.valuta || 'USD'} ${num(r.usd, 2)}` : (r.valuta ? `${r.valuta} —` : '—')),
     h('td.mono.r', num(r.idr)),
     h('td', badge(r.jalur, r.jalur === 'LDP' ? 'navy' : 'gray')),
     // How many documents from the bundle actually landed in Drive for this
@@ -569,9 +574,14 @@ async function addRegisterRow(p, folder, files) {
     // register's TANGGAL column is "PPKEK Date" in the workbook — a fact about
     // the customs document, not about when someone got round to uploading it.
     // Falls back to now only when the document has no readable date.
-    nopen: p.nopen, date: p.ppkekDate || new Date(), eta: p.eta || '', supplier: p.supplier || '—',
+    nopen: p.nopen, date: toIsoDate(p.ppkekDate) || new Date(), eta: toIsoDate(p.eta) || '', supplier: p.supplier || '—',
     address: p.address || '', invoiceNo: p.invoiceNo || '', plNo: p.plNo || '',
-    usd: p.valuta === 'USD' ? p.valueForeign : 0, idr: p.valueIDR, jalur: p.asal, contractNo: p.contractNo,
+    // `p.valuta === 'USD' ? … : 0` threw the amount away for every document that
+    // was not in dollars — a second reason nopen 010177 and 010242 showed an
+    // empty column even once the parser could read them. The value is stored as
+    // it was invoiced; `valuta` records in what.
+    usd: p.valueForeign || 0, valuta: p.valuta || 'USD',
+    idr: p.valueIDR, jalur: p.asal, contractNo: p.contractNo,
     kurs: p.kursNDPBM, ppkekNo: p.ppkekNo || '',
     // Item lines were parsed and thrown away at this exact point. The register
     // workbook is ONE ROW PER ITEM, so without them the export can never match.
@@ -614,10 +624,10 @@ async function updateRegisterRow(row, p, folder, files) {
   // Parsed fields only. so/jo/costing/poErpIna/status/receivedDate are typed by
   // hand and are deliberately NOT in this list.
   const patch = {
-    date: p.ppkekDate || row.date, eta: p.eta || row.eta, supplier: p.supplier || row.supplier,
+    date: toIsoDate(p.ppkekDate) || row.date, eta: toIsoDate(p.eta) || row.eta, supplier: p.supplier || row.supplier,
     address: p.address || row.address, invoiceNo: p.invoiceNo || row.invoiceNo,
     plNo: p.plNo || row.plNo, contractNo: p.contractNo || row.contractNo,
-    usd: p.valuta === 'USD' ? p.valueForeign : row.usd,
+    usd: p.valueForeign || row.usd, valuta: p.valuta || row.valuta || 'USD',
     idr: p.valueIDR || row.idr, kurs: p.kursNDPBM || row.kurs,
     ppkekNo: p.ppkekNo || row.ppkekNo,
     items: (p.items && p.items.length) ? p.items : row.items,
