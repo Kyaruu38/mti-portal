@@ -348,10 +348,26 @@ async function openInvoiceModal(file) {
     const cur = getState().ui.invoiceForm;
     if (cur !== form) return;
     if (r.no && !form.no) form.no = r.no;
+    if (r.poRef && !form.poRef) form.poRef = r.poRef;
     if (r.due && !form.due) form.due = r.due;
     if (r.currency) form.currency = r.currency;
     if (r.amount && !form.amount) form.amount = r.amount;
     if (r.supplierId) form.supplierId = r.supplierId;
+
+    // The document did not state its terms, but the supplier's master record
+    // does. Deriving the due date from master is a real answer — it is the
+    // agreement on file — as long as it is labelled as coming from there and
+    // not from the paper, which `found` does.
+    if (!form.due && r.date && !r.termDays && form.supplierId) {
+      const sup = getState().suppliers.find(s => s.id === form.supplierId);
+      const days = sup ? topDays(sup.top) : 0;
+      if (days > 0) {
+        const d = new Date(`${r.date}T00:00:00`);
+        d.setDate(d.getDate() + days);
+        form.due = d.toISOString().slice(0, 10);
+        r.dueFromMaster = days;
+      }
+    }
     setUI({ invoiceRead: r });
     // Say it out loud, not just in a panel. On a queue the modal is replaced
     // every few seconds, and a grey box inside it is easy to walk straight past
@@ -481,6 +497,9 @@ function prefillNote(r) {
   if (!r) return null;
   const LABELS = {
     no: tr({ id: 'No. Invoice', en: 'Invoice no.', zh: '发票号' }),
+    poRef: tr({ id: 'PO / kontrak', en: 'PO / contract', zh: '合同号' }),
+    date: tr({ id: 'tanggal invoice', en: 'invoice date', zh: '发票日期' }),
+    termDays: tr({ id: 'termin', en: 'terms', zh: '账期' }),
     due: tr({ id: 'jatuh tempo', en: 'due date', zh: '到期日' }),
     amount: tr({ id: 'nominal', en: 'amount', zh: '金额' }),
     currency: tr({ id: 'currency', en: 'currency', zh: '币种' }),
@@ -502,11 +521,33 @@ function prefillNote(r) {
     }));
   }
   const named = r.found.map(k => LABELS[k]).filter(Boolean).join(', ');
-  return box('var(--st-amber-bg)', 'var(--st-amber-tx)', tr({
+  const notes = [tr({
     id: `Diisi dari PDF: ${named}. CEK DULU sebelum simpan — ini jadi dasar pembayaran.`,
     en: `Filled from the PDF: ${named}. CHECK THESE before saving — they become a payment.`,
     zh: `已从 PDF 填入：${named}。保存前请核对 — 这些将成为付款依据。`,
-  }));
+  })];
+  // The due date came from the supplier's agreed terms, not from this page.
+  // Different provenance, said plainly, because "the PDF says so" and "our
+  // master record says so" are not the same claim.
+  if (r.dueFromMaster) {
+    notes.push(tr({
+      id: `Jatuh tempo dihitung dari TOP master supplier (${r.dueFromMaster} hari) — invoice ini tidak mencantumkan termin.`,
+      en: `Due date derived from the supplier's master terms (${r.dueFromMaster} days) — this invoice does not state any.`,
+      zh: `到期日按供应商主数据账期推算（${r.dueFromMaster} 天）— 此发票未注明账期。`,
+    }));
+  }
+  // 2/9/2026 is either 2 September or 9 February, and nothing on the page can
+  // settle it. Day-first is what every unambiguous document in the corpus uses,
+  // so that is what was filled — but with 90-day terms the wrong reading moves
+  // the payment by seven months, which is too expensive to leave unsaid.
+  if (r.dateAmbiguous) {
+    notes.push(tr({
+      id: 'Format tanggalnya ambigu (bisa dibaca hari-bulan atau bulan-hari). Dibaca sebagai TANGGAL dulu — cocokkan dengan invoice aslinya.',
+      en: 'The date format is ambiguous (day-month or month-day). Read as DAY first — check it against the paper invoice.',
+      zh: '日期格式存在歧义（日-月或月-日）。已按“日”在前解读 — 请与纸质发票核对。',
+    }));
+  }
+  return box('var(--st-amber-bg)', 'var(--st-amber-tx)', notes.map((n, i) => h('div', { style: i ? { marginTop: '6px' } : {} }, n)));
 }
 
 async function saveInvoiceModal() {

@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v5.0';
+export const VERSION = 'v5.1';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v5.1', date: '31 Jul 2026',
+    what: {
+      id: 'Invoice PDF dibaca lengkap: No. Invoice, PO/kontrak, currency, nominal, tanggal, dan jatuh tempo. Nominal cuma diisi kalau kolom AMOUNT dan qty x harga cocok — kalau beda, dikosongkan.',
+      en: 'Invoice PDFs are read in full: number, PO/contract, currency, amount, date and due date. The amount is filled only when the AMOUNT column and quantity x unit price agree — otherwise it is left blank.',
+      zh: '完整读取发票 PDF：发票号、合同号、币种、金额、日期与到期日。仅当 AMOUNT 列与数量×单价一致时才填入金额，否则留空。',
+    },
+  },
   {
     v: 'v5.0', date: '31 Jul 2026',
     what: {
