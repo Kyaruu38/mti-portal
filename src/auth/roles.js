@@ -66,6 +66,12 @@ export const ACCESS = {
 //                  invoice intake or stage tracking.
 //  paymentReadonly the FINANCE stage is read-only for this role (a badge + gate,
 //                  not a permission to write anything).
+//  prfReceive      tick off the printed PRFs that have physically arrived on the
+//                  supervisor's desk, moving them from "Terbentuk" to
+//                  "Diproses Supervisor". Deliberately NOT given to the roles
+//                  that RAISE PRFs (cania/visca/sekar): the whole point of the
+//                  step is that the supervisor confirms he is holding the paper,
+//                  and a maker who can tick their own delivery confirms nothing.
 //
 // ADDED FOR THE OBSERVER ROLE — these five actions had NO capability at all and
 // were reachable by anyone holding the screen. Each mirrors the RLS policy that
@@ -89,7 +95,7 @@ export const ACCESS = {
 const grant = (...names) => Object.fromEntries(names.join(' ').split(/\s+/).filter(Boolean).map(n => [n, true]));
 
 export const CAPS = {
-  wilbert:    grant('approve editMaster labelStockWrite paymentWrite prfCreate sjWrite ppkekWrite designWrite poCreate labelParse'),
+  wilbert:    grant('approve editMaster labelStockWrite paymentWrite prfCreate prfReceive sjWrite ppkekWrite designWrite poCreate labelParse'),
   cania:      grant('editMaster labelStockWrite prfCreate sjWrite designWrite poCreate labelParse'),
   visca:      grant('editMaster labelStockWrite prfCreate sjWrite designWrite poCreate labelParse'),
   // sekar: purchasing-side payment + PPKEK; payment STATUS is read-only for sekar.

@@ -229,7 +229,9 @@ export const DICT = {
   prf_prepared: { id: 'Dibuat · Prepared', en: 'Prepared', zh: '制单' },
   prf_approved: { id: 'Disetujui · Approved', en: 'Approved', zh: '审批' },
   prf_finance: { id: 'Finance', en: 'Finance', zh: '财务' },
-  prf_send_wilbert: { id: 'Kirim ke Supervisor', en: 'Send to Supervisor', zh: '发送给主管' },
+  // Saving a PRF creates and numbers it. Handing it over is a separate event,
+  // ticked off by the supervisor when the paper is actually on his desk.
+  prf_send_wilbert: { id: 'Simpan & Cetak PRF', en: 'Save & Print PRF', zh: '保存并打印' },
   prf_desc_hint: { id: 'Ketik EN atau ZH sekali — otomatis muncul lagi lain kali', en: 'Type EN or ZH once — auto-fills next time', zh: '输入一次中/英文 — 下次自动填充' },
   prf_bank_from_master: { id: 'Rekening SELALU dari master supplier (anti-fraud)', en: 'Bank ALWAYS from supplier master (anti-fraud)', zh: '账户信息始终取自供应商主数据（防欺诈）' },
 

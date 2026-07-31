@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v9.1';
+export const VERSION = 'v10.0';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v10.0', date: '31 Jul 2026',
+    what: {
+      id: 'Alur PRF diubah mengikuti kenyataannya: nomor terbit pas Preview (jadi PDF bisa dicetak duluan, kertasnya sudah bernomor), PRF tersimpan di "Terbentuk", dan supervisor mencentang sendiri mana yang fisiknya sudah sampai di mejanya — sekaligus banyak.',
+      en: 'The PRF flow now matches what actually happens: the number is issued at Preview (so the PDF can be printed first, already numbered), the PRF is saved as "Created", and the supervisor ticks off which ones have physically reached his desk — many at once.',
+      zh: '付款申请单流程改为贴合实际：预览时生成编号（可先打印带号纸质单），保存为"已创建"，再由主管勾选实际已送达其桌面的单据 — 可批量确认。',
+    },
+  },
   {
     v: 'v9.1', date: '31 Jul 2026',
     what: {

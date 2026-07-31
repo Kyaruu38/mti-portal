@@ -12,7 +12,7 @@ import { nextPrfNo } from '../core/docSeqApi.js';
 import { uploadToDrive } from '../core/drive.js';
 import { parseInvoicePdf } from '../parsers/invoicePdf.js';
 import { insertInvoice, updateInvoice, deleteInvoice } from '../core/invoicesApi.js';
-import { insertPrf, deletePrf } from '../core/prfsApi.js';
+import { insertPrf, deletePrf, updatePrfStage } from '../core/prfsApi.js';
 import { insertDescDict } from '../core/descDictApi.js';
 import { UUID_RE } from '../core/supabase.js';
 
@@ -202,8 +202,57 @@ async function removePrf(p) {
   });
 }
 
+// A PRF still at 'Terbentuk' has been raised and printed but not yet carried
+// over. That is the only state where "I have it now" is news.
+function canTick(p) { return p.stage === 'Terbentuk'; }
+
+// Bulk handover: the supervisor ticks whatever is in his hands and confirms
+// once. Each row is a separate write, so one failure does not silently take
+// the others with it — and whatever did land stays landed.
+async function markPrfsReceived() {
+  if (blockWrite('tandai PRF diterima')) return;
+  const st = getState();
+  const sel = st.ui.prfRecvSel || {};
+  const targets = st.prfs.filter(p => sel[p.no] && canTick(p));
+  if (!targets.length) { setUI({ prfRecvSel: {} }); return; }
+
+  const done = [];
+  const failed = [];
+  for (const p of targets) {
+    const before = p.stage;
+    p.stage = 'Diproses Wilbert';
+    try {
+      if (p.id && UUID_RE.test(p.id)) await updatePrfStage(p.id, { stage: p.stage });
+      done.push(p);
+      logAudit({ entity: 'prf', target: p.no, action: 'prf_received', detail: `${p.supplier} · ${money(p.amount, p.currency)}` });
+    } catch (e) {
+      console.error('Supabase PRF receive failed', p.no, e);
+      p.stage = before;
+      failed.push(p.no);
+    }
+  }
+  setUI({ prfRecvSel: {} });
+  setState({ prfs: st.prfs });
+  if (failed.length) {
+    toast({
+      id: `${done.length} PRF ditandai diterima · ${failed.length} GAGAL sync: ${failed.join(', ')} — coba lagi`,
+      en: `${done.length} PRF marked received · ${failed.length} FAILED to sync: ${failed.join(', ')} — try again`,
+      zh: `${done.length} 张已标记收到 · ${failed.length} 张同步失败：${failed.join('、')} — 请重试`,
+    });
+    return;
+  }
+  toast({
+    id: `${done.length} PRF ditandai sudah diterima — sekarang di antrean Finance`,
+    en: `${done.length} PRF${done.length === 1 ? '' : 's'} marked as received — now in the Finance queue`,
+    zh: `已标记 ${done.length} 张收到 — 现已进入财务队列`,
+  });
+}
+
 function prfTrackingCard(st, readonly) {
   const list = st.prfs.slice(0, 25);
+  const canReceive = !readonly && can(st.user.role, 'prfReceive');
+  const recvSel = st.ui.prfRecvSel || {};
+  const tickedCount = list.filter(p => recvSel[p.no] && canTick(p)).length;
   const tone = s => ({ 'Terbentuk': 'gray', 'Diproses Wilbert': 'amber', 'Diterima Finance': 'blue', 'Paid': 'green' }[s] || 'gray');
   return h('div.card', [
     h('div.card-head', [
@@ -223,10 +272,28 @@ function prfTrackingCard(st, readonly) {
         en: `Download all (${list.length}) · ZIP`,
         zh: `全部下载（${list.length}）· ZIP`,
       }), { sm: true, iconName: 'download', onClick: () => downloadAllPrf(list) })) : null,
+      // The handover, done in one go. The papers arrive as a stack, so ticking
+      // them off one modal at a time would be the wrong shape entirely.
+      (canReceive && tickedCount) ? btn(tr({
+        id: `Tandai ${tickedCount} PRF sudah diterima`,
+        en: `Mark ${tickedCount} PRF${tickedCount === 1 ? '' : 's'} as received`,
+        zh: `标记 ${tickedCount} 张已收到`,
+      }), { sm: true, variant: 'primary', iconName: 'check', onClick: () => markPrfsReceived() }) : null,
     ]),
     list.length ? h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', [tr({ id: 'No. PRF', en: 'PRF No.', zh: '付款申请单号' }), t('col_supplier'), t('col_amount'), tr({ id: 'Invoice', en: 'Invoice', zh: '发票' }), tr({ id: 'Dibuat', en: 'Created', zh: '创建' }), t('col_status')].map((c, i) => h('th' + (i === 2 ? '.r' : ''), c)))),
-      h('tbody', list.map(p => h('tr', [
+      h('thead', h('tr', [
+        canReceive ? h('th', { style: { width: '34px' } }, '') : null,
+        ...[tr({ id: 'No. PRF', en: 'PRF No.', zh: '付款申请单号' }), t('col_supplier'), t('col_amount'), tr({ id: 'Invoice', en: 'Invoice', zh: '发票' }), tr({ id: 'Dibuat', en: 'Created', zh: '创建' }), t('col_status')].map((c, i) => h('th' + (i === 2 ? '.r' : ''), c)),
+      ])),
+      h('tbody', list.map(p => h('tr', { style: recvSel[p.no] ? { background: 'var(--sel-row)' } : {} }, [
+        // Tick box only on PRFs still waiting to be handed over. A PRF already
+        // with the supervisor, at finance, or paid has nothing left to confirm.
+        canReceive
+          ? h('td', canTick(p)
+              ? h('input', { type: 'checkbox', checked: !!recvSel[p.no], style: { accentColor: 'var(--accent)', cursor: 'pointer' },
+                  onChange: () => { const s2 = { ...recvSel }; s2[p.no] = !s2[p.no]; setUI({ prfRecvSel: s2 }); } })
+              : null)
+          : null,
         h('td.mono.cell-strong', p.no),
         h('td', p.supplier),
         h('td.mono.r', money(p.amount, p.currency)),
@@ -1008,16 +1075,51 @@ async function openPrf(chosen, currency, supplierObj) {
   const supplier = supplierObj;
   const supplierName = supplier && supplier.name;
   if (!supplier) { toast({ id: 'Supplier tidak ditemukan — pilih ulang dari dropdown', en: 'Supplier not found — pick it again from the dropdown', zh: '未找到供应商 — 请从下拉列表重新选择' }); return; }
-  // NO number is allocated here.
+  // THE NUMBER IS ALLOCATED HERE, at preview time (Kyaru, 31 Jul 2026).
   //
-  // next_doc_seq() increments unconditionally and there is no way to hand a
-  // number back, so allocating at PREVIEW time burned one every time the user
-  // opened the modal, spotted a wrong invoice, closed it and previewed again —
-  // and on every submit path that returned early. The result was permanent gaps
-  // in a statutory Indonesian payment-request register. The number is now taken
-  // in submitPrf(), immediately before the insert.
+  // It used to be taken in submitPrf(), one line before the insert, precisely
+  // because next_doc_seq() increments unconditionally and nothing can hand a
+  // number back — so preview-time allocation put permanent gaps in a statutory
+  // Indonesian payment-request register. That reasoning has not changed.
+  //
+  // What changed is the requirement: the printed PRF goes out for signature
+  // BEFORE it is sent, and a signature sheet with no reference number is worse
+  // than a gap in a sequence. Kyaru weighed both and chose the gaps.
+  //
+  // So the cost is paid down instead of ignored: a number is RESERVED per
+  // distinct draft and REUSED. Previewing the same selection, closing it,
+  // checking something and previewing again returns the same number rather
+  // than taking another. Only a genuinely different set of invoices draws a
+  // new one, and a successful submit releases the reservation. Gaps now cost
+  // one per abandoned draft, not one per click.
   const lines = chosen.map(inv => ({ no: inv.no, desc: descFor(inv), amount: inv.amount }));
-  setUI({ prfModal: true, prfDraft: { no: '', supplier, supplierName, currency, amount: chosen.reduce((s, x) => s + x.amount, 0), invoices: chosen.map(i => i.no), lines, by: st.user.username, createdAt: new Date().toISOString(), stage: 'Terbentuk', receiveChecklist: { a: false, b: false, c: false, d: false } } });
+  const sig = `${supplier.id}|${currency}|${chosen.map(i => i.no).sort().join(',')}`;
+  const reserved = (st.ui.prfReserved || {})[sig];
+
+  let no = reserved || '';
+  if (!no) {
+    const prefix = `PRF/PC/${romanMonth()}/`;
+    try {
+      no = await nextPrfNo(st.prfs, romanMonth(), new Date().getFullYear(), prefix);
+    } catch (e) {
+      // Degrade to the old behaviour rather than blocking the preview: the
+      // number can still be taken at submit time, and a PRF you cannot look at
+      // is worse than a PDF button that says "send it first".
+      console.error('nextPrfNo failed at preview', e);
+      toast({
+        id: 'Nomor PRF belum bisa diambil dari server — preview tetap jalan, nomornya terbit waktu dikirim.',
+        en: 'Could not take a PRF number from the server — preview still works, the number is issued on send.',
+        zh: '暂时无法从服务器取号 — 预览仍可用，编号将在发送时生成。',
+      });
+      no = '';
+    }
+  }
+  setUI({
+    prfModal: true,
+    prfReserved: no ? { ...(st.ui.prfReserved || {}), [sig]: no } : (st.ui.prfReserved || {}),
+    prfSig: sig,
+    prfDraft: { no, supplier, supplierName, currency, amount: chosen.reduce((s, x) => s + x.amount, 0), invoices: chosen.map(i => i.no), lines, by: st.user.username, createdAt: new Date().toISOString(), stage: 'Terbentuk', receiveChecklist: { a: false, b: false, c: false, d: false } },
+  });
 }
 
 // Learning bilingual description dictionary: prefill from prior entries.
@@ -1036,6 +1138,17 @@ function prfModal() {
     body: [
       h('div', { style: { background: 'var(--bg)', padding: '20px', borderRadius: '10px' } }, prfPaper(d, d.supplier, d.lines)),
       h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, [icon('warn', 11), ' ', t('prf_bank_from_master'), ' · ', t('prf_desc_hint')]),
+      // The number is spent the moment this modal opens. Say so, because the
+      // register it comes from is statutory and a gap in it is a question
+      // somebody has to answer later — better answered as "we cancelled that
+      // draft" than as "we don't know".
+      (!d.submitted && d.no)
+        ? h('div', { style: { fontSize: '10.5px', color: 'var(--st-amber-tx)', fontWeight: 600 } }, [icon('warn', 11), ' ', tr({
+            id: `Nomor ${d.no} sudah dipesan buat draft ini — bisa langsung di-PDF. Kalau draftnya dibatalkan, nomor itu hangus dan deretnya bolong.`,
+            en: `Number ${d.no} is reserved for this draft — you can save the PDF now. Abandon the draft and that number is spent, leaving a gap in the register.`,
+            zh: `编号 ${d.no} 已为此草稿预留 — 现在即可导出 PDF。若放弃该草稿，该编号作废，登记簿将出现缺号。`,
+          })])
+        : null,
       // A warning used to sit here for an account "not yet reviewed". With the
       // review queue removed there is no such state — every account on file IS
       // the live one. What still deserves a warning is the case that actually
@@ -1053,10 +1166,12 @@ function prfModal() {
     footer: [
       btn(t('close'), { onClick: () => setUI({ prfModal: false }) }),
       btn('PDF', { iconName: 'download', onClick: () => {
+        // Reachable BEFORE sending now — the number is reserved at preview.
+        // This branch only fires if the server could not issue one.
         if (!d.no) { toast({
-          id: 'Nomor PRF baru terbit setelah dikirim ke supervisor — kirim dulu, lalu unduh dari daftar PRF',
-          en: 'The PRF number is issued only after it is sent to the supervisor — send it first, then download from the PRF list',
-          zh: '付款申请单编号在发送主管之后才生成 — 请先发送，再从付款申请单列表下载',
+          id: 'Nomor PRF belum terbit (server tidak merespons) — kirim dulu, lalu unduh dari daftar PRF',
+          en: 'No PRF number yet (the server did not respond) — send it first, then download from the PRF list',
+          zh: '尚未生成付款申请单编号（服务器无响应）— 请先发送，再从列表下载',
         }); return; }
         const html = wrapPrintable(prfPaper(d, d.supplier, d.lines).outerHTML, d.no, 'landscape');
         const w = window.open('', '_blank');
@@ -1090,8 +1205,8 @@ async function submitPrf() {
       st.descDict.push(entry);
     }
   }
-  // Allocate the register number NOW — one line before the insert, so the only
-  // way to burn a number is an insert that actually reaches Postgres.
+  // Normally already reserved by openPrf(). This fallback covers the one case
+  // where it is not: the server refused to give a number at preview time.
   let no = d.no;
   if (!no) {
     const prefix = `PRF/PC/${romanMonth()}/`;
@@ -1107,8 +1222,14 @@ async function submitPrf() {
       return;
     }
   }
-  const prf = { ...d, no, supplier: d.supplierName, stage: 'Diproses Wilbert' };
+  // 'Terbentuk', not 'Diproses Wilbert'. Saving a PRF is not the same event as
+  // handing it over: the paper is printed, signed, stacked with the others, and
+  // walked to the supervisor's desk later — sometimes days later. Marking it
+  // "with the supervisor" at creation time recorded a handover that had not
+  // happened, which made the stage mean nothing.
+  const prf = { ...d, no, supplier: d.supplierName, stage: 'Terbentuk' };
   delete prf.supplierName;
+  delete prf.supplier_obj;
   try {
     const saved = await insertPrf(prf);
     prf.id = saved.id;
@@ -1130,10 +1251,14 @@ async function submitPrf() {
   // rendered in exactly one place, the statutory 付款申请单 became impossible to
   // print at all. Keep the modal open, now carrying the real number, so the
   // document can be produced right after submission.
-  setUI({ prfSel: {}, prfDraft: { ...d, no: prf.no, id: prf.id, stage: prf.stage, submitted: true } });
+  // Release the reservation: this number is now a real row, so re-selecting
+  // the same invoices later must NOT hand back a number that is already used.
+  const freed = { ...(getState().ui.prfReserved || {}) };
+  delete freed[getState().ui.prfSig];
+  setUI({ prfSel: {}, prfReserved: freed, prfDraft: { ...d, no: prf.no, id: prf.id, stage: prf.stage, submitted: true } });
   toast({
-    id: `${prf.no} dibuat & dikirim ke supervisor — silakan unduh PDF-nya`,
-    en: `${prf.no} created & sent to the supervisor — you can download the PDF now`,
-    zh: `${prf.no} 已创建并发送主管 — 现在可以下载 PDF`,
+    id: `${prf.no} tersimpan — cetak PDF-nya, kumpulkan, lalu serahkan ke supervisor. Dia yang centang "sudah diterima".`,
+    en: `${prf.no} saved — print the PDF, collect them, then hand them to the supervisor. He ticks them off as received.`,
+    zh: `${prf.no} 已保存 — 请打印 PDF，集齐后交给主管，由其勾选"已收到"。`,
   });
 }
