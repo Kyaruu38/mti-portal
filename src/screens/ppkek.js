@@ -212,7 +212,11 @@ async function addRegisterRow(p, folder, files) {
   const existing = (st0.ppkek || []).find(r => norm(r.nopen) && norm(r.nopen) === norm(p.nopen));
   if (existing) return updateRegisterRow(existing, p, folder, files);
   const local = {
-    nopen: p.nopen, date: new Date(), eta: p.eta || '', supplier: p.supplier || '—',
+    // Registration date FROM THE DOCUMENT, not the moment of import. The
+    // register's TANGGAL column is "PPKEK Date" in the workbook — a fact about
+    // the customs document, not about when someone got round to uploading it.
+    // Falls back to now only when the document has no readable date.
+    nopen: p.nopen, date: p.ppkekDate || new Date(), eta: p.eta || '', supplier: p.supplier || '—',
     address: p.address || '', invoiceNo: p.invoiceNo || '', plNo: p.plNo || '',
     usd: p.valuta === 'USD' ? p.valueForeign : 0, idr: p.valueIDR, jalur: p.asal, contractNo: p.contractNo,
     kurs: p.kursNDPBM, so: '', jo: '', costing: '', poErpIna: '', status: 'Open',
@@ -244,7 +248,7 @@ async function updateRegisterRow(row, p, folder, files) {
   // Parsed fields only. so/jo/costing/poErpIna/status/receivedDate are typed by
   // hand and are deliberately NOT in this list.
   const patch = {
-    eta: p.eta || row.eta, supplier: p.supplier || row.supplier,
+    date: p.ppkekDate || row.date, eta: p.eta || row.eta, supplier: p.supplier || row.supplier,
     address: p.address || row.address, invoiceNo: p.invoiceNo || row.invoiceNo,
     plNo: p.plNo || row.plNo, contractNo: p.contractNo || row.contractNo,
     usd: p.valuta === 'USD' ? p.valueForeign : row.usd,

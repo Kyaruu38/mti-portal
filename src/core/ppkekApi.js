@@ -24,15 +24,50 @@ function fromRow(row) {
   };
 }
 
+
+// Postgres date columns want ISO (YYYY-MM-DD). Indonesian customs documents
+// print DD-MM-YYYY, and that string is REJECTED outright — "31-07-2026" is read
+// as month 31 and the whole INSERT fails with
+//     date/time field value out of range: "31-07-2026"
+//
+// This bit until now only because the ETA was always empty: the parser's own
+// ETA rule was being overwritten with '' further down the file, so `|| null`
+// always fired and nothing invalid ever reached Postgres. The moment that
+// overwrite was fixed and a real date started coming through, every PPKEK
+// import began failing at the insert — the archive extracted, the files reached
+// Drive, the parse card showed correct values, and no register row appeared.
+//
+// Normalising here rather than at the call sites because this module owns the
+// database shape, and there are three separate places that build a row.
+// Anything unparseable returns null instead of throwing: a missing date must
+// never cost you the whole document.
+function toIsoDate(v) {
+  if (!v) return null;
+  if (v instanceof Date) return isNaN(v) ? null : v.toISOString().slice(0, 10);
+  const s = String(v).trim();
+  if (!s || s === '-') return null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);      // already ISO
+  const m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/); // DD-MM-YYYY
+  if (m) {
+    const d = Number(m[1]), mo = Number(m[2]);
+    if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) {
+      return `${m[3]}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+    return null;
+  }
+  const parsed = new Date(s);
+  return isNaN(parsed) ? null : parsed.toISOString().slice(0, 10);
+}
+
 function toRow(r) {
   return {
-    nopen: r.nopen || null, ppkek_date: r.date || null, eta: r.eta || null,
+    nopen: r.nopen || null, ppkek_date: toIsoDate(r.date), eta: toIsoDate(r.eta),
     contract_no: r.contractNo || null, supplier: r.supplier || null, address: r.address || null,
     invoice_no: r.invoiceNo || null, pl_no: r.plNo || null,
     usd: r.usd || 0, idr: r.idr || 0, kurs: r.kurs || 0,
     jalur: r.jalur === 'TLDDP' ? 'TLDDP' : 'LDP',
     so: r.so || '', jo: r.jo || '', costing: r.costing || '', po_erp_ina: r.poErpIna || '',
-    status: r.status || 'Open', received_date: r.receivedDate || null,
+    status: r.status || 'Open', received_date: toIsoDate(r.receivedDate),
     drive_folder: r.driveFolder || null, files: r.files || [],
   };
 }
