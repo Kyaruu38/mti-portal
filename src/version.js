@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v9.0';
+export const VERSION = 'v9.1';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v9.1', date: '31 Jul 2026',
+    what: {
+      id: 'Invoice tahap 2 bisa "Kembalikan ke tahap 1" — jadi bisa diedit/dihapus lagi setelah PRF-nya dibatalkan. Tombol konfirmasi juga diperjelas: dulu "Cancel this PRF?" bersebelahan dengan "Cancel", dua tombol satu kata arti berlawanan.',
+      en: 'A stage-2 invoice can go "Back to stage 1", so it can be edited or deleted again after its PRF is cancelled. Confirm buttons reworded too: "Cancel this PRF?" used to sit beside "Cancel" — one word, opposite meanings.',
+      zh: '第 2 阶段发票可“退回第 1 阶段”，付款申请单作废后即可重新编辑或删除。确认按钮文案也已修正：此前“作废此单？”与“取消”并列，一词两义。',
+    },
+  },
   {
     v: 'v9.0', date: '31 Jul 2026',
     what: {

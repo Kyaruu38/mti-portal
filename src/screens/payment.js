@@ -144,8 +144,11 @@ function prfDeleteBtn(p) {
     h('button.btn.btn-sm', {
       style: { background: 'var(--st-red-tx)', color: '#fff', border: 'none', fontWeight: 700 },
       onClick: () => removePrf(p),
-    }, tr({ id: 'Batalkan PRF?', en: 'Cancel this PRF?', zh: '确定作废？' })),
-    btn(t('cancel'), { sm: true, onClick: () => setPending(false) }),
+    }, tr({ id: 'Ya, batalkan PRF', en: 'Yes, cancel the PRF', zh: '是，作废此单' })),
+    // NOT t('cancel'). In English that renders "Cancel" directly beside "Cancel
+    // the PRF" — two buttons, one word, opposite meanings, and the destructive
+    // one is the red one. Kyaru looked at that row and asked how to cancel.
+    btn(tr({ id: 'Jangan', en: 'Keep it', zh: '保留' }), { sm: true, onClick: () => setPending(false) }),
   ]);
 }
 
@@ -193,9 +196,9 @@ async function removePrf(p) {
   setUI({ prfDelConfirm: {} });
   setState({ prfs: st.prfs });
   toast({
-    id: `${p.no} dibatalkan — invoicenya bisa dipakai lagi. Nomor ${p.no} TIDAK dipakai ulang.`,
-    en: `${p.no} cancelled — its invoices are available again. The number ${p.no} will NOT be reused.`,
-    zh: `${p.no} 已作废 — 其发票可再次使用。编号 ${p.no} 不会被重复使用。`,
+    id: `${p.no} dibatalkan — invoicenya bisa dipakai lagi (statusnya tetap di tahap 2; pakai "Kembalikan ke tahap 1" kalau mau diedit/dihapus). Nomor ${p.no} TIDAK dipakai ulang.`,
+    en: `${p.no} cancelled — its invoices are available again (they stay at stage 2; use "Back to stage 1" to edit or delete them). The number ${p.no} will NOT be reused.`,
+    zh: `${p.no} 已作废 — 其发票可再次使用（仍处于第 2 阶段；如需编辑或删除请用“退回第 1 阶段”）。编号 ${p.no} 不会被重复使用。`,
   });
 }
 
@@ -370,6 +373,16 @@ function invoiceTable(st, opts) {
         // longer exists. Correcting a typo is a stage-1 problem; anything later
         // is a decision with paperwork attached.
         canAdvance ? invDeleteBtn(inv) : null,
+        // The way BACK. Advancing used to be one-way: the invoice sat at stage
+        // 2 forever, with Delete gone and no route to it, even after the PRF it
+        // was raised for had been cancelled.
+        //
+        // Deliberately NOT automatic on PRF cancel. "Create PRF" advances and
+        // builds in one click, so undoing both together looks obvious — until
+        // the invoice was advanced days earlier by someone else and a PRF built
+        // and cancelled today silently undoes their work. This is explicit,
+        // audited, and only offered when no PRF holds the invoice.
+        (!readonly && canRevert(st, inv)) ? btn(t('pay_back_stage1'), { sm: true, onClick: () => revertToStage1(inv) }) : null,
       ])),
     ]);
   }));
@@ -408,6 +421,51 @@ async function uploadFaktur(inv) {
   setState({});
 }
 
+// Reverting is safe only while no PRF names the invoice. A PRF referencing an
+// invoice that has fallen back to stage 1 is a payment request built on
+// something the pipeline no longer considers ready.
+function canRevert(st, inv) {
+  if (inv.status !== 'Diproses Wilbert') return false;
+  return !st.prfs.some(p => (p.invoices || []).includes(inv.no) || (p.lines || []).some(l => l.no === inv.no));
+}
+
+async function revertToStage1(inv) {
+  if (blockWrite('kembalikan invoice ke tahap 1')) return;
+  const st = getState();
+  // Re-checked at click time: the button was drawn from state that may be
+  // seconds old, and a PRF may have been raised on this invoice since.
+  if (!canRevert(st, inv)) {
+    toast({
+      id: `${inv.no} sudah dipakai di PRF — batalkan PRF-nya dulu.`,
+      en: `${inv.no} is on a PRF — cancel that PRF first.`,
+      zh: `${inv.no} 已用于付款申请单 — 请先作废该单。`,
+    });
+    return;
+  }
+  const before = inv.status;
+  inv.status = 'Diterima Purchasing';
+  try {
+    await updateInvoice(inv.id, { status: inv.status });
+  } catch (e) {
+    console.error('Supabase invoice revert failed', e);
+    inv.status = before;
+    toast({
+      id: 'Gagal sync ke server — status tidak berubah: ' + (e.message || e),
+      en: 'Server sync failed — the status did not change: ' + (e.message || e),
+      zh: '同步服务器失败 — 状态未变更：' + (e.message || e),
+    });
+    setState({});
+    return;
+  }
+  logAudit({ entity: 'invoice', target: inv.no, action: 'revert_stage1', detail: `${before} → Diterima Purchasing` });
+  setState({});
+  toast({
+    id: `${inv.no} kembali ke tahap 1 — sekarang bisa diedit atau dihapus`,
+    en: `${inv.no} is back at stage 1 — it can be edited or deleted again`,
+    zh: `${inv.no} 已回到第 1 阶段 — 现在可以编辑或删除`,
+  });
+}
+
 // Two-step delete, same shape as Master Data's: no native confirm() dialogs,
 // and the second click is the one that acts. The label says what it will
 // destroy, because "Sure?" on its own is a question about nothing.
@@ -421,8 +479,8 @@ function invDeleteBtn(inv) {
     h('button.btn.btn-sm', {
       style: { background: 'var(--st-red-tx)', color: '#fff', border: 'none', fontWeight: 700 },
       onClick: () => removeInvoice(inv),
-    }, tr({ id: 'Hapus permanen?', en: 'Delete for good?', zh: '确定永久删除？' })),
-    btn(t('cancel'), { sm: true, onClick: () => setPending(false) }),
+    }, tr({ id: 'Ya, hapus permanen', en: 'Yes, delete for good', zh: '是，永久删除' })),
+    btn(tr({ id: 'Jangan', en: 'Keep it', zh: '保留' }), { sm: true, onClick: () => setPending(false) }),
   ]);
 }
 

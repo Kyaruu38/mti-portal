@@ -246,6 +246,7 @@ export const DICT = {
   handed_wilbert: { id: 'Diserahkan ke Supervisor', en: 'Handed to Supervisor', zh: '已转交主管' },
   // The BUTTON, named for what it gets you rather than for the stage it moves.
   pay_create_prf: { id: 'Buat PRF', en: 'Create PRF', zh: '开具付款申请单' },
+  pay_back_stage1: { id: 'Kembalikan ke tahap 1', en: 'Back to stage 1', zh: '退回第 1 阶段' },
 
   // --- finance ---
   fn_overdue_banner: { id: 'invoice OVERDUE — diterima tapi belum dibayar melewati jatuh tempo', en: 'invoices OVERDUE — received but unpaid past due date', zh: '张发票逾期 — 已收货但超过到期日未付' },
