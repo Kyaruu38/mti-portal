@@ -10,6 +10,7 @@ import { can } from '../auth/roles.js';
 import { wrapPrintable } from './approval.js';
 import { nextPrfNo } from '../core/docSeqApi.js';
 import { uploadToDrive } from '../core/drive.js';
+import { parseInvoicePdf } from '../parsers/invoicePdf.js';
 import { insertInvoice, updateInvoice } from '../core/invoicesApi.js';
 import { insertPrf } from '../core/prfsApi.js';
 import { insertDescDict } from '../core/descDictApi.js';
@@ -327,9 +328,29 @@ async function handToWilbert(inv) {
   setState({});
 }
 
-function openInvoiceModal(file) {
+async function openInvoiceModal(file) {
   const st = getState();
-  setUI({ invoiceModal: true, invoiceForm: { no: '', supplierId: (st.suppliers[0] || {}).id || '', poRef: '', currency: 'IDR', amount: 0, due: '', ppnPaid: false, file: file || null } });
+  const form = { no: '', supplierId: (st.suppliers[0] || {}).id || '', poRef: '', currency: 'IDR', amount: 0, due: '', ppnPaid: false, file: file || null };
+  // Open FIRST, fill after. Reading a PDF takes a moment, and a modal that
+  // appears only once the file has been read looks like a click that did
+  // nothing — on a queue of seven that happens seven times.
+  setUI({ invoiceModal: true, invoiceForm: form, invoiceRead: null });
+  if (!file || !/\.pdf$/i.test(file.name || '')) return;
+  try {
+    const r = await parseInvoicePdf(file, st.suppliers);
+    // The form object is the same one the inputs are bound to, and the user may
+    // already have started typing into it. Never overwrite what they typed.
+    const cur = getState().ui.invoiceForm;
+    if (cur !== form) return;
+    if (r.no && !form.no) form.no = r.no;
+    if (r.due && !form.due) form.due = r.due;
+    if (r.currency) form.currency = r.currency;
+    if (r.amount && !form.amount) form.amount = r.amount;
+    if (r.supplierId) form.supplierId = r.supplierId;
+    setUI({ invoiceRead: r });
+  } catch (e) {
+    console.warn('invoice prefill skipped', e);
+  }
 }
 
 // The dropped stack, minus the one currently in the modal. Kept in ui so a
@@ -397,6 +418,7 @@ function invoiceModal() {
       ]),
       field(t('col_due'), h('input.input', { type: 'date', value: f.due, onInput: e => (f.due = e.target.value) })),
       field(tr({ id: 'Lampiran', en: 'Attachment', zh: '附件' }), attachment),
+      prefillNote(st.ui.invoiceRead),
     ],
     footer: [
       btn(t('cancel'), { onClick: () => setUI({ invoiceModal: false, invoiceQueue: null, invoiceQueueTotal: 0 }) }),
@@ -407,6 +429,47 @@ function invoiceModal() {
       btn(left ? tr({ id: 'Simpan & lanjut', en: 'Save & next', zh: '保存并继续' }) : t('save'), { variant: 'primary', onClick: () => saveInvoiceModal() }),
     ],
   });
+}
+
+// What the PDF gave, said plainly.
+//
+// A pre-filled box looks exactly like a box someone typed, and this form ends
+// at a bank transfer. So every field that came from the file is NAMED, and the
+// note says to check them. It is deliberately not a quiet green tick.
+//
+// A scan gets its own message rather than silence: "nothing was filled" and
+// "this file has no text in it" are different facts, and only the second one
+// tells you not to bother waiting.
+function prefillNote(r) {
+  if (!r) return null;
+  const LABELS = {
+    no: tr({ id: 'No. Invoice', en: 'Invoice no.', zh: '发票号' }),
+    due: tr({ id: 'jatuh tempo', en: 'due date', zh: '到期日' }),
+    amount: tr({ id: 'nominal', en: 'amount', zh: '金额' }),
+    currency: tr({ id: 'currency', en: 'currency', zh: '币种' }),
+    supplier: tr({ id: 'supplier', en: 'supplier', zh: '供应商' }),
+  };
+  const box = (bg, fg, text) => h('div', { style: { background: bg, color: fg, border: `1px solid ${fg}`, borderRadius: '8px', padding: '8px 11px', fontSize: '11px', fontWeight: 600, lineHeight: 1.5 } }, text);
+  if (r.scanned) {
+    return box('var(--surface2)', 'var(--text-3)', tr({
+      id: 'PDF ini hasil scan — tidak ada teks di dalamnya, jadi tidak ada yang bisa diisi otomatis. Isi manual seperti biasa.',
+      en: 'This PDF is a scan — there is no text inside it, so nothing could be filled in. Type the details as usual.',
+      zh: '此 PDF 为扫描件 — 内部没有文字，无法自动填写，请照常手动输入。',
+    }));
+  }
+  if (!r.found || !r.found.length) {
+    return box('var(--surface2)', 'var(--text-3)', tr({
+      id: 'Format invoice ini belum dikenali — tidak ada yang diisi otomatis. Isi manual seperti biasa.',
+      en: 'This invoice layout is not recognised yet — nothing was filled in. Type the details as usual.',
+      zh: '尚未识别该发票版式 — 未自动填写任何内容，请照常手动输入。',
+    }));
+  }
+  const named = r.found.map(k => LABELS[k]).filter(Boolean).join(', ');
+  return box('var(--st-amber-bg)', 'var(--st-amber-tx)', tr({
+    id: `Diisi dari PDF: ${named}. CEK DULU sebelum simpan — ini jadi dasar pembayaran.`,
+    en: `Filled from the PDF: ${named}. CHECK THESE before saving — they become a payment.`,
+    zh: `已从 PDF 填入：${named}。保存前请核对 — 这些将成为付款依据。`,
+  }));
 }
 
 async function saveInvoiceModal() {
