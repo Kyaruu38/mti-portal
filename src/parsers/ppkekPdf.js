@@ -37,9 +37,22 @@ export async function parsePpkekPdf(file) {
   const grab = (re) => { const m = text.match(re); return m ? m[1].trim() : ''; };
 
   out.nopen = grab(/Nomor Pendaftaran[^\d]*([\d\-]+)/i) || grab(/Nopen[^\d]*([\d\-]+)/i);
-  out.ppkekNo = grab(/PPKEK[^\n]*?No\.?[:：]?\s*([A-Z0-9\-]+)/i) || grab(/\b(2010\d{3}[A-Z0-9]{10,})/);
+  // "NOMOR PENGAJUAN : 201039B6864D93107202600996" — the PPKEK No. column in the
+  // register workbook. Parsed all along, just never captured.
+  out.ppkekNo = grab(/Nomor\s*Pengajuan[^\w]*([A-Z0-9]{12,})/i) || '';
+  // "d. Perkiraan Tanggal Tiba : 31-07-2026"
+  out.eta = grab(/Perkiraan\s*Tanggal\s*Tiba[^\d]*(\d{2}-\d{2}-\d{4})/i) || out.eta;
+  // FALLBACKS ONLY — the anchored "Nomor Pengajuan" match above is the real one
+  // and must not be overwritten by these. This line used to be an unconditional
+  // assignment placed AFTER it, so the working value was thrown away every time:
+  // the first pattern matches the words "PPKEK PEMASUKAN" in the page title and
+  // captures whatever follows.
+  if (!out.ppkekNo) out.ppkekNo = grab(/\b(2010\d{3}[A-Z0-9]{10,})/) || '';
   out.ppkekDate = grab(/Tanggal[^\n]*?(\d{1,2}[-\/ ][A-Za-z0-9]{2,}[-\/ ]\d{2,4})/);
-  out.eta = grab(/ETA[^\d]*(\d{1,2}[-\/ ][A-Za-z0-9]{2,}[-\/ ]\d{2,4})/i);
+  // Same trap: unconditional, and placed after the anchored match. On a form
+  // that spells it "Perkiraan Tanggal Tiba" and never uses the word ETA, this
+  // reliably replaced a correct date with an empty string.
+  if (!out.eta) out.eta = grab(/ETA[^\d\n]*(\d{1,2}[-\/ ][A-Za-z0-9]{2,}[-\/ ]\d{2,4})/i) || '';
   out.contractNo = grab(/(?:Contract|合同号|No\. Kontrak)[^\n]*?(CGDD\d{8,}|[A-Z]{2,}-?\d{4,}[A-Z0-9\-]*)/i);
   out.invoiceNo = grab(/Invoice[^\n]*?[:：]?\s*([A-Z0-9\/\-]+)/i);
   out.plNo = grab(/(?:Packing List|PL No)[^\n]*?[:：]?\s*([A-Z0-9\/\-]+)/i);
@@ -57,10 +70,36 @@ export async function parsePpkekPdf(file) {
   if (val) out.valuta = val[1];
 
   // Foreign & IDR values (CIF).
-  const cif = text.match(/CIF[^\d]*([\d.,]+)/i);
-  if (cif) out.valueForeign = toNum(cif[1]);
-  const idr = text.match(/(?:Nilai\s*(?:Pabean|IDR|Rupiah))[^\d]*([\d.,]+)/i);
-  if (idr) out.valueIDR = toNum(idr[1]);
+  // ANCHORED TO THE FULL LABEL, on purpose.
+  //
+  // These used to be /CIF[^\d]*([\d.,]+)/ and /Nilai\s*(?:Pabean|IDR)[^\d]*([\d.,]+)/.
+  // `[^\d]*` crosses newlines, so both walked from a label that carries NO
+  // number of its own to whatever digit appeared next anywhere in the document:
+  //
+  //     1. Inconterm : CIF          <- regex matched "CIF" here...
+  //     1. Pemenuhan Persyaratan    <- ...and captured this "1"
+  //
+  // Nilai Pabean came out as 1 and USD as 1 on every real document. Nothing
+  // errored — the register just showed IDR 1 next to a genuine nopen and date,
+  // which reads as "cheap shipment", not as "parser failure".
+  //
+  // The customs form always spells these two out in full, with the currency in
+  // the label itself:
+  //     7. Nilai Pabean - USD : 21.600,00
+  //     8. Nilai Pabean - IDR : 387.439.200,00
+  // so the currency is matched as part of the label and the number has to sit
+  // on the same side of it. [^\d\n]* (no newline) keeps the match on one line.
+  const usdVal = text.match(/Nilai\s*Pabean\s*[-–]?\s*USD[^\d\n]*([\d.,]+)/i);
+  if (usdVal) out.valueForeign = toNum(usdVal[1]);
+  else {
+    // Fallback: FOB line, same shape. Some documents carry FOB but not CIF.
+    const fob = text.match(/Nilai\s*[-–]?\s*FOB\s*USD[^\d\n]*([\d.,]+)/i);
+    if (fob) out.valueForeign = toNum(fob[1]);
+  }
+  const idrVal = text.match(/Nilai\s*Pabean\s*[-–]?\s*IDR[^\d\n]*([\d.,]+)/i);
+  if (idrVal) out.valueIDR = toNum(idrVal[1]);
+  // Derived only as a last resort, and it must agree with the printed figure
+  // when both exist — see the invariant check in the test harness.
   if (!out.valueIDR && out.valueForeign && out.kursNDPBM) out.valueIDR = Math.round(out.valueForeign * out.kursNDPBM);
 
   // Incoterm
@@ -108,4 +147,66 @@ export async function parsePpkekPdf(file) {
 function toNum(v) {
   const n = parseNumber(v, 'id');
   return Number.isFinite(n) ? n : 0;
+}
+
+
+// ---------------------------------------------------------------------------
+// SPPB — where the supplier name actually lives.
+//
+// The PPKEK form prints "Eksportir LN/Penjual" and "Pemasok" as two ADJACENT
+// COLUMNS of a three-column block. Flattened to text that becomes:
+//
+//     2. Eksportir LN/Penjual        3. Pemasok        <- column HEADINGS
+//     c. Nama : NIPPON SEIRO (THAILAND)  c. Nama :
+//     CO., LTD. LTD.
+//
+// so any regex anchored on the word "Penjual" or "Pemasok" walks straight into
+// the neighbouring HEADING and captures the literal word "Pemasok". That is what
+// every row in the register says today. The real name is on the next line and
+// split across two.
+//
+// The SPPB in the same bundle prints the same party in a plain single column:
+//
+//     2. PENGIRIM BARANG
+//     b. Nama   : NIPPON SEIRO (THAILAND) CO., LTD.
+//     c. Alamat : NO.700/15 MOO 7 TAMBON KHAOKHANSONG AMPHUR SRIRACHA...
+//
+// One label, one value, one line. Reading it from here instead of fighting the
+// three-column form is not a workaround — it is the better source.
+//
+// Returns {} when the file isn't an SPPB or the block is missing, so the caller
+// simply keeps whatever the PPKEK parse produced.
+// ---------------------------------------------------------------------------
+export async function parseSppbPdf(file) {
+  let text = '';
+  try {
+    const pdf = await extractPdf(file);
+    if (pdf.isScanned) return {};
+    text = pdf.text || '';
+  } catch (e) {
+    console.warn('SPPB parse failed (non-fatal):', e);
+    return {};
+  }
+  if (!/SURAT\s+PERSETUJUAN\s+PENGELUARAN\s+BARANG|SPPB/i.test(text)) return {};
+
+  // Scoped to the PENGIRIM BARANG block: the same document also carries
+  // PENERIMA BARANG (that is MTI itself), and matching "b. Nama" globally would
+  // pick whichever came first.
+  const block = text.split(/PENGIRIM\s+BARANG/i)[1];
+  if (!block) return {};
+  const stop = block.split(/PENERIMA\s+BARANG/i)[0];
+
+  const out = {};
+  const nama = stop.match(/b\.\s*Nama[^:：]*[:：]\s*([^\n]+)/i);
+  if (nama) {
+    const v = nama[1].trim();
+    // "-" is how the form prints an empty field; never store it as a name.
+    if (v && v !== '-') out.supplier = v;
+  }
+  const alamat = stop.match(/c\.\s*Alamat[^:：]*[:：]\s*([^\n]+)/i);
+  if (alamat) {
+    const v = alamat[1].trim();
+    if (v && v !== '-') out.address = v;
+  }
+  return out;
 }

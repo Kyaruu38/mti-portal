@@ -3,7 +3,7 @@ import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.j
 import { t } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal } from '../ui/components.js';
 import { extractArchive } from '../parsers/archive.js';
-import { parsePpkekPdf } from '../parsers/ppkekPdf.js';
+import { parsePpkekPdf, parseSppbPdf } from '../parsers/ppkekPdf.js';
 import { uploadToDrive, ppkekFolder } from '../core/drive.js';
 import { readWorkbook, writeWorkbook, colLetter } from '../core/xlsx.js';
 import { num, fmtDate } from '../core/format.js';
@@ -73,7 +73,7 @@ function registerTable(st, canWrite) {
   const rows = st.ppkek;
   // The pencil marks mean "you can edit this". Strip them when the cells are
   // read-only, otherwise the header promises an affordance the row doesn't have.
-  const head = h('thead', h('tr', ['Nopen', 'Tanggal', 'Supplier', 'USD', 'IDR', 'Jalur', 'SO ✎', 'JO ✎', 'Costing ✎', 'PO ERP INA ✎', 'Status ✎']
+  const head = h('thead', h('tr', ['Nopen', 'Tanggal', 'Supplier', 'USD', 'IDR', 'Jalur', 'Dok', 'SO ✎', 'JO ✎', 'Costing ✎', 'PO ERP INA ✎', 'Status ✎']
     .map(c => (canWrite ? c : c.replace(' ✎', '')))
     .map((c, i) => h('th' + (i === 3 || i === 4 ? '.r' : ''), { style: /✎/.test(c) ? { color: 'var(--accent-tx)' } : {} }, c))));
   const body = h('tbody', rows.map(r => h('tr', [
@@ -83,6 +83,10 @@ function registerTable(st, canWrite) {
     h('td.mono.r', r.usd ? num(r.usd, 2) : '—'),
     h('td.mono.r', num(r.idr)),
     h('td', badge(r.jalur, r.jalur === 'LDP' ? 'navy' : 'gray')),
+    // How many documents from the bundle actually landed in Drive for this
+    // nopen. A row showing 0 means the archive extracted but nothing uploaded —
+    // worth noticing, and previously invisible from this screen.
+    h('td.mono.r', { style: { fontSize: '11px', color: (r.files || []).length ? 'var(--text-2)' : 'var(--st-red-tx)' } }, String((r.files || []).length)),
     editCell(r, 'so', 84, canWrite), editCell(r, 'jo', 84, canWrite), editCell(r, 'costing', 84, canWrite), editCell(r, 'poErpIna', 96, canWrite),
     // `r.status || 'Open'` would have been a lie: a row whose status was never
     // filled in is NOT Open, it is unset. statusSelect() shows no selection for
@@ -163,6 +167,19 @@ async function handleArchive(file) {
     const pdf = files.find(f => /ppkek/i.test(f.name) && /\.pdf$/i.test(f.name)) || files.find(f => /\.pdf$/i.test(f.name));
     let parsed = null;
     if (pdf) { try { parsed = await parsePpkekPdf(pdf); } catch (e) { console.warn(e); } }
+    // Supplier + address come from the SPPB, not the PPKEK — see parseSppbPdf()
+    // for why. Purely additive: if the SPPB is missing or unreadable the PPKEK
+    // values stand, so a bundle without one behaves exactly as before.
+    if (parsed) {
+      const sppb = files.find(f => /sppb/i.test(f.name) && /\.pdf$/i.test(f.name));
+      if (sppb) {
+        try {
+          const extra = await parseSppbPdf(sppb);
+          if (extra.supplier) parsed.supplier = extra.supplier;
+          if (extra.address) parsed.address = extra.address;
+        } catch (e) { console.warn('SPPB parse skipped:', e); }
+      }
+    }
     setUI({ pkExtract: { name: file.name, format, files }, pkParsed: parsed });
     if (parsed && parsed.nopen) await addRegisterRow(parsed, folder, fileRecords);
     logAudit({ entity: 'ppkek', target: file.name, action: 'import', detail: `${files.length} docs (${format})` });
@@ -173,8 +190,27 @@ async function handleArchive(file) {
   }
 }
 
+// One nopen = one customs document = one register row, always.
+//
+// This used to INSERT unconditionally. Drop the same archive twice and the
+// register grew a second identical row — which is exactly what happened when
+// sekar re-dropped a bundle after seeing the parse come out wrong: four rows,
+// same nopen 009444, same date, same figures. The same shape of hole that let
+// CGDD2607200143 be recorded as five separate POs.
+//
+// Rejecting the re-import would be the wrong cure here. A nopen is assigned by
+// Bea Cukai and is unique by construction, so a second import of it is not a
+// mistake to block — it is the SAME document, usually re-dropped precisely
+// because the first result looked wrong. So it UPDATES in place: parsed fields
+// refresh, the Drive file list merges, and the manually typed columns (SO, JO,
+// Costing, PO ERP INA, Status) are left completely alone — those are sekar's
+// work and a re-import must never wipe them.
 async function addRegisterRow(p, folder, files) {
   if (blockWrite('tambah baris register PPKEK')) return;
+  const st0 = getState();
+  const norm = v => String(v == null ? '' : v).trim();
+  const existing = (st0.ppkek || []).find(r => norm(r.nopen) && norm(r.nopen) === norm(p.nopen));
+  if (existing) return updateRegisterRow(existing, p, folder, files);
   const local = {
     nopen: p.nopen, date: new Date(), eta: p.eta || '', supplier: p.supplier || '—',
     address: p.address || '', invoiceNo: p.invoiceNo || '', plNo: p.plNo || '',
@@ -194,6 +230,38 @@ async function addRegisterRow(p, folder, files) {
   const st = getState();
   st.ppkek.unshift(local);
   setState({});
+  toast(`Nopen ${local.nopen} masuk register · ${(files || []).length} dokumen ke Drive`);
+}
+
+// Re-import of a nopen already in the register.
+async function updateRegisterRow(row, p, folder, files) {
+  // Merge Drive files by name so a re-drop doesn't duplicate the list, and a
+  // bundle that carried an extra document the first time isn't lost.
+  const byName = new Map((row.files || []).map(f => [f.name, f]));
+  for (const f of (files || [])) byName.set(f.name, f);
+  const merged = [...byName.values()];
+
+  // Parsed fields only. so/jo/costing/poErpIna/status/receivedDate are typed by
+  // hand and are deliberately NOT in this list.
+  const patch = {
+    eta: p.eta || row.eta, supplier: p.supplier || row.supplier,
+    address: p.address || row.address, invoiceNo: p.invoiceNo || row.invoiceNo,
+    plNo: p.plNo || row.plNo, contractNo: p.contractNo || row.contractNo,
+    usd: p.valuta === 'USD' ? p.valueForeign : row.usd,
+    idr: p.valueIDR || row.idr, kurs: p.kursNDPBM || row.kurs,
+    jalur: p.asal || row.jalur, driveFolder: folder || row.driveFolder, files: merged,
+  };
+  Object.assign(row, patch);
+  try {
+    await updatePpkek(row.id, patch);
+  } catch (e) {
+    console.error('Supabase ppkek update failed', e);
+    toast('Data diperbarui lokal, tapi gagal sync ke server: ' + (e.message || e));
+    setState({});
+    return;
+  }
+  setState({});
+  toast(`Nopen ${row.nopen} SUDAH ADA — baris diperbarui, tidak ditambah. ${merged.length} dokumen di Drive · SO/JO/Costing tidak diubah`);
 }
 
 async function exportRegister() {
