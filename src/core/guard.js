@@ -108,6 +108,7 @@ const ACTIONS = {
   'upload faktur pajak':               { en: 'uploading the tax invoice', zh: '上传税务发票' },
   'simpan invoice':                    { en: 'saving the invoice', zh: '保存发票' },
   'serahkan invoice ke Wilbert':       { en: 'handing the invoice to Wilbert', zh: '将发票移交 Wilbert' },
+  'hapus invoice':                     { en: 'deleting the invoice', zh: '删除发票' },
   'kirim PRF':                         { en: 'submitting the PRF', zh: '提交付款申请单' },
   'terima PRF di Finance':             { en: 'receiving the PRF in Finance', zh: '财务接收付款申请单' },
   'tandai PRF lunas':                  { en: 'marking the PRF paid', zh: '标记付款申请单已付' },

@@ -11,9 +11,10 @@ import { wrapPrintable } from './approval.js';
 import { nextPrfNo } from '../core/docSeqApi.js';
 import { uploadToDrive } from '../core/drive.js';
 import { parseInvoicePdf } from '../parsers/invoicePdf.js';
-import { insertInvoice, updateInvoice } from '../core/invoicesApi.js';
+import { insertInvoice, updateInvoice, deleteInvoice } from '../core/invoicesApi.js';
 import { insertPrf } from '../core/prfsApi.js';
 import { insertDescDict } from '../core/descDictApi.js';
+import { UUID_RE } from '../core/supabase.js';
 
 const STAGES = ['Diterima Purchasing', 'Diproses Wilbert', 'Diterima Finance', 'Paid'];
 
@@ -281,6 +282,12 @@ function invoiceTable(st, opts) {
         // with this button sitting right there, unclicked — because nothing on
         // it suggested the PRF was on the other side of it.
         canAdvance ? btn(t('pay_create_prf'), { sm: true, variant: 'primary', onClick: () => advanceToPrf(inv) }) : null,
+        // Delete is offered ONLY at stage 1. Past that the invoice has entered
+        // the payment pipeline — it can be on a PRF, and a row that vanishes
+        // from under a PRF leaves a document referencing something that no
+        // longer exists. Correcting a typo is a stage-1 problem; anything later
+        // is a decision with paperwork attached.
+        canAdvance ? invDeleteBtn(inv) : null,
       ])),
     ]);
   }));
@@ -317,6 +324,77 @@ async function uploadFaktur(inv) {
   }
   toast({ id: 'Faktur pajak terupload', en: 'Tax invoice uploaded', zh: '税票已上传' });
   setState({});
+}
+
+// Two-step delete, same shape as Master Data's: no native confirm() dialogs,
+// and the second click is the one that acts. The label says what it will
+// destroy, because "Sure?" on its own is a question about nothing.
+function invDeleteBtn(inv) {
+  const st = getState();
+  const key = 'inv:' + inv.id;
+  const pending = (st.ui.invDelConfirm || {})[key];
+  const setPending = (v) => setUI({ invDelConfirm: { ...(st.ui.invDelConfirm || {}), [key]: v } });
+  if (!pending) return btn(t('delete'), { sm: true, onClick: () => setPending(true) });
+  return h('div.row.gap8', [
+    h('button.btn.btn-sm', {
+      style: { background: 'var(--st-red-tx)', color: '#fff', border: 'none', fontWeight: 700 },
+      onClick: () => removeInvoice(inv),
+    }, tr({ id: 'Hapus permanen?', en: 'Delete for good?', zh: '确定永久删除？' })),
+    btn(t('cancel'), { sm: true, onClick: () => setPending(false) }),
+  ]);
+}
+
+async function removeInvoice(inv) {
+  if (blockWrite('hapus invoice')) return;
+  const st = getState();
+
+  // Belt and braces. Stage 1 cannot be on a PRF by construction, but "cannot"
+  // is an assumption about every past and future code path, and this is the
+  // one operation with no undo. If a PRF names this invoice, refuse and say
+  // which one — deleting it would leave a payment document pointing at a row
+  // that no longer exists.
+  const onPrf = st.prfs.find(p => (p.invoices || []).includes(inv.no) || (p.lines || []).some(l => l.no === inv.no));
+  if (onPrf) {
+    toast({
+      id: `Tidak bisa dihapus — invoice ini dipakai di PRF ${onPrf.no}.`,
+      en: `Cannot delete — this invoice is used on PRF ${onPrf.no}.`,
+      zh: `无法删除 — 该发票已用于付款申请单 ${onPrf.no}。`,
+    });
+    setUI({ invDelConfirm: {} });
+    return;
+  }
+
+  try {
+    if (inv.id && UUID_RE.test(inv.id)) await deleteInvoice(inv.id);
+  } catch (e) {
+    // Do NOT drop it locally when the server refused. A row that disappears
+    // from the screen but survives on the server comes back at the next
+    // refresh, and in between someone re-enters it — which the duplicate guard
+    // then blocks, for reasons nobody can see.
+    console.error('Supabase invoice delete failed', e);
+    toast({
+      id: 'Gagal hapus di server — invoice tidak jadi dihapus: ' + (e.message || e),
+      en: 'Server delete failed — the invoice was not removed: ' + (e.message || e),
+      zh: '服务器删除失败 — 发票未被删除：' + (e.message || e),
+    });
+    setUI({ invDelConfirm: {} });
+    return;
+  }
+
+  st.invoices = st.invoices.filter(i => i !== inv);
+  // The audit line carries what the row WAS. After a delete there is nothing
+  // left to look up, so anything the log omits is gone for good.
+  logAudit({
+    entity: 'invoice', target: inv.no, action: 'delete',
+    detail: `${inv.supplier} · ${money(inv.amount, inv.currency)} · jatuh tempo ${fmtDate(inv.due)}`,
+  });
+  setUI({ invDelConfirm: {} });
+  setState({ invoices: st.invoices });
+  toast({
+    id: `Invoice ${inv.no} dihapus — tercatat di History`,
+    en: `Invoice ${inv.no} deleted — recorded in History`,
+    zh: `发票 ${inv.no} 已删除 — 已记入历史`,
+  });
 }
 
 // Move the invoice to the stage where it becomes PRF-able, and then actually

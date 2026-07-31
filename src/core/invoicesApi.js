@@ -1,5 +1,4 @@
 // Supabase persistence for Invoices. Same shape as suppliersApi.js/posApi.js.
-// No delete — no delete UI exists for invoices anywhere in the app.
 import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
 
 function fromRow(row) {
@@ -38,5 +37,20 @@ export async function updateInvoice(id, patch) {
   if ('faktur' in patch) row.faktur = patch.faktur;
   if ('files' in patch) row.files = patch.files;
   const { error } = await c.from('invoices').update(row).eq('id', id);
+  if (error) throw error;
+}
+
+// Delete. Only reachable from an invoice still at "Diterima Purchasing" — see
+// payment.js, which also refuses if any PRF references the number.
+//
+// This existed nowhere until 31 Jul 2026, and the gap had teeth: correcting one
+// mistyped invoice meant opening the Supabase SQL Editor and hand-writing a
+// DELETE. Every one of those is a chance to write a WHERE that matches more
+// rows than intended, on a table nobody can restore.
+export async function deleteInvoice(id) {
+  if (!isConfigured()) return;
+  const c = await getClient();
+  if (!c) throw new Error('Supabase client unavailable');
+  const { error } = await c.from('invoices').delete().eq('id', id);
   if (error) throw error;
 }

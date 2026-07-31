@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v7.0';
+export const VERSION = 'v8.0';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v8.0', date: '31 Jul 2026',
+    what: {
+      id: 'Invoice bisa dihapus dari portal — tapi hanya yang masih tahap 1, lewat konfirmasi dua langkah, ditolak kalau sudah dipakai di PRF, dan selalu tercatat di History lengkap dengan nominal & jatuh tempo.',
+      en: 'Invoices can be deleted from the portal — only at stage 1, behind a two-step confirm, refused if a PRF already names it, and always recorded in History with the amount and due date.',
+      zh: '可在门户中删除发票 — 仅限第 1 阶段，需两步确认，已被付款申请单引用者拒绝删除，并始终记入历史（含金额与到期日）。',
+    },
+  },
   {
     v: 'v7.0', date: '31 Jul 2026',
     what: {
