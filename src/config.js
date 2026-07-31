@@ -1,3 +1,5 @@
+import { VERSION } from './version.js';
+
 // =============================================================================
 // MTI Purchasing Portal — CONFIGURATION
 // -----------------------------------------------------------------------------
@@ -43,7 +45,9 @@ export const COMPANY = {
   npwp: '01.234.567.8-051.000',
   tel: '+62 294 388 1200',
   email: 'purchasing@mti.co.id',
-  version: 'v2.0',
+  // Single source in src/version.js — this alias stays so the PRF footer and
+  // anything else reading COMPANY.version keeps working.
+  version: VERSION,
 };
 
 // Login uses usernames mapped to internal emails (Supabase Auth uses email).

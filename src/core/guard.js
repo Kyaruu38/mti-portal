@@ -64,6 +64,61 @@ export function readOnlySession() {
   return !!u && isReadOnly(u.role);
 }
 
+// The 43 action names the 46 call sites pass, translated in ONE place.
+//
+// Kept as a lookup rather than pushed out to the call sites because `what` is
+// also the console warning and the thing you grep for when a read-only account
+// reaches a button it should not have — an Indonesian phrase there is the key
+// that ties the toast, the console line and the source together. Translating at
+// the call sites would have meant editing 46 early-return guards and losing
+// that. A phrase missing from this table falls back to itself, so adding a new
+// blockWrite() can never break: worst case one word stays Indonesian.
+const ACTIONS = {
+  'approve PO':                        { en: 'approving the PO', zh: '批准采购单' },
+  'reject PO':                         { en: 'rejecting the PO', zh: '拒绝采购单' },
+  'request hapus PO':                  { en: 'requesting PO deletion', zh: '申请删除采购单' },
+  'approve hapus PO':                  { en: 'approving the PO deletion', zh: '批准删除采购单' },
+  'reject hapus PO':                   { en: 'rejecting the PO deletion', zh: '拒绝删除采购单' },
+  'simpan perubahan PO':               { en: 'saving the PO changes', zh: '保存采购单修改' },
+  'generate PO dari PDF':              { en: 'generating a PO from the PDF', zh: '从 PDF 生成采购单' },
+  'generate PO label':                 { en: 'generating the label PO', zh: '生成标签采购单' },
+  'cocokkan kode ERP':                 { en: 'matching the ERP code', zh: '匹配 ERP 编码' },
+  'cocokkan kode ERP massal':          { en: 'bulk-matching ERP codes', zh: '批量匹配 ERP 编码' },
+  'buat surat jalan':                  { en: 'creating the Surat Jalan', zh: '创建送货单' },
+  'simpan surat jalan':                { en: 'saving the Surat Jalan', zh: '保存送货单' },
+  'arsipkan ulang surat jalan':        { en: 're-archiving the Surat Jalan', zh: '重新归档送货单' },
+  'simpan supplier':                   { en: 'saving the supplier', zh: '保存供应商' },
+  'putuskan usulan rekening':          { en: 'deciding on the bank account proposal', zh: '处理银行账号变更申请' },
+  'tambah brand map':                  { en: 'adding a brand mapping', zh: '新增品牌对照' },
+  'ubah brand map':                    { en: 'editing the brand mapping', zh: '修改品牌对照' },
+  'hapus brand map':                   { en: 'deleting the brand mapping', zh: '删除品牌对照' },
+  'tambah kamus':                      { en: 'adding a dictionary entry', zh: '新增词典条目' },
+  'ubah kamus':                        { en: 'editing the dictionary entry', zh: '修改词典条目' },
+  'hapus kamus':                       { en: 'deleting the dictionary entry', zh: '删除词典条目' },
+  'simpan item master':                { en: 'saving the master item', zh: '保存物料主数据' },
+  'hapus item master':                 { en: 'deleting the master item', zh: '删除物料主数据' },
+  'tambah unit':                       { en: 'adding a unit', zh: '新增单位' },
+  'ubah unit':                         { en: 'editing the unit', zh: '修改单位' },
+  'hapus unit':                        { en: 'deleting the unit', zh: '删除单位' },
+  'upload file label':                 { en: 'uploading the label file', zh: '上传标签文件' },
+  'parse label Excel':                 { en: 'parsing the label Excel', zh: '解析标签 Excel' },
+  'upload desain label':               { en: 'uploading the label design', zh: '上传标签设计' },
+  'upload file stok label':            { en: 'uploading the label stock file', zh: '上传标签库存文件' },
+  'simpan upload stok label':          { en: 'saving the label stock upload', zh: '保存标签库存上传' },
+  'upload faktur pajak':               { en: 'uploading the tax invoice', zh: '上传税务发票' },
+  'simpan invoice':                    { en: 'saving the invoice', zh: '保存发票' },
+  'serahkan invoice ke Wilbert':       { en: 'handing the invoice to Wilbert', zh: '将发票移交 Wilbert' },
+  'kirim PRF':                         { en: 'submitting the PRF', zh: '提交付款申请单' },
+  'terima PRF di Finance':             { en: 'receiving the PRF in Finance', zh: '财务接收付款申请单' },
+  'tandai PRF lunas':                  { en: 'marking the PRF paid', zh: '标记付款申请单已付' },
+  'upload bukti transfer':             { en: 'uploading the transfer proof', zh: '上传转账凭证' },
+  'import arsip PPKEK':                { en: 'importing the PPKEK archive', zh: '导入报关压缩包' },
+  'tambah baris register PPKEK':       { en: 'adding a PPKEK register row', zh: '新增报关登记行' },
+  'ubah register PPKEK':               { en: 'editing the PPKEK register', zh: '修改报关登记册' },
+  'import update register PPKEK':      { en: 'importing PPKEK register updates', zh: '导入报关登记册更新' },
+  'terapkan perubahan register PPKEK': { en: 'applying the PPKEK register changes', zh: '应用报关登记册修改' },
+};
+
 /**
  * Refuse an action for a read-only account.
  *
@@ -74,15 +129,22 @@ export function readOnlySession() {
  * Deliberately does not throw: several call sites are event handlers with no
  * catch, and an exception there would take the screen down with it.
  *
- * @param {string} what  human description, shown in the toast
+ * @param {string} what  Indonesian action name; also the ACTIONS lookup key
  * @returns {boolean}    true = blocked, caller must stop
  */
 export function blockWrite(what) {
   if (!readOnlySession()) return false;
   const role = (getState().user || {}).role;
+  const a = ACTIONS[what] || {};
   // A reachable button is the bug worth finding, so name it loudly for whoever
   // is looking at the console — the toast alone would be invisible in a report.
+  // Always the Indonesian key here, whatever language the screen is in: this
+  // line is for grepping the source, not for reading.
   console.warn(`[guard] write blocked for read-only role "${role}": ${what}. A button for this should not have been reachable — gate it with a capability in auth/roles.js.`);
-  toast(`Akun ${role} cuma bisa memantau — ${what} tidak dijalankan.`);
+  toast({
+    id: `Akun ${role} cuma bisa memantau — ${what} tidak dijalankan.`,
+    en: `The ${role} account is view-only — ${a.en || what} was not performed.`,
+    zh: `${role} 账号仅可查看 — 未执行${a.zh || what}。`,
+  });
   return true;
 }

@@ -15,6 +15,46 @@ export function isConfigured() { return FEATURES.useSupabase; }
 // UPDATE if it already is) and by fetch-on-login merges (A3's pattern).
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// ---------------------------------------------------------------------------
+// WHERE THE AUTH TOKEN LIVES — sessionStorage, and ONLY the auth token.
+//
+// This was persistSession:false, which kept the token in a JS variable and
+// nowhere else. Correct for secrecy, and the reason every F5 landed on the
+// login screen: a page reload throws away the whole JS heap, so there was
+// nothing left to prove who you were.
+//
+// sessionStorage, not localStorage, and the difference is the point:
+//   * refresh (F5, Ctrl+F5, or the browser reloading the tab) KEEPS you in;
+//   * closing the tab, or the window, ends the session — nothing is left on
+//     the machine for the next person who opens the browser.
+// localStorage would survive that too, which on a shared office PC is exactly
+// what you do not want.
+//
+// The store's no-storage rule is unchanged: not one row of PO, supplier, PRF
+// or PPKEK data is written here. What is stored is the same JWT + refresh
+// token the browser would otherwise hold in memory, and it still buys nothing
+// on its own — every read and write goes through RLS, which resolves the role
+// from the profiles table server-side, not from anything in this token.
+function authStorage() {
+  try {
+    const k = '__mti_probe__';
+    window.sessionStorage.setItem(k, '1');
+    window.sessionStorage.removeItem(k);
+    return window.sessionStorage;
+  } catch {
+    // Private mode, storage disabled by policy, or an embedded webview. Fall
+    // back to memory — the app then behaves exactly as it did before this
+    // change (refresh logs you out) rather than failing to start.
+    console.warn('sessionStorage unavailable — session will not survive refresh.');
+    const mem = new Map();
+    return {
+      getItem: k => (mem.has(k) ? mem.get(k) : null),
+      setItem: (k, v) => mem.set(k, String(v)),
+      removeItem: k => mem.delete(k),
+    };
+  }
+}
+
 export async function getClient() {
   if (!isConfigured()) return null;
   if (client || initTried) return client;
@@ -23,11 +63,36 @@ export async function getClient() {
     // Loaded from CDN via importmap (see index.html).
     const { createClient } = await import('@supabase/supabase-js');
     client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: false }, // no localStorage; keep session in memory
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        // No magic-link / OAuth flow in this app, so there is never a token in
+        // the URL to detect — and leaving it on would make the router's own
+        // #/screen hash something the auth library tries to interpret.
+        detectSessionInUrl: false,
+        storageKey: 'mti-portal-auth',
+        storage: authStorage(),
+      },
     });
     return client;
   } catch (e) {
     console.warn('Supabase init failed — staying in demo mode.', e);
+    return null;
+  }
+}
+
+// The session left over from before a page reload, or null. Never throws:
+// a failure here must land on the login screen, not on a blank page.
+export async function currentSession() {
+  if (!isConfigured()) return null;
+  try {
+    const c = await getClient();
+    if (!c) return null;
+    const { data, error } = await c.auth.getSession();
+    if (error) { console.warn('getSession failed', error); return null; }
+    return (data && data.session) || null;
+  } catch (e) {
+    console.warn('getSession threw', e);
     return null;
   }
 }

@@ -1,6 +1,6 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
-import { t } from '../i18n/index.js';
+import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, checkRow, selectEl, icon, driveLink, modal } from '../ui/components.js';
 import { suratJalanPaper } from '../ui/documents.js';
 import { romanMonth, nextMonthlySeq, fmtDate, num } from '../core/format.js';
@@ -88,20 +88,35 @@ export function suratJalanScreen() {
   const over = overDeliveredPOs(st);
   const overBanner = over.length
     ? h('div.cfg-banner', { style: { background: 'var(--st-red-bg)', color: 'var(--st-red-tx)', borderColor: 'var(--st-red-tx)', display: 'block' } }, [
-        h('div', { style: { fontWeight: 700, marginBottom: '4px' } }, [icon('warn', 14), ` ${over.length} PO KELEBIHAN KIRIM — cek ke gudang:`]),
-        ...over.slice(0, 6).map(x => h('div.mono', { style: { fontSize: '10.5px' } },
-          `• ${x.po.contract || x.po.no} — ${x.po.supplier} — lebih ${x.totalOver}`)),
+        h('div', { style: { fontWeight: 700, marginBottom: '4px' } }, [icon('warn', 14), tr({
+          id: ` ${over.length} PO KELEBIHAN KIRIM — cek ke gudang:`,
+          en: ` ${over.length} PO OVER-DELIVERED — check with the warehouse:`,
+          zh: ` ${over.length} 张采购单超量发货 — 请与仓库核对：`,
+        })]),
+        ...over.slice(0, 6).map(x => h('div.mono', { style: { fontSize: '10.5px' } }, tr({
+          id: `• ${x.po.contract || x.po.no} — ${x.po.supplier} — lebih ${x.totalOver}`,
+          en: `• ${x.po.contract || x.po.no} — ${x.po.supplier} — over by ${x.totalOver}`,
+          zh: `• ${x.po.contract || x.po.no} — ${x.po.supplier} — 超出 ${x.totalOver}`,
+        }))),
       ])
     : null;
 
   const summary = h('div.card', { style: { padding: '12px 18px', display: 'flex', alignItems: 'center', gap: '10px' } }, [
     icon('box', 15, { stroke: 'var(--text-3)' }),
-    h('span.grow', { style: { fontSize: '12px', color: 'var(--text-2)' } }, `${outstanding.length} PO dengan barang outstanding · ${outstanding.reduce((s, x) => s + x.lines.filter(l => l.outstanding > 0).length, 0)} baris item`),
-    isConfigured() ? btn('Refresh dari server', { sm: true, iconName: 'clock', onClick: () => refreshFromServer() }) : null,
+    h('span.grow', { style: { fontSize: '12px', color: 'var(--text-2)' } }, tr({
+      id: `${outstanding.length} PO dengan barang outstanding · ${outstanding.reduce((s, x) => s + x.lines.filter(l => l.outstanding > 0).length, 0)} baris item`,
+      en: `${outstanding.length} PO with outstanding goods · ${outstanding.reduce((s, x) => s + x.lines.filter(l => l.outstanding > 0).length, 0)} item lines`,
+      zh: `${outstanding.length} 张采购单尚有未交货物 · ${outstanding.reduce((s, x) => s + x.lines.filter(l => l.outstanding > 0).length, 0)} 行物料`,
+    })),
+    isConfigured() ? btn(tr({ id: 'Refresh dari server', en: 'Refresh from server', zh: '从服务器刷新' }), { sm: true, iconName: 'clock', onClick: () => refreshFromServer() }) : null,
   ]);
 
   if (!suppliers.length) {
-    return h('div.stack', [overBanner, summary, card([h('div.card-pad', 'Tidak ada PO dengan barang outstanding untuk dibuat surat jalan.')], { pad: false }), historyCard(st, canWrite)]);
+    return h('div.stack', [overBanner, summary, card([h('div.card-pad', tr({
+      id: 'Tidak ada PO dengan barang outstanding untuk dibuat surat jalan.',
+      en: 'No PO with outstanding goods to create a Surat Jalan for.',
+      zh: '没有可开具送货单的未交货采购单。',
+    }))], { pad: false }), historyCard(st, canWrite)]);
   }
 
   const poSel = ui.sjPoSel || {};
@@ -109,16 +124,32 @@ export function suratJalanScreen() {
   const rows = pulledInRows(st, selectedPOs.length ? selectedPOs : []);
 
   const poChecklist = card([
-    h('div.card-head', h('div.card-title', 'Pilih PO (supplier sama)')),
-    ...supplierPOs.map(x => checkRow(!!poSel[x.po.id], `${x.po.contract || x.po.no}`, `Outstanding: ${x.lines.filter(l => l.outstanding > 0).length} item`, () => {
+    h('div.card-head', h('div.card-title', tr({ id: 'Pilih PO (supplier sama)', en: 'Pick POs (same supplier)', zh: '选择采购单（同一供应商）' }))),
+    ...supplierPOs.map(x => checkRow(!!poSel[x.po.id], `${x.po.contract || x.po.no}`, tr({
+      id: `Outstanding: ${x.lines.filter(l => l.outstanding > 0).length} item`,
+      en: `Outstanding: ${x.lines.filter(l => l.outstanding > 0).length} items`,
+      zh: `未交：${x.lines.filter(l => l.outstanding > 0).length} 项`,
+    }), () => {
       const s = { ...poSel }; s[x.po.id] = !s[x.po.id]; setUI({ sjPoSel: s });
     })),
   ]);
 
   const itemsTable = rows.length ? h('div.card', [
-    h('div.card-head', h('div.card-title', `Item Terpilih · ${rows.length}`)),
+    h('div.card-head', h('div.card-title', tr({
+      id: `Item Terpilih · ${rows.length}`,
+      en: `Selected Items · ${rows.length}`,
+      zh: `已选物料 · ${rows.length}`,
+    }))),
     h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', ['', 'ERP', 'Nama', 'PO', 'Ordered', 'Received', 'Outstanding', 'Qty Kirim'].map(c => h('th', c)))),
+      h('thead', h('tr', [
+        '', 'ERP',
+        tr({ id: 'Nama', en: 'Name', zh: '名称' }),
+        'PO',
+        tr({ id: 'Ordered', en: 'Ordered', zh: '订购' }),
+        tr({ id: 'Received', en: 'Received', zh: '已收' }),
+        tr({ id: 'Outstanding', en: 'Outstanding', zh: '未交' }),
+        tr({ id: 'Qty Kirim', en: 'Ship Qty', zh: '发货数量' }),
+      ].map(c => h('th', c)))),
       h('tbody', rows.map(r => {
         const itemSel = ui.sjItemSel || {};
         const on = itemSel[r.key] !== false;
@@ -136,8 +167,12 @@ export function suratJalanScreen() {
   const canGenerate = canWrite && rows.some(r => (ui.sjItemSel || {})[r.key] !== false && getQty(ui, r) > 0);
   const actionBar = h('div.card', { style: { padding: '12px 18px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px' } }, [
     canWrite
-      ? btn('Buat Surat Jalan', { variant: 'primary', disabled: !canGenerate, onClick: () => handleGenerateClick(rows) })
-      : badge('Read-only — surat jalan dibuat oleh purchasing', 'gray', { iconName: 'eye' }),
+      ? btn(tr({ id: 'Buat Surat Jalan', en: 'Create Surat Jalan', zh: '开具送货单' }), { variant: 'primary', disabled: !canGenerate, onClick: () => handleGenerateClick(rows) })
+      : badge(tr({
+          id: 'Read-only — surat jalan dibuat oleh purchasing',
+          en: 'Read-only — the Surat Jalan is created by purchasing',
+          zh: '只读 — 送货单由采购部门开具',
+        }), 'gray', { iconName: 'eye' }),
   ]);
 
   const supplierBar = h('div.card', { style: { padding: '12px 18px', display: 'flex', alignItems: 'center', gap: '10px' } }, [
@@ -172,9 +207,13 @@ function missingDesignModal(ui) {
   const missing = ui.sjWarnMissing || [];
   const close = () => setUI({ sjWarnMissing: null, sjPendingRows: null });
   return modal({
-    title: '⚠ Design belum lengkap', width: 480, onClose: close,
+    title: tr({ id: '⚠ Design belum lengkap', en: '⚠ Designs incomplete', zh: '⚠ 设计稿尚未齐全' }), width: 480, onClose: close,
     body: [
-      h('div', { style: { fontSize: '12px', color: 'var(--text-2)' } }, 'Item berikut belum ada master design:'),
+      h('div', { style: { fontSize: '12px', color: 'var(--text-2)' } }, tr({
+        id: 'Item berikut belum ada master design:',
+        en: 'These items have no master design yet:',
+        zh: '以下物料尚无设计主数据：',
+      })),
       h('div', { style: { marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '220px', overflowY: 'auto' } },
         missing.map(m => h('div.mono', { style: { fontSize: '11.5px', color: 'var(--text-3)' } }, `• ${m}`))),
     ],
@@ -182,7 +221,7 @@ function missingDesignModal(ui) {
       btn(t('cancel'), { onClick: close }),
       // Calls createSuratJalan() directly (not handleGenerateClick again) —
       // the check already ran, re-running it would just loop back here.
-      btn('Tetap Lanjut', { variant: 'primary', onClick: () => { const rows = ui.sjPendingRows; close(); createSuratJalan(rows); } }),
+      btn(tr({ id: 'Tetap Lanjut', en: 'Continue Anyway', zh: '仍然继续' }), { variant: 'primary', onClick: () => { const rows = ui.sjPendingRows; close(); createSuratJalan(rows); } }),
     ],
   });
 }
@@ -205,14 +244,26 @@ function existingBaseSeq(st, poId, prefix) {
 }
 
 async function refreshFromServer() {
-  toast('Memuat data terbaru dari server…');
+  toast({
+    id: 'Memuat data terbaru dari server…',
+    en: 'Loading the latest data from the server…',
+    zh: '正在从服务器加载最新数据…',
+  });
   const fresh = await fetchSuratJalan();
   if (fresh) {
     getState().suratJalan = fresh;
     setUI({});
-    toast('Data surat jalan diperbarui dari server');
+    toast({
+      id: 'Data surat jalan diperbarui dari server',
+      en: 'Surat Jalan data updated from the server',
+      zh: '送货单数据已从服务器更新',
+    });
   } else {
-    toast('Gagal memuat dari server — cek console');
+    toast({
+      id: 'Gagal memuat dari server — cek console',
+      en: 'Failed to load from the server — check the console',
+      zh: '从服务器加载失败 — 请查看控制台',
+    });
   }
 }
 
@@ -233,10 +284,10 @@ let sjInFlight = false;
 
 async function createSuratJalan(rows) {
   if (blockWrite('buat surat jalan')) return;
-  if (sjInFlight) { toast('Surat jalan sedang diproses — tunggu sebentar'); return; }
+  if (sjInFlight) { toast({ id: 'Surat jalan sedang diproses — tunggu sebentar', en: 'Surat Jalan is already being processed — please wait', zh: '送货单正在处理中 — 请稍候' }); return; }
   const st = getState(); const ui = st.ui;
   const selected = rows.filter(r => (ui.sjItemSel || {})[r.key] !== false && getQty(ui, r) > 0);
-  if (!selected.length) { toast('Pilih minimal 1 item untuk dikirim'); return; }
+  if (!selected.length) { toast({ id: 'Pilih minimal 1 item untuk dikirim', en: 'Select at least 1 item to ship', zh: '请至少选择 1 项要发货的物料' }); return; }
 
   // Re-derive outstanding from CURRENT state, not from the `rows` snapshot the
   // button closed over — another tab or user may have shipped in the meantime.
@@ -249,7 +300,11 @@ async function createSuratJalan(rows) {
     if (getQty(ui, r) > fresh + 1e-6) over.push(`${r.erp} — minta ${getQty(ui, r)}, sisa ${fresh}`);
   }
   if (over.length) {
-    toast('Qty melebihi outstanding (mungkin sudah dikirim di tab/sesi lain): ' + over.join('; '));
+    toast({
+      id: 'Qty melebihi outstanding (mungkin sudah dikirim di tab/sesi lain): ' + over.join('; '),
+      en: 'Qty exceeds outstanding (may already have been shipped in another tab/session): ' + over.join('; '),
+      zh: '数量超出未交量（可能已在其他标签页/会话中发货）：' + over.join('; '),
+    });
     setUI({});   // force a re-render so the table shows the real numbers
     return;
   }
@@ -284,7 +339,11 @@ async function doCreateSuratJalan(st, ui, rows, selected) {
     no = await nextSjNo(poIds, romanMonth(), new Date().getFullYear(), prefix);
   } catch (e) {
     console.error('nextSjNo failed', e);
-    toast('Gagal generate nomor surat jalan dari server: ' + (e.message || e));
+    toast({
+      id: 'Gagal generate nomor surat jalan dari server: ' + (e.message || e),
+      en: 'Failed to generate the Surat Jalan number from the server: ' + (e.message || e),
+      zh: '从服务器生成送货单号失败：' + (e.message || e),
+    });
     return;
   }
   if (no == null) {
@@ -314,9 +373,17 @@ async function doCreateSuratJalan(st, ui, rows, selected) {
     // was already shipped, and what this document would add — far more useful
     // than a generic failure, so it is shown as-is rather than replaced.
     const msg = String((e && e.message) || e);
-    toast(/over-delivery/i.test(msg)
-      ? 'DITOLAK server — kelebihan kirim: ' + msg.replace(/^.*over-delivery blocked:\s*/i, '')
-      : 'Gagal menyimpan surat jalan ke server: ' + msg);
+    toast({
+      id: /over-delivery/i.test(msg)
+        ? 'DITOLAK server — kelebihan kirim: ' + msg.replace(/^.*over-delivery blocked:\s*/i, '')
+        : 'Gagal menyimpan surat jalan ke server: ' + msg,
+      en: /over-delivery/i.test(msg)
+        ? 'REJECTED by the server — over-delivery: ' + msg.replace(/^.*over-delivery blocked:\s*/i, '')
+        : 'Failed to save the Surat Jalan to the server: ' + msg,
+      zh: /over-delivery/i.test(msg)
+        ? '服务器已拒绝 — 超量发货：' + msg.replace(/^.*over-delivery blocked:\s*/i, '')
+        : '送货单保存到服务器失败：' + msg,
+    });
     return;
   }
   if (!sj.id) sj.id = uid('sj'); // demo-mode fallback (Supabase not configured)
@@ -325,7 +392,7 @@ async function doCreateSuratJalan(st, ui, rows, selected) {
   closeFullyReceivedPOs(st, poIds, logAudit);
   await archiveSuratJalanToDrive(sj);
   setUI({ sjPoSel: {}, sjItemSel: {}, sjQty: {}, sjLastId: sj.id });
-  toast(`Surat jalan ${sj.no} dibuat`);
+  toast({ id: `Surat jalan ${sj.no} dibuat`, en: `Surat Jalan ${sj.no} created`, zh: `送货单 ${sj.no} 已创建` });
 }
 
 // Auto-archives the just-generated document to Drive as the same print-ready
@@ -342,7 +409,7 @@ async function archiveSuratJalanToDrive(sj, { announce = false } = {}) {
     const up = await uploadToDrive(blob, '', `${sj.no.replace(/\//g, '-')}.html`, 'Surat Jalan');
     sj.driveUrl = up.url;
     if (up.placeholder) {
-      if (announce) toast('Drive belum aktif — link masih placeholder');
+      if (announce) toast({ id: 'Drive belum aktif — link masih placeholder', en: 'Drive is not active yet — the link is still a placeholder', zh: 'Drive 尚未启用 — 链接仍为占位符' });
       return;
     }
     // The upload has ALREADY COMMITTED here. If this DB write fails, the file
@@ -353,14 +420,18 @@ async function archiveSuratJalanToDrive(sj, { announce = false } = {}) {
     // user is told, and the history row offers "Arsip ulang".
     try {
       await updateSuratJalan(sj.id, { driveUrl: up.url });
-      if (announce) toast('Surat jalan diarsipkan ulang ke Drive');
+      if (announce) toast({ id: 'Surat jalan diarsipkan ulang ke Drive', en: 'Surat Jalan re-archived to Drive', zh: '送货单已重新归档到 Drive' });
     } catch (e) {
       console.error('Drive upload OK but saving the link to the DB failed', e);
-      toast(`File ${sj.no} sudah di Drive tapi link-nya gagal disimpan — pakai "Arsip ulang" di riwayat`);
+      toast({
+        id: `File ${sj.no} sudah di Drive tapi link-nya gagal disimpan — pakai "Arsip ulang" di riwayat`,
+        en: `File ${sj.no} is already on Drive but saving its link failed — use "Arsip ulang" in the history`,
+        zh: `文件 ${sj.no} 已在 Drive 上，但链接保存失败 — 请在历史记录中使用“Arsip ulang”`,
+      });
     }
   } catch (e) {
     console.warn('Surat jalan Drive auto-archive failed (non-fatal, doc already generated):', e);
-    if (announce) toast('Gagal arsip ke Drive: ' + (e.message || e));
+    if (announce) toast({ id: 'Gagal arsip ke Drive: ' + (e.message || e), en: 'Failed to archive to Drive: ' + (e.message || e), zh: '归档到 Drive 失败：' + (e.message || e) });
   }
 }
 
@@ -378,7 +449,7 @@ function previewCard(st, id) {
   const doPdf = () => {
     const html = wrapPrintable(suratJalanPaper(sj).outerHTML, sj.no);
     const w = window.open('', '_blank');
-    if (!w) { toast('Popup diblokir — izinkan popup dulu buat Save PDF'); return; }
+    if (!w) { toast({ id: 'Popup diblokir — izinkan popup dulu buat Save PDF', en: 'Popup blocked — allow popups first to save the PDF', zh: '弹窗被拦截 — 请先允许弹窗再保存 PDF' }); return; }
     w.document.write(html); w.document.close();
     w.onload = () => { w.focus(); w.onafterprint = () => w.close(); setTimeout(() => w.print(), 300); };
   };
@@ -396,7 +467,11 @@ function previewCard(st, id) {
 function historyCard(st, canWrite) {
   const list = st.suratJalan.slice(0, 20);
   return card([
-    h('div.card-head', [h('div.card-title', 'Riwayat Surat Jalan'), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${st.suratJalan.length} dokumen`)]),
+    h('div.card-head', [h('div.card-title', tr({ id: 'Riwayat Surat Jalan', en: 'Surat Jalan History', zh: '送货单历史' })), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
+      id: `${st.suratJalan.length} dokumen`,
+      en: `${st.suratJalan.length} document${st.suratJalan.length === 1 ? '' : 's'}`,
+      zh: `${st.suratJalan.length} 份单据`,
+    }))]),
     list.length ? h('div.tbl-wrap', h('table.tbl', [
       h('thead', h('tr', ['No.', t('col_supplier'), 'PO', t('col_date'), 'File', t('col_action')].map(c => h('th', c)))),
       h('tbody', list.map(sj => h('tr', [
@@ -404,7 +479,7 @@ function historyCard(st, canWrite) {
         h('td.mono', fmtDate(sj.date)),
         h('td', driveLink(sj.driveUrl || '')),
         h('td', h('div.row.gap8', [
-          btn('Lihat', { sm: true, onClick: () => setUI({ sjLastId: sj.id }) }),
+          btn(tr({ id: 'Lihat', en: 'View', zh: '查看' }), { sm: true, onClick: () => setUI({ sjLastId: sj.id }) }),
           // Offered only when there's no Drive link: either the upload failed,
           // or it succeeded and the DB write that stores the link didn't.
           // Without this the file was unreachable forever.
@@ -413,6 +488,10 @@ function historyCard(st, canWrite) {
             : null,
         ])),
       ]))),
-    ])) : h('div', { style: { padding: '16px', fontSize: '12px', color: 'var(--text-3)' } }, 'Belum ada surat jalan dibuat.'),
+    ])) : h('div', { style: { padding: '16px', fontSize: '12px', color: 'var(--text-3)' } }, tr({
+      id: 'Belum ada surat jalan dibuat.',
+      en: 'No Surat Jalan has been created yet.',
+      zh: '尚未开具任何送货单。',
+    })),
   ]);
 }

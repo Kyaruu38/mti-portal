@@ -1,6 +1,6 @@
 import { h, pickFiles } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
-import { t } from '../i18n/index.js';
+import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal } from '../ui/components.js';
 import { extractArchive } from '../parsers/archive.js';
 import { parsePpkekPdf, parseSppbPdf } from '../parsers/ppkekPdf.js';
@@ -34,14 +34,27 @@ export function ppkekScreen() {
 
   const dz = dropzone({
     title: t('pk_drop'), sub: t('pk_drop_sub'), accept: '.rar,.zip', iconName: 'box', compact: true,
-    onFiles: f => handleArchive(f[0]),
-    disabled: !canWrite,
-    disabledNote: 'Register PPKEK cuma bisa dilihat dari akun ini',
+    // multiple: the folder these bundles arrive in holds twenty-odd of them at a
+    // time. Dropping them one at a time is the same work done twenty times.
+    multiple: true,
+    onFiles: f => handleArchives(f),
+    // Locked while a batch runs. Dropping a second pile on top of a running one
+    // would interleave two sequential loops over the same register and the same
+    // Drive folder — the exact race the nopen index exists to catch.
+    disabled: !canWrite || !!(ui.pkBatch && ui.pkBatch.running),
+    disabledNote: (ui.pkBatch && ui.pkBatch.running)
+      ? tr({ id: 'Sedang memproses — tunggu sampai selesai', en: 'Processing — wait until it finishes', zh: '正在处理 — 请等待完成' })
+      : tr({ id: 'Register PPKEK cuma bisa dilihat dari akun ini', en: 'This account can only view the PPKEK register', zh: '此账号只能查看 PPKEK 登记册' }),
   });
 
-  const extractCard = ui.pkExtract ? extractStatus(ui.pkExtract) : card([h('div.card-pad', { style: { display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '150px' } }, [h('div.card-title', 'Hasil Ekstraksi'), h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '6px' } }, 'Drop RAR/ZIP untuk mengekstrak & parse dokumen kepabeanan.')])]);
+  // While a batch is running the progress card takes the extract card's slot:
+  // during a twenty-bundle run "which bundle are we on" is the only thing that
+  // matters, and the per-bundle file list reappears the moment it finishes.
+  const extractCard = ui.pkBatch ? batchStatus(ui.pkBatch)
+    : ui.pkExtract ? extractStatus(ui.pkExtract)
+    : card([h('div.card-pad', { style: { display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '150px' } }, [h('div.card-title', tr({ id: 'Hasil Ekstraksi', en: 'Extraction Result', zh: '解压结果' })), h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '6px' } }, tr({ id: 'Drop RAR/ZIP untuk mengekstrak & parse dokumen kepabeanan. Bisa banyak file sekaligus.', en: 'Drop RAR/ZIP to extract & parse customs documents. Many files at once is fine.', zh: '拖入 RAR/ZIP 以解压并解析报关单据。可一次拖入多个文件。' }))])]);
 
-  const parsedCard = ui.pkParsed ? parsedInfo(ui.pkParsed) : card([h('div.card-pad', { style: { minHeight: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, h('span', { style: { fontSize: '12px', color: 'var(--text-3)' } }, 'Belum ada PPKEK diparse'))]);
+  const parsedCard = ui.pkParsed ? parsedInfo(ui.pkParsed) : card([h('div.card-pad', { style: { minHeight: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, h('span', { style: { fontSize: '12px', color: 'var(--text-3)' } }, tr({ id: 'Belum ada PPKEK diparse', en: 'No PPKEK parsed yet', zh: '尚未解析报关单' })))]);
 
   const top = h('div.grid', { style: { gridTemplateColumns: '1fr 1fr 1.25fr' } }, [dz, extractCard, parsedCard]);
 
@@ -55,11 +68,102 @@ function extractStatus(ex) {
     h('div.card-pad', [
       h('div.row.gap8', [
         h('span', { style: { width: '32px', height: '32px', borderRadius: '8px', background: 'var(--navy-soft)', color: 'var(--navy-soft-tx)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8px', fontWeight: 800 } }, (ex.format || 'ZIP').toUpperCase()),
-        h('div.grow', [h('div.mono', { style: { fontSize: '12px', fontWeight: 700 } }, ex.name), h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, `${ex.files.length} dokumen`)]),
+        h('div.grow', [h('div.mono', { style: { fontSize: '12px', fontWeight: 700 } }, ex.name), h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, tr({
+          id: `${ex.files.length} dokumen`,
+          en: `${ex.files.length} document${ex.files.length === 1 ? '' : 's'}`,
+          zh: `${ex.files.length} 份单据`,
+        }))]),
       ]),
       h('div', { style: { height: '7px', borderRadius: '999px', background: 'var(--surface3)', marginTop: '14px', overflow: 'hidden' } }, h('div', { style: { width: '100%', height: '100%', background: 'var(--st-green-tx)' } })),
       h('div.row', { style: { justifyContent: 'space-between', marginTop: '7px' } }, [h('span', { style: { fontSize: '11px', fontWeight: 600, color: 'var(--st-green-tx)' } }, t('pk_extract_done')), h('span.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${ex.files.length}/${ex.files.length}`)]),
       h('div', { style: { borderTop: '1px solid var(--border)', marginTop: '12px', paddingTop: '9px', display: 'flex', flexDirection: 'column', gap: '5px' } }, ex.files.map(f => h('div.row.gap8', { style: { fontSize: '11px', color: 'var(--text-2)' } }, [icon('check', 11, { stroke: 'var(--st-green-tx)', strokeWidth: 2.5 }), h('span.grow', f.name), h('a.link', { href: f.url && !f.url.startsWith('drive-') ? f.url : null, target: '_blank', onClick: e => { if (!f.url || f.url.startsWith('drive-')) e.preventDefault(); } }, 'Drive ↗')]))),
+    ]),
+  ]);
+}
+
+// Batch progress + result list. One card, two lives: a live progress bar while
+// the loop runs, then a summary of what each bundle turned out to be — which is
+// the part you actually need, because with twenty bundles a toast can only say
+// how many, never which one was already in the register.
+//
+// The KEYS are outcome modes (data — they come back from processArchive and are
+// compared); only `label` is painted on screen, so only `label` is translated,
+// and it is resolved at render time rather than here, or the language in force
+// when this module first loaded would stick for the session.
+const BATCH_TONE = {
+  baru:     { label: { id: 'BARU',   en: 'NEW',    zh: '新增'  }, color: 'var(--st-green-tx)' },
+  ulang:    { label: { id: 'ULANG',  en: 'REPEAT', zh: '重复'  }, color: 'var(--st-amber-tx)' },
+  balapan:  { label: { id: 'ADA',    en: 'EXISTS', zh: '已存在' }, color: 'var(--st-amber-tx)' },
+  nonopen:  { label: { id: 'NOPEN?', en: 'NOPEN?', zh: '单号?'  }, color: 'var(--st-amber-tx)' },
+  gagal:    { label: { id: 'GAGAL',  en: 'FAILED', zh: '失败'  }, color: 'var(--st-red-tx)' },
+};
+
+// Outcome notes travel from processArchive/addRegisterRow into the batch list
+// and the single-file failure toast, both of which render per language — so a
+// note carries all three. Server error text has no translation and is repeated.
+const note3 = (id, en, zh) => ({ id, en, zh });
+
+function batchStatus(b) {
+  const pct = b.total ? Math.round((b.done / b.total) * 100) : 0;
+  const tally = b.results.reduce((a, r) => { a[r.mode] = (a[r.mode] || 0) + 1; return a; }, {});
+  const line = ['baru', 'ulang', 'balapan', 'nonopen', 'gagal']
+    .filter(k => tally[k])
+    .map(k => `${tally[k]} ${tr(BATCH_TONE[k].label).toLowerCase()}`)
+    .join(' · ');
+  return card([
+    h('div.card-pad', [
+      h('div.row.gap8', [
+        h('div.grow', [
+          h('div.card-title', b.running ? tr({
+              id: `Memproses bundel ${Math.min(b.done + 1, b.total)}/${b.total}`,
+              en: `Processing bundle ${Math.min(b.done + 1, b.total)}/${b.total}`,
+              zh: `正在处理压缩包 ${Math.min(b.done + 1, b.total)}/${b.total}`,
+            })
+            // "Selesai — 12 bundel" after stopping at the third is a lie the
+            // card would tell every time someone cancels.
+            : b.cancel ? tr({
+              id: `Dibatalkan — ${b.done} dari ${b.total} bundel`,
+              en: `Cancelled — ${b.done} of ${b.total} bundles`,
+              zh: `已取消 — ${b.done} 个（共 ${b.total} 个压缩包）`,
+            })
+            : tr({
+              id: `Selesai — ${b.total} bundel`,
+              en: `Done — ${b.total} bundles`,
+              zh: `完成 — ${b.total} 个压缩包`,
+            })),
+          h('div.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+            b.running ? (b.current || '—') : (line || '—')),
+        ]),
+        b.running
+          ? h('button.btn.btn-sm', { style: { fontSize: '10.5px', padding: '3px 9px' }, onClick: () => { b.cancel = true; setState({}); } }, b.cancel
+            ? tr({ id: 'Membatalkan…', en: 'Cancelling…', zh: '正在取消…' })
+            : tr({ id: 'Batalkan', en: 'Cancel', zh: '取消' }))
+          : h('button.x-btn', { onClick: () => setUI({ pkBatch: null }) }, icon('x', 13)),
+      ]),
+      h('div', { style: { height: '7px', borderRadius: '999px', background: 'var(--surface3)', marginTop: '12px', overflow: 'hidden' } },
+        h('div', { style: { width: pct + '%', height: '100%', background: b.running ? 'var(--navy-soft-tx)' : 'var(--st-green-tx)', transition: 'width .2s' } })),
+      h('div.row', { style: { justifyContent: 'space-between', marginTop: '6px' } }, [
+        // "extracted N/M" for the bundle in flight — a single 11 MB RAR with ten
+        // documents can sit on one Drive upload for seconds, and without this the
+        // whole thing looks frozen.
+        h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } },
+          b.running && b.docs ? tr({
+            id: `dokumen ${b.doc}/${b.docs}`,
+            en: `document ${b.doc}/${b.docs}`,
+            zh: `文件 ${b.doc}/${b.docs}`,
+          }) : (b.running ? tr({ id: b.phase || 'mengekstrak…', en: 'extracting…', zh: '解压中…' }) : line)),
+        h('span.mono', { style: { fontSize: '11px', fontWeight: 600 } }, `${b.done}/${b.total}`),
+      ]),
+      b.results.length ? h('div', {
+        style: { borderTop: '1px solid var(--border)', marginTop: '11px', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '150px', overflowY: 'auto' },
+      }, b.results.slice().reverse().map(r => {
+        const tone = BATCH_TONE[r.mode] || BATCH_TONE.gagal;
+        return h('div.row.gap8', { style: { fontSize: '10.5px', color: 'var(--text-2)' } }, [
+          h('span', { style: { fontSize: '8.5px', fontWeight: 800, letterSpacing: '.05em', color: tone.color, minWidth: '46px' } }, tr(tone.label)),
+          h('span.grow.mono', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, title: (r.note ? tr(r.note) : null) || r.file }, r.nopen || r.file),
+          r.docs != null ? h('span', { style: { color: 'var(--text-3)' } }, tr({ id: `${r.docs} dok`, en: `${r.docs} docs`, zh: `${r.docs} 份` })) : null,
+        ]);
+      })) : null,
     ]),
   ]);
 }
@@ -71,15 +175,27 @@ function parsedInfo(p) {
     h('div.card-pad', [
       dupe ? h('div', { style: { background: 'var(--st-amber-bg)', color: 'var(--st-amber-tx)', border: '1px solid var(--st-amber-tx)', borderRadius: '8px', padding: '9px 12px', marginBottom: '11px', fontSize: '11.5px', fontWeight: 600 } },
         dupe.mode === 'ulang'
-          ? `⚠ Nopen ${dupe.nopen} SUDAH PERNAH DISUBMIT — baris lama diperbarui, tidak ditambah baru. SO/JO/Costing/Status tidak diubah.`
-          : `⚠ Nopen ${dupe.nopen} sudah ada di register (dimasukkan sesi lain). Refresh untuk melihatnya.`) : null,
-      h('div.row.gap8', { style: { marginBottom: '11px' } }, [badge('PARSED', 'green'), h('span.mono', { style: { fontSize: '12.5px', fontWeight: 700 } }, `Nopen ${p.nopen || '—'}`), h('div.mla.row.gap8', [badge(p.asal, 'navy'), badge('Fasilitas KEK', 'green')])]),
+          ? tr({
+            id: `⚠ Nopen ${dupe.nopen} SUDAH PERNAH DISUBMIT — baris lama diperbarui, tidak ditambah baru. SO/JO/Costing/Status tidak diubah.`,
+            en: `⚠ Nopen ${dupe.nopen} WAS ALREADY SUBMITTED — the existing row was updated, no new row added. SO/JO/Costing/Status untouched.`,
+            zh: `⚠ 报关单号 ${dupe.nopen} 之前已提交过 — 已更新原有行，未新增。SO/JO/Costing/状态未改动。`,
+          })
+          : tr({
+            id: `⚠ Nopen ${dupe.nopen} sudah ada di register (dimasukkan sesi lain). Refresh untuk melihatnya.`,
+            en: `⚠ Nopen ${dupe.nopen} is already in the register (added by another session). Refresh to see it.`,
+            zh: `⚠ 报关单号 ${dupe.nopen} 已在登记册中（由其他会话录入）。刷新后可见。`,
+          })) : null,
+      h('div.row.gap8', { style: { marginBottom: '11px' } }, [badge(tr({ id: 'PARSED', en: 'PARSED', zh: '已解析' }), 'green'), h('span.mono', { style: { fontSize: '12.5px', fontWeight: 700 } }, `Nopen ${p.nopen || '—'}`), h('div.mla.row.gap8', [badge(p.asal, 'navy'), badge(tr({ id: 'Fasilitas KEK', en: 'KEK Facility', zh: 'KEK 设施' }), 'green')])]),
       h('div.grid.g2', { style: { gap: '9px 16px' } }, [
-        kv('Tgl Pendaftaran', p.ppkekDate || '—'), kv('Supplier', p.supplier || '—'),
-        kv('Kurs NDPBM', p.kursNDPBM ? num(p.kursNDPBM, 2) : '—'), kv('Nilai ' + p.valuta, p.valueForeign ? num(p.valueForeign, 2) : '—'),
-        kv('Nilai IDR', p.valueIDR ? num(p.valueIDR) : '—'), kv('No. Kontrak', p.contractNo || '—'),
+        kv(tr({ id: 'Tgl Pendaftaran', en: 'Registration Date', zh: '报关日期' }), p.ppkekDate || '—'), kv(tr({ id: 'Supplier', en: 'Supplier', zh: '供应商' }), p.supplier || '—'),
+        kv(tr({ id: 'Kurs NDPBM', en: 'NDPBM Rate', zh: 'NDPBM 汇率' }), p.kursNDPBM ? num(p.kursNDPBM, 2) : '—'), kv(tr({ id: 'Nilai ' + p.valuta, en: p.valuta + ' Value', zh: p.valuta + ' 金额' }), p.valueForeign ? num(p.valueForeign, 2) : '—'),
+        kv(tr({ id: 'Nilai IDR', en: 'IDR Value', zh: 'IDR 金额' }), p.valueIDR ? num(p.valueIDR) : '—'), kv(tr({ id: 'No. Kontrak', en: 'Contract No.', zh: '合同号' }), p.contractNo || '—'),
       ]),
-      h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', borderTop: '1px dashed var(--border)', marginTop: '11px', paddingTop: '9px' } }, 'Nilai IDR = CIF × kurs NDPBM tanggal pendaftaran'),
+      h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', borderTop: '1px dashed var(--border)', marginTop: '11px', paddingTop: '9px' } }, tr({
+        id: 'Nilai IDR = CIF × kurs NDPBM tanggal pendaftaran',
+        en: 'IDR value = CIF × NDPBM rate on the registration date',
+        zh: 'IDR 金额 = CIF × 报关日期的 NDPBM 汇率',
+      })),
     ]),
   ]);
 }
@@ -97,7 +213,20 @@ function registerTable(st, canWrite) {
   }).map(x => x[0]);
   // The pencil marks mean "you can edit this". Strip them when the cells are
   // read-only, otherwise the header promises an affordance the row doesn't have.
-  const head = h('thead', h('tr', ['Nopen', 'Tanggal', 'Supplier', 'USD', 'IDR', 'Jalur', 'Dok', 'SO ✎', 'JO ✎', 'Costing ✎', 'PO ERP INA ✎', 'Status ✎']
+  // Translated head-word + the ' ✎' suffix appended separately, so the strip
+  // below (and the /✎/ colour test) keeps working in every language.
+  const head = h('thead', h('tr', [
+    tr({ id: 'Nopen', en: 'Nopen', zh: '报关单号' }),
+    tr({ id: 'Tanggal', en: 'Date', zh: '日期' }),
+    tr({ id: 'Supplier', en: 'Supplier', zh: '供应商' }),
+    'USD', 'IDR',
+    tr({ id: 'Jalur', en: 'Lane', zh: '通道' }),
+    tr({ id: 'Dok', en: 'Docs', zh: '单据' }),
+    'SO ✎', 'JO ✎',
+    tr({ id: 'Costing', en: 'Costing', zh: '成本核算' }) + ' ✎',
+    'PO ERP INA ✎',
+    tr({ id: 'Status', en: 'Status', zh: '状态' }) + ' ✎',
+  ]
     .map(c => (canWrite ? c : c.replace(' ✎', '')))
     .map((c, i) => h('th' + (i === 3 || i === 4 ? '.r' : ''), { style: /✎/.test(c) ? { color: 'var(--accent-tx)' } : {} }, c))));
   const body = h('tbody', rows.map(r => h('tr', {
@@ -135,18 +264,22 @@ function registerTable(st, canWrite) {
     // those, so the read-only view must not invent one — this register is what
     // a monitoring account reads to decide what still needs costing.
     h('td', canWrite ? statusSelect(r) : (r.status
-      ? badge(r.status, r.status === 'Closed' ? 'green' : r.status === 'Costed' ? 'blue' : 'gray')
+      ? badge(statusLabel(r.status), r.status === 'Closed' ? 'green' : r.status === 'Costed' ? 'blue' : 'gray')
       : h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, '—'))),
   ])));
   return h('div.card', [
     h('div.card-head', [
       h('div.card-title', `${t('pk_register')} — ${new Date().getFullYear()}`),
-      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, [h('span.mono', String(rows.length)), ' dokumen']),
+      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, [h('span.mono', String(rows.length)), tr({
+        id: ' dokumen',
+        en: ` document${rows.length === 1 ? '' : 's'}`,
+        zh: ' 份单据',
+      })]),
       h('div.mla.row.gap8', [
         btn(t('pk_export'), { iconName: 'download', onClick: () => exportRegister() }),
         canWrite
           ? btn(t('pk_import'), { variant: 'primary', iconName: 'upload', onClick: () => importUpdates() })
-          : badge('Read-only', 'gray', { iconName: 'eye' }),
+          : badge(tr({ id: 'Read-only', en: 'Read-only', zh: '只读' }), 'gray', { iconName: 'eye' }),
       ]),
     ]),
     // maxHeight + overflowY: the register grows without limit, and a table taller
@@ -175,81 +308,239 @@ function editCell(r, key, width = 84, canWrite = true) {
   });
   return h('td', { style: { padding: '4px 6px' } }, inp);
 }
+// Display text for a stored status. The VALUE in `value:`, in `r.status`, and
+// in every === comparison stays exactly what Postgres holds; only the visible
+// word changes with the language.
+const STATUS_TEXT = {
+  Open:   { id: 'Open',   en: 'Open',   zh: '未结'   },
+  Costed: { id: 'Costed', en: 'Costed', zh: '已核算' },
+  Closed: { id: 'Closed', en: 'Closed', zh: '已结'   },
+};
+function statusLabel(s) { return STATUS_TEXT[s] ? tr(STATUS_TEXT[s]) : s; }
+
 function statusSelect(r) {
   const sel = h('select.input.mono', {
     style: { padding: '5px 7px', fontSize: '11px', width: 'auto' },
     onChange: e => { r.status = e.target.value; commitPpkekField(r, 'status', e.target.value); },
-  }, ['Open', 'Costed', 'Closed'].map(o => h('option', { value: o, selected: r.status === o }, o)));
+  }, ['Open', 'Costed', 'Closed'].map(o => h('option', { value: o, selected: r.status === o }, statusLabel(o))));
   return h('td', { style: { padding: '4px 6px' } }, sel);
 }
 
 async function commitPpkekField(r, key, value) {
   if (blockWrite('ubah register PPKEK')) return;
   try { await updatePpkek(r.id, { [key]: value }); }
-  catch (e) { console.error('Supabase ppkek update failed', e); toast(`Gagal sync ${key} ke server: ` + (e.message || e)); }
+  catch (e) {
+    console.error('Supabase ppkek update failed', e);
+    toast({
+      id: `Gagal sync ${key} ke server: ` + (e.message || e),
+      en: `Failed to sync ${key} to the server: ` + (e.message || e),
+      zh: `${key} 同步到服务器失败：` + (e.message || e),
+    });
+  }
 }
 
-async function handleArchive(file) {
-  if (!file) return;
+// Drop twenty bundles, get twenty bundles processed.
+//
+// The dropzone passed f[0] and nothing else, so a multi-file drop silently did
+// one file and looked like a failure. The folder these arrive in holds ~22 at a
+// time, which is the normal case, not the exotic one.
+//
+// SEQUENTIAL, deliberately. Each bundle uploads ~10 files through the Drive
+// Edge Function and then writes a register row; running them concurrently would
+// hammer that function and have several imports racing on the same register
+// snapshot — the same shape of race that recorded one PO five times. Slow and
+// correct is what was asked for ("kalo lama gpp").
+async function handleArchives(list) {
+  const all = Array.from(list || []);
+  if (!all.length) return;
   if (blockWrite('import arsip PPKEK')) return;
-  toast(t('loading'));
-  try {
-    const { files, format } = await extractArchive(file);
-    // Upload each extracted file to Drive (graceful — see core/drive.js:
-    // returns a drive-pending://... placeholder while useDrive=false, a real
-    // webViewLink once Drive is configured, same call site either way).
-    const year = new Date().getFullYear(), month = new Date().getMonth() + 1;
-    const sppb = (file.name.match(/SPPB\s*(\d+)/i) || [])[1] || '000000';
-    const shipment = (file.name.match(/\b(\d{2}ID\d{4})\b/i) || [])[1] || 'SHIP';
-    const folder = ppkekFolder(year, month, sppb, shipment);
-    const fileRecords = [];
-    for (const f of files) {
-      const up = await uploadToDrive(f, folder, f.name, 'PPKEK');
-      f.url = up.url;
-      fileRecords.push({ name: f.name, url: up.url, placeholder: !!up.placeholder });
-    }
-    // Parse the PPKEK PDF if present.
-    const pdf = files.find(f => /ppkek/i.test(f.name) && /\.pdf$/i.test(f.name)) || files.find(f => /\.pdf$/i.test(f.name));
-    let parsed = null;
-    if (pdf) { try { parsed = await parsePpkekPdf(pdf); } catch (e) { console.warn(e); } }
-    // Supplier + address come from the SPPB, not the PPKEK — see parseSppbPdf()
-    // for why. Purely additive: if the SPPB is missing or unreadable the PPKEK
-    // values stand, so a bundle without one behaves exactly as before.
-    if (parsed) {
-      const sppb = files.find(f => /sppb/i.test(f.name) && /\.pdf$/i.test(f.name));
-      if (sppb) {
-        try {
-          const extra = await parseSppbPdf(sppb);
-          if (extra.supplier) parsed.supplier = extra.supplier;
-          if (extra.address) parsed.address = extra.address;
-        } catch (e) { console.warn('SPPB parse skipped:', e); }
-      }
-    }
-    setUI({ pkExtract: { name: file.name, format, files }, pkParsed: parsed });
-    let outcome = null;
-    if (parsed && parsed.nopen) outcome = await addRegisterRow(parsed, folder, fileRecords);
-    // Flagged on the parse panel too, because a toast lasts 3.6 seconds and the
-    // one thing you need to know here — "this document was already submitted" —
-    // must still be on screen after you look away. Previously the extraction
-    // toast below simply replaced whatever addRegisterRow had said, so a
-    // re-import looked identical to a first import: nothing was added and
-    // nothing explained why.
-    setUI({ pkDupe: outcome && outcome.mode !== 'baru' ? outcome : null });
-    logAudit({ entity: 'ppkek', target: file.name, action: 'import', detail: `${files.length} docs (${format})` });
-    // ONE toast, composed last, so nothing overwrites the part that matters.
-    if (outcome && outcome.mode === 'ulang') {
-      toast(`Nopen ${outcome.nopen} SUDAH PERNAH DISUBMIT — baris diperbarui, tidak ditambah. ${outcome.docs} dokumen di Drive · SO/JO/Costing tidak diubah`);
-    } else if (outcome && outcome.mode === 'balapan') {
-      toast(`Nopen ${outcome.nopen} sudah ada di register (dimasukkan sesi lain) — refresh untuk melihatnya`);
-    } else if (outcome) {
-      toast(`Nopen ${outcome.nopen} masuk register · ${outcome.docs} dokumen ke Drive`);
-    } else {
-      toast(`Ekstraksi ${format.toUpperCase()} selesai — ${files.length} dokumen, tapi nopen tidak terbaca sehingga tidak masuk register`);
-    }
-  } catch (e) {
-    if (e.code === 'RAR_UNSUPPORTED') { toast('RAR belum bisa diekstrak di browser ini — unzip manual atau gunakan .zip'); return; }
-    console.error(e); toast('Ekstraksi gagal: ' + e.message);
+  const st0 = getState();
+  if (st0.ui.pkBatch && st0.ui.pkBatch.running) {
+    toast({
+      id: 'Masih memproses batch sebelumnya — tunggu selesai',
+      en: 'Still processing the previous batch — wait for it to finish',
+      zh: '仍在处理上一批 — 请等待完成',
+    });
+    return;
   }
+
+  const archives = all.filter(f => /\.(rar|zip)$/i.test(f.name || ''));
+  const skipped = all.length - archives.length;
+  if (!archives.length) {
+    toast({
+      id: 'Tidak ada file RAR/ZIP di antara yang di-drop',
+      en: 'No RAR/ZIP files among the ones dropped',
+      zh: '拖入的文件中没有 RAR/ZIP 文件',
+    });
+    return;
+  }
+
+  const b = { total: archives.length, done: 0, doc: 0, docs: 0, current: '', phase: '', results: [], running: true, cancel: false };
+  setUI({ pkBatch: b, pkDupe: null });
+
+  // Closing the tab mid-run leaves bundles half-uploaded to Drive with no
+  // register row — recoverable (re-drop updates in place) but confusing.
+  const warn = (e) => { e.preventDefault(); e.returnValue = ''; return ''; };
+  window.addEventListener('beforeunload', warn);
+
+  try {
+    for (const file of archives) {
+      if (b.cancel) break;
+      b.current = file.name; b.doc = 0; b.docs = 0; b.phase = 'mengekstrak…';
+      setState({});
+      try {
+        const outcome = await processArchive(file, (done, total) => {
+          b.doc = done; b.docs = total; b.phase = ''; setState({});
+        });
+        b.results.push({ file: file.name, ...outcome });
+      } catch (e) {
+        console.error('PPKEK bundle failed:', file.name, e);
+        // One bad bundle must not take the other twenty-one with it.
+        const raw = e.message || String(e);
+        b.results.push({ file: file.name, mode: 'gagal', note: e && e.code === 'RAR_UNSUPPORTED'
+          ? note3('RAR tidak didukung browser ini', 'RAR is not supported in this browser', '此浏览器不支持 RAR')
+          : note3(raw, raw, raw) });
+        // ...except this one: if the browser cannot do RAR at all, every
+        // remaining RAR fails the same way, and twenty identical errors is worse
+        // than one honest stop.
+        if (e && e.code === 'RAR_UNSUPPORTED' && archives.slice(b.done + 1).every(f => /\.rar$/i.test(f.name))) {
+          b.done++; b.cancel = true;
+          toast({
+            id: 'RAR belum bisa diekstrak di browser ini — unzip manual atau pakai .zip',
+            en: 'RAR cannot be extracted in this browser yet — unzip manually or use .zip',
+            zh: '此浏览器暂时无法解压 RAR — 请手动解压或改用 .zip',
+          });
+          break;
+        }
+      }
+      b.done++;
+      setState({});
+    }
+  } finally {
+    window.removeEventListener('beforeunload', warn);
+    b.running = false; b.current = ''; b.phase = '';
+    setState({});
+  }
+
+  const n = (m) => b.results.filter(r => r.mode === m).length;
+  const dupes = b.results.filter(r => r.mode === 'ulang' || r.mode === 'balapan');
+  // A single drop keeps the exact wording it already had — that path is
+  // verified and a one-file import should not suddenly read like a report.
+  if (b.total === 1) {
+    const r = b.results[0] || { mode: 'gagal', note: note3('tidak diproses', 'not processed', '未处理') };
+    if (r.mode === 'ulang') toast({
+      id: `Nopen ${r.nopen} SUDAH PERNAH DISUBMIT — baris diperbarui, tidak ditambah. ${r.docs} dokumen di Drive · SO/JO/Costing tidak diubah`,
+      en: `Nopen ${r.nopen} WAS ALREADY SUBMITTED — row updated, not added. ${r.docs} documents in Drive · SO/JO/Costing untouched`,
+      zh: `报关单号 ${r.nopen} 之前已提交过 — 已更新原有行，未新增。${r.docs} 份文件在 Drive · SO/JO/Costing 未改动`,
+    });
+    else if (r.mode === 'balapan') toast({
+      id: `Nopen ${r.nopen} sudah ada di register (dimasukkan sesi lain) — refresh untuk melihatnya`,
+      en: `Nopen ${r.nopen} is already in the register (added by another session) — refresh to see it`,
+      zh: `报关单号 ${r.nopen} 已在登记册中（由其他会话录入）— 刷新后可见`,
+    });
+    else if (r.mode === 'baru') toast({
+      id: `Nopen ${r.nopen} masuk register · ${r.docs} dokumen ke Drive`,
+      en: `Nopen ${r.nopen} added to the register · ${r.docs} documents to Drive`,
+      zh: `报关单号 ${r.nopen} 已加入登记册 · ${r.docs} 份文件已上传至 Drive`,
+    });
+    else if (r.mode === 'nonopen') toast({
+      id: `Ekstraksi selesai — ${r.docs} dokumen, tapi nopen tidak terbaca sehingga tidak masuk register`,
+      en: `Extraction complete — ${r.docs} documents, but the nopen could not be read so nothing entered the register`,
+      zh: `解压完成 — ${r.docs} 份文件，但无法识别报关单号，未加入登记册`,
+    });
+    // Each language gets its own fallback AND its own copy of the note — the
+    // toast is re-resolved on every render, so an Indonesian note pasted into
+    // the en/zh variants would survive a language switch.
+    else toast({
+      id: `Gagal: ${r.file} — ${(r.note && r.note.id) || 'penyebab tidak diketahui'}`,
+      en: `Failed: ${r.file} — ${(r.note && r.note.en) || 'unknown cause'}`,
+      zh: `失败：${r.file} — ${(r.note && r.note.zh) || '原因不明'}`,
+    });
+    if (r.mode === 'ulang' || r.mode === 'balapan') setUI({ pkDupe: r, pkBatch: null });
+    else setUI({ pkBatch: null });
+    return;
+  }
+  const parts = [`${b.done}/${b.total} bundel`];
+  if (n('baru')) parts.push(`${n('baru')} baru`);
+  if (dupes.length) parts.push(`${dupes.length} sudah pernah disubmit`);
+  if (n('nonopen')) parts.push(`${n('nonopen')} nopen tidak terbaca`);
+  if (n('gagal')) parts.push(`${n('gagal')} gagal`);
+  if (skipped) parts.push(`${skipped} file bukan arsip dilewati`);
+  if (b.cancel) parts.push('DIBATALKAN');
+  toast({
+    id: parts.join(' · '),
+    // Same conditions as `parts` above, rebuilt per language: the Indonesian
+    // pieces are already composed by the time we get here.
+    en: [
+      `${b.done}/${b.total} bundles`,
+      n('baru') && `${n('baru')} new`,
+      dupes.length && `${dupes.length} already submitted`,
+      n('nonopen') && `${n('nonopen')} nopen unreadable`,
+      n('gagal') && `${n('gagal')} failed`,
+      skipped && `${skipped} non-archive files skipped`,
+      b.cancel && 'CANCELLED',
+    ].filter(Boolean).join(' · '),
+    zh: [
+      `${b.done}/${b.total} 个压缩包`,
+      n('baru') && `${n('baru')} 个新增`,
+      dupes.length && `${dupes.length} 个之前已提交过`,
+      n('nonopen') && `${n('nonopen')} 个报关单号无法识别`,
+      n('gagal') && `${n('gagal')} 个失败`,
+      skipped && `${skipped} 个非压缩文件已跳过`,
+      b.cancel && '已取消',
+    ].filter(Boolean).join(' · '),
+  });
+}
+
+async function processArchive(file, onDoc) {
+  const { files, format } = await extractArchive(file);
+  // Upload each extracted file to Drive (graceful — see core/drive.js:
+  // returns a drive-pending://... placeholder while useDrive=false, a real
+  // webViewLink once Drive is configured, same call site either way).
+  const year = new Date().getFullYear(), month = new Date().getMonth() + 1;
+  const sppb = (file.name.match(/SPPB\s*(\d+)/i) || [])[1] || '000000';
+  const shipment = (file.name.match(/\b(\d{2}ID\d{4})\b/i) || [])[1] || 'SHIP';
+  const folder = ppkekFolder(year, month, sppb, shipment);
+  const fileRecords = [];
+  if (onDoc) onDoc(0, files.length);
+  for (const f of files) {
+    const up = await uploadToDrive(f, folder, f.name, 'PPKEK');
+    f.url = up.url;
+    fileRecords.push({ name: f.name, url: up.url, placeholder: !!up.placeholder });
+    if (onDoc) onDoc(fileRecords.length, files.length);
+  }
+  // Parse the PPKEK PDF if present.
+  const pdf = files.find(f => /ppkek/i.test(f.name) && /\.pdf$/i.test(f.name)) || files.find(f => /\.pdf$/i.test(f.name));
+  let parsed = null;
+  if (pdf) { try { parsed = await parsePpkekPdf(pdf); } catch (e) { console.warn(e); } }
+  // Supplier + address come from the SPPB, not the PPKEK — see parseSppbPdf()
+  // for why. Purely additive: if the SPPB is missing or unreadable the PPKEK
+  // values stand, so a bundle without one behaves exactly as before.
+  if (parsed) {
+    const sppb = files.find(f => /sppb/i.test(f.name) && /\.pdf$/i.test(f.name));
+    if (sppb) {
+      try {
+        const extra = await parseSppbPdf(sppb);
+        if (extra.supplier) parsed.supplier = extra.supplier;
+        if (extra.address) parsed.address = extra.address;
+      } catch (e) { console.warn('SPPB parse skipped:', e); }
+    }
+  }
+  // The parse panel keeps showing the LAST bundle of the run. Over a long
+  // batch that panel is the least useful thing on screen anyway — the batch
+  // card is what you watch — and leaving it on the final document means it
+  // matches what the register just gained.
+  setUI({ pkExtract: { name: file.name, format, files }, pkParsed: parsed });
+  logAudit({ entity: 'ppkek', target: file.name, action: 'import', detail: `${files.length} docs (${format})` });
+  // Announces nothing. handleArchives composes the message once, at the end —
+  // otherwise twenty bundles would fire twenty toasts, each erasing the last,
+  // and the only one anyone ever sees is the twentieth.
+  if (parsed && parsed.nopen) {
+    const outcome = await addRegisterRow(parsed, folder, fileRecords);
+    if (outcome) return outcome;
+    return { mode: 'gagal', nopen: parsed.nopen, docs: fileRecords.length, note: note3('gagal simpan ke server', 'failed to save to the server', '保存到服务器失败') };
+  }
+  return { mode: 'nonopen', docs: files.length };
 }
 
 // One nopen = one customs document = one register row, always.
@@ -299,8 +590,11 @@ async function addRegisterRow(p, folder, files) {
     if (duplicateNopen(e)) {
       return { mode: 'balapan', nopen: local.nopen, docs: (files || []).length };
     }
-    toast('PPKEK terparse tapi gagal simpan ke server: ' + (e.message || e));
-    return;
+    // Returned, not toasted: in a batch of twenty this would be erased by the
+    // next bundle's message a few seconds later. handleArchives keeps it in the
+    // result list, where it stays readable after the run.
+    const raw = e.message || e;
+    return { mode: 'gagal', nopen: local.nopen, docs: (files || []).length, note: note3('gagal simpan ke server: ' + raw, 'failed to save to the server: ' + raw, '保存到服务器失败：' + raw) };
   }
   if (!local.id) local.id = uid('pk'); // demo mode: insertPpkek no-ops, keep a local id
   const st = getState();
@@ -334,9 +628,9 @@ async function updateRegisterRow(row, p, folder, files) {
     await updatePpkek(row.id, patch);
   } catch (e) {
     console.error('Supabase ppkek update failed', e);
-    toast('Data diperbarui lokal, tapi gagal sync ke server: ' + (e.message || e));
     setState({});
-    return;
+    const raw = e.message || e;
+    return { mode: 'gagal', nopen: row.nopen, docs: merged.length, note: note3('diperbarui lokal, gagal sync ke server: ' + raw, 'updated locally, failed to sync to the server: ' + raw, '已本地更新，同步到服务器失败：' + raw) };
   }
   setState({});
   return { mode: 'ulang', nopen: row.nopen, docs: merged.length };
@@ -370,7 +664,11 @@ async function exportRegister() {
   await writeWorkbook(`PPKEK_${new Date().getFullYear()}.xlsx`, [
     { name: 'LDP', aoa: toAoa(ldp) }, { name: 'TLDDP', aoa: toAoa(tlddp) },
   ], hyperlinks);
-  toast('Export Excel (2-tab LDP/TLDDP + hidden row-ID) — hyperlink Drive aktif');
+  toast({
+    id: 'Export Excel (2-tab LDP/TLDDP + hidden row-ID) — hyperlink Drive aktif',
+    en: 'Excel exported (2-tab LDP/TLDDP + hidden row-ID) — Drive hyperlinks live',
+    zh: '已导出 Excel（LDP/TLDDP 双工作表 + 隐藏行 ID）— Drive 超链接有效',
+  });
 }
 function driveUrlOf(r) { return r.driveUrl && !r.driveUrl.startsWith('drive-') ? r.driveUrl : 'https://drive.google.com/'; }
 
@@ -404,8 +702,19 @@ async function importUpdates() {
       }
     }
     setUI({ pkDiff: { changes, file: files[0].name } });
-  } catch (e) { console.error(e); toast('Import gagal: ' + e.message); }
+  } catch (e) {
+    console.error(e);
+    toast({ id: 'Import gagal: ' + e.message, en: 'Import failed: ' + e.message, zh: '导入失败：' + e.message });
+  }
 }
+
+// Diff-row field names. Display only — the change is written through c.key,
+// and the header words the workbook uses (c.label) are untouched.
+const FIELD_TEXT = {
+  Costing: { id: 'Costing', en: 'Costing', zh: '成本核算' },
+  Status: { id: 'Status', en: 'Status', zh: '状态' },
+};
+function fieldLabel(l) { return FIELD_TEXT[l] ? tr(FIELD_TEXT[l]) : l; }
 
 function diffModal() {
   const st = getState(); const d = st.ui.pkDiff;
@@ -413,21 +722,28 @@ function diffModal() {
   const news = d.changes.filter(c => c.type === 'new');
   const rowsEl = d.changes.map(c => c.type === 'update'
     ? h('div', { style: { display: 'grid', gridTemplateColumns: '1.1fr 1fr 1fr', gap: '1px', background: 'var(--border)' } }, [
-        h('div', { style: { background: 'var(--surface)', padding: '9px 11px' } }, [h('div.mono', { style: { fontSize: '11px', fontWeight: 700 } }, c.nopen), h('div', { style: { fontSize: '10px', color: 'var(--text-3)' } }, c.label)]),
+        h('div', { style: { background: 'var(--surface)', padding: '9px 11px' } }, [h('div.mono', { style: { fontSize: '11px', fontWeight: 700 } }, c.nopen), h('div', { style: { fontSize: '10px', color: 'var(--text-3)' } }, fieldLabel(c.label))]),
         h('div.mono', { style: { background: 'var(--surface)', padding: '9px 11px', fontSize: '11px', color: 'var(--text-3)', textDecoration: 'line-through' } }, c.old),
         h('div.mono', { style: { background: 'var(--st-green-bg)', padding: '9px 11px', fontSize: '11px', fontWeight: 700, color: 'var(--st-green-tx)' } }, c.neu),
       ])
     : h('div', { style: { display: 'grid', gridTemplateColumns: '1.1fr 1fr 1fr', gap: '1px', background: 'var(--border)' } }, [
-        h('div', { style: { background: 'var(--surface)', padding: '9px 11px' } }, [h('div.mono', { style: { fontSize: '11px', fontWeight: 700 } }, c.nopen), h('div', { style: { fontSize: '10px', color: 'var(--accent-tx)', fontWeight: 700 } }, 'baris baru')]),
+        h('div', { style: { background: 'var(--surface)', padding: '9px 11px' } }, [h('div.mono', { style: { fontSize: '11px', fontWeight: 700 } }, c.nopen), h('div', { style: { fontSize: '10px', color: 'var(--accent-tx)', fontWeight: 700 } }, tr({ id: 'baris baru', en: 'new row', zh: '新增行' }))]),
         h('div', { style: { background: 'var(--surface)', padding: '9px 11px', fontSize: '11px', color: 'var(--text-3)' } }, '—'),
         h('div.mono', { style: { background: 'var(--accent-soft)', padding: '9px 11px', fontSize: '11px', fontWeight: 700, color: 'var(--accent-tx)' } }, `${c.fields.supplier || ''}`),
       ]));
   return modal({
-    title: t('pk_diff_title'), subtitle: `${d.file} · ${d.changes.length} perubahan`, width: 600, onClose: () => setUI({ pkDiff: null }),
+    title: t('pk_diff_title'), subtitle: tr({
+      id: `${d.file} · ${d.changes.length} perubahan`,
+      en: `${d.file} · ${d.changes.length} change${d.changes.length === 1 ? '' : 's'}`,
+      zh: `${d.file} · ${d.changes.length} 项更改`,
+    }), width: 600, onClose: () => setUI({ pkDiff: null }),
     body: [
-      h('div.row.gap8', { style: { fontSize: '11px' } }, [badge(`${updates.length} update`, 'green'), badge(`${news.length} baris baru`, 'accent')]),
+      h('div.row.gap8', { style: { fontSize: '11px' } }, [
+        badge(tr({ id: `${updates.length} update`, en: `${updates.length} update${updates.length === 1 ? '' : 's'}`, zh: `${updates.length} 项更新` }), 'green'),
+        badge(tr({ id: `${news.length} baris baru`, en: `${news.length} new row${news.length === 1 ? '' : 's'}`, zh: `${news.length} 个新增行` }), 'accent'),
+      ]),
       h('div', { style: { border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' } }, [
-        h('div', { style: { display: 'grid', gridTemplateColumns: '1.1fr 1fr 1fr', gap: '1px', background: 'var(--border)' } }, ['Nopen · Field', t('pk_old'), t('pk_new')].map(x => h('div', { style: { background: 'var(--surface2)', padding: '7px 11px', fontSize: '9.5px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-3)' } }, x))),
+        h('div', { style: { display: 'grid', gridTemplateColumns: '1.1fr 1fr 1fr', gap: '1px', background: 'var(--border)' } }, [tr({ id: 'Nopen · Field', en: 'Nopen · Field', zh: '报关单号 · 字段' }), t('pk_old'), t('pk_new')].map(x => h('div', { style: { background: 'var(--surface2)', padding: '7px 11px', fontSize: '9.5px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-3)' } }, x))),
         ...rowsEl,
       ]),
     ],
@@ -445,16 +761,35 @@ async function applyDiff() {
       const value = c.neu === '—' ? '' : c.neu;
       r[c.key] = value;
       try { await updatePpkek(c.id, { [c.key]: value }); }
-      catch (e) { console.error('Supabase ppkek update failed', e); toast(`Gagal sync ${c.nopen} ke server: ` + (e.message || e)); }
+      catch (e) {
+        console.error('Supabase ppkek update failed', e);
+        toast({
+          id: `Gagal sync ${c.nopen} ke server: ` + (e.message || e),
+          en: `Failed to sync ${c.nopen} to the server: ` + (e.message || e),
+          zh: `${c.nopen} 同步到服务器失败：` + (e.message || e),
+        });
+      }
     } else {
       const local = { nopen: c.nopen, date: new Date(), supplier: c.fields.supplier || '—', usd: Number(c.fields.usd) || 0, idr: Number(c.fields.idr) || 0, jalur: c.fields.jalur || 'LDP', so: '', jo: '', costing: '', poErpIna: '', status: 'Open', files: [] };
       try { const saved = await insertPpkek(local); Object.assign(local, saved); }
-      catch (e) { console.error('Supabase ppkek insert failed', e); toast(`Gagal simpan baris baru ${c.nopen}: ` + (e.message || e)); continue; }
+      catch (e) {
+        console.error('Supabase ppkek insert failed', e);
+        toast({
+          id: `Gagal simpan baris baru ${c.nopen}: ` + (e.message || e),
+          en: `Failed to save new row ${c.nopen}: ` + (e.message || e),
+          zh: `新增行 ${c.nopen} 保存失败：` + (e.message || e),
+        });
+        continue;
+      }
       if (!local.id) local.id = uid('pk'); // demo mode: insertPpkek no-ops, keep a local id
       st.ppkek.push(local);
     }
   }
   logAudit({ entity: 'ppkek', target: d.file, action: 'import_apply', detail: `${d.changes.length} changes` });
   setUI({ pkDiff: null });
-  toast(`${d.changes.length} perubahan diterapkan ke register PPKEK`);
+  toast({
+    id: `${d.changes.length} perubahan diterapkan ke register PPKEK`,
+    en: `${d.changes.length} changes applied to the PPKEK register`,
+    zh: `${d.changes.length} 项更改已应用到 PPKEK 登记册`,
+  });
 }

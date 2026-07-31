@@ -5,6 +5,7 @@ import { t } from '../i18n/index.js';
 import { icon } from '../ui/components.js';
 import { isConfigured } from '../core/supabase.js';
 import { COMPANY } from '../config.js';
+import { VERSION, VERSION_DATE } from '../version.js';
 import { LOGO_MTI } from '../assets/images.js';
 
 export function loginScreen() {
@@ -42,7 +43,9 @@ export function loginScreen() {
       ]),
     ]),
     h('div', { style: { marginTop: '18px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' } }, [
-      h('div.mono', { style: { fontSize: '10px', color: 'var(--text-3)' } }, `${COMPANY.version}${isConfigured() ? '' : ' · DEMO'}`),
+      // Also on the login screen, because the build you are about to sign into
+      // is worth knowing before you start blaming a feature for being missing.
+      h('div.mono', { style: { fontSize: '10px', color: 'var(--text-3)' } }, `${VERSION} · ${VERSION_DATE}${isConfigured() ? '' : ' · DEMO'}`),
     ]),
   ]);
 }

@@ -3,6 +3,7 @@
 // state is a single session-only watermark (state.ui.notifReadAt); there is no
 // localStorage, so unread state intentionally does not survive reload/logout.
 import { daysUntil } from './format.js';
+import { tr } from '../i18n/index.js';
 
 export function notificationsFor(st, user) {
   const role = user.role;
@@ -42,11 +43,14 @@ export function notifTargetScreen(n, user) {
 
 export function notifMessage(n) {
   const m = {
-    po_approve: 'PO {target} disetujui', po_reject: 'PO {target} ditolak',
-    prf_finance_receive: 'PRF {target} diterima Finance', prf_mark_paid: 'PRF {target} sudah dibayar',
-    prf_create: 'PRF baru {target} diterima', invoice_overdue: 'Invoice {target} ({detail}) overdue',
+    po_approve: { id: 'PO {target} disetujui', en: 'PO {target} approved', zh: '采购单 {target} 已批准' },
+    po_reject: { id: 'PO {target} ditolak', en: 'PO {target} rejected', zh: '采购单 {target} 已拒绝' },
+    prf_finance_receive: { id: 'PRF {target} diterima Finance', en: 'PRF {target} received by Finance', zh: '付款申请单 {target} 财务已接收' },
+    prf_mark_paid: { id: 'PRF {target} sudah dibayar', en: 'PRF {target} has been paid', zh: '付款申请单 {target} 已付款' },
+    prf_create: { id: 'PRF baru {target} diterima', en: 'New PRF {target} received', zh: '收到新的付款申请单 {target}' },
+    invoice_overdue: { id: 'Invoice {target} ({detail}) overdue', en: 'Invoice {target} ({detail}) is overdue', zh: '发票 {target}（{detail}）已逾期' },
   };
   const key = `${n.entity}_${n.action}`;
-  const tmpl = m[key] || `${n.entity} ${n.action} — ${n.target || ''}`;
+  const tmpl = m[key] ? tr(m[key]) : `${n.entity} ${n.action} — ${n.target || ''}`;
   return tmpl.replace('{target}', n.target || '').replace('{detail}', n.detail || '');
 }

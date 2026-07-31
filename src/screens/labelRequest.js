@@ -1,6 +1,6 @@
 import { h, wireDrop, pickFiles } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
-import { t } from '../i18n/index.js';
+import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField, searchInput } from '../ui/components.js';
 import { readWorkbook } from '../core/xlsx.js';
 import { parseLabelSheet } from '../parsers/excelLabels.js';
@@ -44,17 +44,25 @@ function step1() {
     title: t('lr_drop'), sub: t('lr_or_browse'), accept: '.xls,.xlsx', iconName: 'upload',
     onFiles: (files) => handleFile(files[0]),
     disabled: !canParse,
-    disabledNote: 'Upload label dipegang purchasing — akun ini cuma lihat riwayat',
+    disabledNote: tr({
+      id: 'Upload label dipegang purchasing — akun ini cuma lihat riwayat',
+      en: 'Label uploads belong to purchasing — this account only sees the history',
+      zh: '标签上传由采购负责 — 此账号仅可查看历史记录',
+    }),
   });
   return card([
     h('div.card-pad', [
       dz,
       st.labelBatches.length ? h('div', { style: { marginTop: '18px' } }, [
-        h('div.field-label', 'Upload Terakhir'),
+        h('div.field-label', tr({ id: 'Upload Terakhir', en: 'Recent Uploads', zh: '最近上传' })),
         ...st.labelBatches.slice(0, 4).map(b => h('div.row.gap12', { style: { padding: '10px 0', borderTop: '1px solid var(--border)' } }, [
           h('span', { style: { width: '32px', height: '32px', borderRadius: '8px', background: 'var(--st-green-bg)', color: 'var(--st-green-tx)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8.5px', fontWeight: 700 } }, 'XLSX'),
           h('div.grow', [h('div', { style: { fontSize: '12.5px', fontWeight: 600, color: 'var(--text)' } }, b.file), h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, `${b.by} · ${b.sheet}`)]),
-          badge(`Parsed · ${b.count} rows`, 'green'),
+          badge(tr({
+            id: `Parsed · ${b.count} rows`,
+            en: `Parsed · ${b.count} rows`,
+            zh: `已解析 · ${b.count} 行`,
+          }), 'green'),
         ])),
       ]) : null,
     ]),
@@ -70,7 +78,11 @@ async function handleFile(file) {
     const sheets = wb.sheetNames.map(n => ({ name: n, count: wb.countRows(n) }));
     setUI({ labelFile: file.name, labelWb: wb, labelSheets: sheets, labelSheet: pickBest(sheets), labelStep: 2 });
   } catch (e) {
-    console.error(e); toast('Gagal membaca Excel: ' + e.message);
+    console.error(e); toast({
+      id: 'Gagal membaca Excel: ' + e.message,
+      en: 'Failed to read Excel: ' + e.message,
+      zh: '读取 Excel 失败：' + e.message,
+    });
   }
 }
 function pickBest(sheets) {
@@ -85,7 +97,11 @@ function step2() {
   return card({ }, h('div.card-pad', { style: { maxWidth: '640px' } }, [
     h('div.row.gap12', { style: { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px' } }, [
       h('span', { style: { width: '34px', height: '34px', borderRadius: '8px', background: 'var(--st-green-bg)', color: 'var(--st-green-tx)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8.5px', fontWeight: 700 } }, 'XLSX'),
-      h('div.grow', [h('div', { style: { fontSize: '13px', fontWeight: 700 } }, ui.labelFile), h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, `${sheets.length} sheet terdeteksi`)]),
+      h('div.grow', [h('div', { style: { fontSize: '13px', fontWeight: 700 } }, ui.labelFile), h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, tr({
+        id: `${sheets.length} sheet terdeteksi`,
+        en: `${sheets.length} sheet${sheets.length === 1 ? '' : 's'} detected`,
+        zh: `检测到 ${sheets.length} 个工作表`,
+      }))]),
       btn(t('lr_change_file'), { sm: true, onClick: async () => { const f = await pickFiles({ accept: '.xls,.xlsx' }); if (f && f[0]) handleFile(f[0]); } }),
     ]),
     h('div', { style: { fontSize: '13px', fontWeight: 700, margin: '18px 0 4px' } }, t('lr_pick_sheet')),
@@ -123,7 +139,13 @@ function parseNow() {
     upsertItems(res.items);
     st.labelBatches.unshift({ id: uid('lb'), file: ui.labelFile, sheet: ui.labelSheet, count: res.items.length, by: st.user.username, at: new Date().toISOString() });
     logAudit({ entity: 'label', target: ui.labelFile, action: 'upload', detail: `${res.items.length} rows · ${res.stats.newItems} new` });
-  } catch (e) { console.error(e); toast('Parse gagal: ' + e.message); }
+  } catch (e) {
+    console.error(e); toast({
+      id: 'Parse gagal: ' + e.message,
+      en: 'Parse failed: ' + e.message,
+      zh: '解析失败：' + e.message,
+    });
+  }
 }
 
 function upsertItems(items) {
@@ -149,7 +171,7 @@ function step3() {
     badge(`${res.stats.total} ${t('lr_scanned')} · ${countOrders(res.items)} ${t('lr_orders')}`, 'accent'),
     badge(`${noDesign} ${t('lr_no_design')} · ${res.stats.newItems} ${t('lr_new_items')}`, 'gray'),
     h('div.mla.row.gap8', [
-      searchInput({ id: 'lr-filter', placeholder: 'Filter spec / ERP…', onChange: v => setUI({ labelFilter: v }), value: ui.labelFilter || '' }),
+      searchInput({ id: 'lr-filter', placeholder: tr({ id: 'Filter spec / ERP…', en: 'Filter spec / ERP…', zh: '筛选规格 / ERP…' }), onChange: v => setUI({ labelFilter: v }), value: ui.labelFilter || '' }),
       btn(t('lr_reparse'), { onClick: () => setUI({ labelStep: 2 }) }),
     ]),
   ]);
@@ -180,7 +202,11 @@ function step3() {
 
   const table = h('div.card', [
     h('div.tbl-wrap', h('table.tbl', [thead, body])),
-    h('div.tbl-foot', `${rows.length}/${res.stats.total} · ${res.stats.skipped} ${t('lr_skipped')} · header baris ${res.stats.headerRow}`),
+    h('div.tbl-foot', tr({
+      id: `${rows.length}/${res.stats.total} · ${res.stats.skipped} ${t('lr_skipped')} · header baris ${res.stats.headerRow}`,
+      en: `${rows.length}/${res.stats.total} · ${res.stats.skipped} ${t('lr_skipped')} · header row ${res.stats.headerRow}`,
+      zh: `${rows.length}/${res.stats.total} · ${res.stats.skipped} ${t('lr_skipped')} · 表头行 ${res.stats.headerRow}`,
+    })),
   ]);
 
   const supplierNames = st.suppliers.map(s => s.name);
@@ -191,7 +217,7 @@ function step3() {
       selectEl(supplierNames, { value: ui.assignSup || supplierNames[0], onChange: v => setUI({ assignSup: v }) }),
       can(st.user.role, 'poCreate')
         ? btn(t('lr_assign_gen'), { variant: 'primary', onClick: () => openPoModal() })
-        : badge('Read-only', 'gray', { iconName: 'eye' }),
+        : badge(tr({ id: 'Read-only', en: 'Read-only', zh: '只读' }), 'gray', { iconName: 'eye' }),
     ]),
   ]);
 
@@ -221,25 +247,33 @@ function poModal() {
   ]);
 
   return modal({
-    title: t('po_generate'), subtitle: `${st.ui.assignSup} · ${f.count} baris · unit 张`, width: 520,
+    title: t('po_generate'), subtitle: tr({
+      id: `${st.ui.assignSup} · ${f.count} baris · unit 张`,
+      en: `${st.ui.assignSup} · ${f.count} lines · unit 张`,
+      zh: `${st.ui.assignSup} · ${f.count} 行 · 单位 张`,
+    }), width: 520,
     onClose: () => setUI({ poModal: false }),
     body: [
       h('div.grid.g2', [
         field(t('po_contract_no') + ' *', poNoField(f)),
         field(t('po_date'), inputEl({ value: fmtToday(), mono: true })),
       ]),
-      field('Contract No (opsional)', inputEl({ value: f.contract || '', mono: true, onInput: v => (f.contract = v) })),
+      field(tr({ id: 'Contract No (opsional)', en: 'Contract No (optional)', zh: '合同号（选填）' }), inputEl({ value: f.contract || '', mono: true, onInput: v => (f.contract = v) })),
       // 'Custom…' removed — it had no follow-up input and printed as "30 days"
       // on the contract via the old topDaysOf() default. See poTermDays().
       field(t('po_terms'), selectEl(['30 hari setelah invoice', '45 hari setelah invoice', '60 hari setelah invoice', 'Bayar di muka'], { value: f.terms, onChange: v => (f.terms = v) })),
       // Priority drives expected arrival in Label Stock -> Order Tracking
       // (lead days come from label_settings: Normal 14 / Urgent 7 / Super 3).
       // Without it every order was assumed Normal and "overdue" meant nothing.
-      field('Prioritas', selectEl(['Normal', 'Urgent', 'Super Urgent'], { value: f.priority || 'Normal', onChange: v => (f.priority = v) })),
+      // Option strings are the STORED priority values (label_settings lead
+      // days key off them) — labels only, values untouched.
+      field(tr({ id: 'Prioritas', en: 'Priority', zh: '优先级' }), selectEl(['Normal', 'Urgent', 'Super Urgent'], { value: f.priority || 'Normal', onChange: v => (f.priority = v) })),
       field(t('po_ppn'), h('div.row.gap12', [radio('bayar', t('po_ppn_paid'), t('po_ppn_paid_d')), radio('kek', t('po_ppn_susp'), t('po_ppn_susp_d'))])),
       h('div', { style: { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: '6px' } }, [
         row2(t('po_subtotal'), money(f.subtotal, 'IDR')),
-        row2('PPN', f.ppn === 'bayar' ? money(ppn, 'IDR') : 'Ditangguhkan — KEK'),
+        row2('PPN', f.ppn === 'bayar' ? money(ppn, 'IDR') : tr({
+          id: 'Ditangguhkan — KEK', en: 'Suspended — KEK', zh: '暂免征收 — KEK',
+        })),
         h('div.divider'), row2(t('po_total'), money(f.subtotal + ppn, 'IDR'), true),
       ]),
     ],
@@ -255,7 +289,7 @@ function fmtToday() { const d = new Date(); return `${String(d.getDate()).padSta
 async function genPO() {
   if (blockWrite('generate PO label')) return;
   const st = getState(); const f = st.ui.poForm;
-  if (!f.no || !f.no.trim()) { toast('No. PO wajib diisi'); return; }
+  if (!f.no || !f.no.trim()) { toast({ id: 'No. PO wajib diisi', en: 'PO number is required', zh: '必须填写采购单号' }); return; }
   const selItems = (st.ui.labelResult.items || []).filter((_, i) => st.ui.labelSel[i]);
   const supplier = st.suppliers.find(s => s.name === st.ui.assignSup) || {};
   const ppnMode = ppnModeFromForm(f.ppn);
@@ -290,16 +324,32 @@ async function genPO() {
     // PO as created and then lose it on the next login. The modal stays open,
     // so the number can be corrected and sent again.
     if (duplicatePoNumber(e)) {
-      toast(`No. PO ${po.no} sudah dipakai — ganti nomornya`);
+      toast({
+        id: `No. PO ${po.no} sudah dipakai — ganti nomornya`,
+        en: `PO number ${po.no} is already taken — use a different one`,
+        zh: `采购单号 ${po.no} 已被占用 — 请更换号码`,
+      });
       return;
     }
     // Anything else (network, timeout) may well succeed on a retry, so the
     // original behaviour stands: keep it locally and say so.
-    toast('PO tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e));
+    toast({
+      id: 'PO tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e),
+      en: 'PO saved locally, but sync to the server failed: ' + (e.message || e),
+      zh: '采购单已本地保存，但同步到服务器失败：' + (e.message || e),
+    });
   }
   st.pos.unshift(po);
   logAudit({ entity: 'po', target: po.no, action: 'generate', detail: `${supplier.name} · ${selItems.length} lines` });
   setUI({ poModal: false });
-  toast(isWilbert ? `PO ${po.no} dibuat & di-approve (skip queue)` : `PO ${po.no} dibuat & dikirim untuk approval Wilbert`);
+  toast(isWilbert ? {
+    id: `PO ${po.no} dibuat & di-approve (skip queue)`,
+    en: `PO ${po.no} created & approved (queue skipped)`,
+    zh: `采购单 ${po.no} 已创建并批准（跳过审批队列）`,
+  } : {
+    id: `PO ${po.no} dibuat & dikirim untuk approval Wilbert`,
+    en: `PO ${po.no} created & sent to Wilbert for approval`,
+    zh: `采购单 ${po.no} 已创建并提交给 Wilbert 审批`,
+  });
   setState({ screen: isWilbert ? 'approval' : 'label-request' });
 }

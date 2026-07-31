@@ -1,7 +1,7 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, logAudit } from '../core/store.js';
 import { blockWrite } from '../core/guard.js';
-import { t } from '../i18n/index.js';
+import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, modal, field, inputEl, selectEl } from '../ui/components.js';
 import { money, num, fmtDate, ppnFor } from '../core/format.js';
 import { newLineId } from '../core/posApi.js';
@@ -27,6 +27,16 @@ function draftFor(poId) {
 // on — a PO that only exists locally (e.g. server sync failed at creation) has
 // no row to request/approve/reject deletion of.
 
+// DISPLAY ONLY. PO status values are stored in Postgres and matched exactly
+// (the filter above, every === in this file, updatePoStatus, ui/documents.js's
+// chop rule); this lookup is used at the point of rendering and nowhere else.
+const PO_STATUS_TEXT = {
+  'Menunggu Approval': { id: 'Menunggu Approval', en: 'Awaiting Approval', zh: '等待审批' },
+  'Approved': { id: 'Approved', en: 'Approved', zh: '已批准' },
+  'Rejected': { id: 'Rejected', en: 'Rejected', zh: '已驳回' },
+};
+function poStatusLabel(s) { return PO_STATUS_TEXT[s] ? tr(PO_STATUS_TEXT[s]) : s; }
+
 export function approvalScreen() {
   const st = getState();
   const list = st.pos.filter(p => p.status === 'Menunggu Approval' || p.status === 'Approved' || p.status === 'Rejected');
@@ -50,46 +60,66 @@ export function approvalScreen() {
         await updatePoStatus(po.id, patch);
       } catch (e) {
         console.error('Supabase PO approve failed — nothing changed', e);
-        toast('Approve DITOLAK server, PO tidak berubah: ' + (e.message || e));
+        toast({
+          id: 'Approve DITOLAK server, PO tidak berubah: ' + (e.message || e),
+          en: 'Approve REJECTED by server, PO unchanged: ' + (e.message || e),
+          zh: '服务器拒绝批准，采购单未更改：' + (e.message || e),
+        });
         return;
       }
     }
     Object.assign(po, patch);
     logAudit({ entity: 'po', target: po.no, action: 'approve', detail: 'seal & signature embedded' });
-    toast(`PO ${po.no} approved — seal & tanda tangan diterapkan`);
+    toast({
+      id: `PO ${po.no} approved — seal & tanda tangan diterapkan`,
+      en: `PO ${po.no} approved — seal & signature applied`,
+      zh: `采购单 ${po.no} 已批准 — 已加盖印章与签字`,
+    });
     setState({});
   };
   const reject = async () => {
     if (blockWrite('reject PO')) return;
     const note = (draftFor(po.id).note || '').trim();
-    if (!note) { toast('Alasan reject wajib diisi'); return; }
+    if (!note) { toast({ id: 'Alasan reject wajib diisi', en: 'Rejection reason is required', zh: '必须填写驳回原因' }); return; }
     // Server first, same reasoning as approve() above.
     if (UUID_RE.test(po.id)) {
       try {
         await updatePoStatus(po.id, { status: 'Rejected', rejectNote: note });
       } catch (e) {
         console.error('Supabase PO reject failed — nothing changed', e);
-        toast('Reject DITOLAK server, PO tidak berubah: ' + (e.message || e));
+        toast({
+          id: 'Reject DITOLAK server, PO tidak berubah: ' + (e.message || e),
+          en: 'Reject REJECTED by server, PO unchanged: ' + (e.message || e),
+          zh: '服务器拒绝驳回操作，采购单未更改：' + (e.message || e),
+        });
         return;
       }
     }
     rejectDraft.note = '';
     po.status = 'Rejected'; po.rejectNote = note; po.rejectedBy = st.user.username; po.rejectedAt = new Date().toISOString();
     logAudit({ entity: 'po', target: po.no, action: 'reject', detail: note });
-    toast(`PO ${po.no} rejected — dikembalikan ke ${po.by}`);
+    toast({
+      id: `PO ${po.no} rejected — dikembalikan ke ${po.by}`,
+      en: `PO ${po.no} rejected — returned to ${po.by}`,
+      zh: `采购单 ${po.no} 已驳回 — 已退回给 ${po.by}`,
+    });
     setUI({ rejectOpen: false });
   };
   const requestDelete = async () => {
     if (blockWrite('request hapus PO')) return;
-    const reason = prompt('Alasan hapus PO ini?');
+    const reason = prompt(tr({ id: 'Alasan hapus PO ini?', en: 'Reason for deleting this PO?', zh: '删除该采购单的原因？' }));
     if (!reason) return;
     try {
       await requestPoDelete(po.id, reason);
       po.deleteRequested = true; po.deleteReason = reason;
       logAudit({ entity: 'po', target: po.no, action: 'request_delete', detail: reason });
-      toast(`Request hapus PO ${po.no} diajukan — menunggu approval Wilbert`);
+      toast({
+        id: `Request hapus PO ${po.no} diajukan — menunggu approval Wilbert`,
+        en: `Delete request for PO ${po.no} submitted — awaiting Wilbert approval`,
+        zh: `采购单 ${po.no} 删除申请已提交 — 等待 Wilbert 审批`,
+      });
       setState({});
-    } catch (e) { console.error(e); toast('Gagal ajukan request hapus: ' + (e.message || e)); }
+    } catch (e) { console.error(e); toast({ id: 'Gagal ajukan request hapus: ' + (e.message || e), en: 'Failed to submit delete request: ' + (e.message || e), zh: '提交删除申请失败：' + (e.message || e) }); }
   };
   const approveDelete = async () => {
     if (blockWrite('approve hapus PO')) return;
@@ -98,9 +128,9 @@ export function approvalScreen() {
       const idx = st.pos.indexOf(po);
       if (idx >= 0) st.pos.splice(idx, 1);
       logAudit({ entity: 'po', target: po.no, action: 'approve_delete' });
-      toast(`PO ${po.no} dihapus`);
+      toast({ id: `PO ${po.no} dihapus`, en: `PO ${po.no} deleted`, zh: `采购单 ${po.no} 已删除` });
       setUI({ selPO: null });
-    } catch (e) { console.error(e); toast('Gagal approve hapus: ' + (e.message || e)); }
+    } catch (e) { console.error(e); toast({ id: 'Gagal approve hapus: ' + (e.message || e), en: 'Failed to approve deletion: ' + (e.message || e), zh: '批准删除失败：' + (e.message || e) }); }
   };
   const rejectDelete = async () => {
     if (blockWrite('reject hapus PO')) return;
@@ -108,19 +138,23 @@ export function approvalScreen() {
       await rejectPoDelete(po.id);
       po.deleteRequested = false; po.deleteReason = null;
       logAudit({ entity: 'po', target: po.no, action: 'reject_delete' });
-      toast(`Request hapus PO ${po.no} ditolak`);
+      toast({
+        id: `Request hapus PO ${po.no} ditolak`,
+        en: `Delete request for PO ${po.no} rejected`,
+        zh: `采购单 ${po.no} 删除申请已驳回`,
+      });
       setState({});
-    } catch (e) { console.error(e); toast('Gagal reject hapus: ' + (e.message || e)); }
+    } catch (e) { console.error(e); toast({ id: 'Gagal reject hapus: ' + (e.message || e), en: 'Failed to reject deletion: ' + (e.message || e), zh: '驳回删除申请失败：' + (e.message || e) }); }
   };
   const downloadFinal = () => {
     const html = wrapPrintable(poDocument(po).outerHTML, `PO ${po.no}`);
     downloadBlob(new Blob([html], { type: 'text/html' }), `${po.no.replace(/\//g, '-')}-final.html`);
-    toast('PO final (capped) diunduh');
+    toast({ id: 'PO final (capped) diunduh', en: 'Final PO (stamped) downloaded', zh: '已下载最终采购单（含印章）' });
   };
   const downloadPdf = () => {
     const html = wrapPrintable(poDocument(po).outerHTML, `PO ${po.no}`);
     const w = window.open('', '_blank');
-    if (!w) { toast('Popup diblokir — izinkan popup dulu buat Save PDF'); return; }
+    if (!w) { toast({ id: 'Popup diblokir — izinkan popup dulu buat Save PDF', en: 'Popup blocked — allow popups first to Save PDF', zh: '弹窗被拦截 — 请先允许弹窗再保存 PDF' }); return; }
     w.document.write(html); w.document.close();
     w.onload = () => { w.focus(); w.onafterprint = () => w.close(); setTimeout(() => w.print(), 300); };
   };
@@ -130,7 +164,7 @@ export function approvalScreen() {
     ...list.map(p => {
       const active = p.id === po.id;
       const tone = p.status === 'Approved' ? 'green' : p.status === 'Rejected' ? 'red' : 'amber';
-      const label = p.status === 'Approved' ? t('ap_approved').split('—')[0] : p.status === 'Rejected' ? 'Rejected' : t('dash_awaiting_you');
+      const label = p.status === 'Approved' ? t('ap_approved').split('—')[0] : p.status === 'Rejected' ? poStatusLabel('Rejected') : t('dash_awaiting_you');
       return h('div', {
         style: { padding: '12px 16px', borderBottom: '1px solid var(--border)', cursor: 'pointer', background: active ? 'var(--sel-row)' : 'transparent', borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent' },
         onClick: () => setUI({ selPO: p.id, rejectOpen: false }),
@@ -147,11 +181,11 @@ export function approvalScreen() {
   if (!po) return h('div.stack', [listPanel, st.ui.poEdit ? poEditModal() : null]);
 
   const actions = po.status === 'Approved'
-    ? [badge(t('ap_approved'), 'green', { iconName: 'check' }), btn('Download PDF', { variant: 'primary', iconName: 'download', onClick: downloadPdf }), btn('Download HTML', { iconName: 'download', onClick: downloadFinal }), isWilbert ? btn('Edit', { iconName: 'edit', onClick: () => openPoEdit(po) }) : null]
+    ? [badge(t('ap_approved'), 'green', { iconName: 'check' }), btn(tr({ id: 'Download PDF', en: 'Download PDF', zh: '下载 PDF' }), { variant: 'primary', iconName: 'download', onClick: downloadPdf }), btn(tr({ id: 'Download HTML', en: 'Download HTML', zh: '下载 HTML' }), { iconName: 'download', onClick: downloadFinal }), isWilbert ? btn(tr({ id: 'Edit', en: 'Edit', zh: '编辑' }), { iconName: 'edit', onClick: () => openPoEdit(po) }) : null]
     : po.status === 'Rejected'
       ? [badge(t('ap_rejected'), 'red')]
       : isWilbert
-        ? [btn(t('ap_reject'), { variant: 'danger', onClick: () => setUI({ rejectOpen: !st.ui.rejectOpen }) }), btn(t('ap_approve'), { variant: 'primary', iconName: 'check', onClick: approve }), btn('Edit', { iconName: 'edit', onClick: () => openPoEdit(po) })]
+        ? [btn(t('ap_reject'), { variant: 'danger', onClick: () => setUI({ rejectOpen: !st.ui.rejectOpen }) }), btn(t('ap_approve'), { variant: 'primary', iconName: 'check', onClick: approve }), btn(tr({ id: 'Edit', en: 'Edit', zh: '编辑' }), { iconName: 'edit', onClick: () => openPoEdit(po) })]
         : [badge(t('ap_awaiting'), 'amber')];
 
   // Granted by AUTHORSHIP, not by a capability — which is why isReadOnly() is
@@ -162,14 +196,18 @@ export function approvalScreen() {
   const canRequestDelete = UUID_RE.test(po.id) && !po.deleteRequested
     && !isReadOnly(st.user.role)
     && (po.by === st.user.username || isWilbert);
-  if (canRequestDelete) actions.push(btn('Request Delete', { variant: 'danger', onClick: requestDelete }));
+  if (canRequestDelete) actions.push(btn(tr({ id: 'Request Delete', en: 'Request Delete', zh: '申请删除' }), { variant: 'danger', onClick: requestDelete }));
 
   const deleteBanner = po.deleteRequested
     ? h('div', { style: { padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--st-red-bg)' } }, [
-        h('div', { style: { fontSize: '11.5px', fontWeight: 700, color: 'var(--st-red-tx)' } }, `Request hapus menunggu approval — alasan: ${po.deleteReason || '-'}`),
+        h('div', { style: { fontSize: '11.5px', fontWeight: 700, color: 'var(--st-red-tx)' } }, tr({
+          id: `Request hapus menunggu approval — alasan: ${po.deleteReason || '-'}`,
+          en: `Delete request awaiting approval — reason: ${po.deleteReason || '-'}`,
+          zh: `删除申请等待审批 — 原因：${po.deleteReason || '-'}`,
+        })),
         isWilbert ? h('div.row.gap8', { style: { justifyContent: 'flex-end', marginTop: '8px' } }, [
-          btn('Reject', { sm: true, onClick: rejectDelete }),
-          h('button.btn.btn-sm', { style: { background: 'var(--st-red-tx)', color: '#fff', border: 'none', fontWeight: 700 }, onClick: approveDelete }, 'Approve & Hapus'),
+          btn(t('ap_reject'), { sm: true, onClick: rejectDelete }),
+          h('button.btn.btn-sm', { style: { background: 'var(--st-red-tx)', color: '#fff', border: 'none', fontWeight: 700 }, onClick: approveDelete }, tr({ id: 'Approve & Hapus', en: 'Approve & Delete', zh: '批准并删除' })),
         ]) : null,
       ])
     : null;
@@ -190,7 +228,11 @@ export function approvalScreen() {
       // while the user types.
       h('textarea.input', {
         rows: 2,
-        placeholder: 'Contoh: harga unit naik vs kontrak — minta renegosiasi…',
+        placeholder: tr({
+          id: 'Contoh: harga unit naik vs kontrak — minta renegosiasi…',
+          en: 'Example: unit price is higher than the contract — asking to renegotiate…',
+          zh: '例如：单价高于合同价 — 要求重新议价…',
+        }),
         value: draftFor(po.id).note,
         onInput: e => { draftFor(po.id).note = e.target.value; },
       }),
@@ -256,12 +298,12 @@ function poEditModal() {
     const amountCell = h('span.mono', num(it.a, f.currency === 'USD' ? 2 : 0));
     amountCells[i] = amountCell;
     return h('div.row.gap8', { style: { alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' } }, [
-      h('div', { style: { flex: '2' } }, inputEl({ value: it.d || '', placeholder: 'Deskripsi', onInput: v => { it.d = v; } })),
+      h('div', { style: { flex: '2' } }, inputEl({ value: it.d || '', placeholder: tr({ id: 'Deskripsi', en: 'Description', zh: '描述' }), onInput: v => { it.d = v; } })),
       h('div', { style: { width: '70px' } }, inputEl({ value: String(it.qty || 0), mono: true, onInput: v => { it.qty = Number(v) || 0; recompute(); } })),
       h('div', { style: { width: '90px' } }, inputEl({ value: String(it.u || 0), mono: true, onInput: v => { it.u = Number(v) || 0; recompute(); } })),
       h('div', { style: { width: '130px' } }, selectEl(unitOpts, { value: it.unit, onChange: v => { it.unit = v; } })),
       h('div', { style: { width: '90px', textAlign: 'right' } }, amountCell),
-      btn('Hapus', { sm: true, variant: 'danger', onClick: () => { f.items.splice(i, 1); setUI({}); } }),
+      btn(tr({ id: 'Hapus', en: 'Delete', zh: '删除' }), { sm: true, variant: 'danger', onClick: () => { f.items.splice(i, 1); setUI({}); } }),
     ]);
   });
 
@@ -271,32 +313,36 @@ function poEditModal() {
   totalEl = h('span.mono', { style: { fontWeight: 800 } }, money(total0, f.currency));
 
   return modal({
-    title: `Edit PO — ${po.no}`, width: 760, onClose: () => setUI({ poEdit: null }),
+    title: tr({ id: `Edit PO — ${po.no}`, en: `Edit PO — ${po.no}`, zh: `编辑采购单 — ${po.no}` }), width: 760, onClose: () => setUI({ poEdit: null }),
     body: [
       h('div.grid.g2', [
-        field('Supplier (English)', inputEl({ value: f.supplier, onInput: v => { f.supplier = v; } })),
-        field('Supplier (原文)', inputEl({ value: f.supplierZh, onInput: v => { f.supplierZh = v; } })),
+        field(tr({ id: 'Supplier (English)', en: 'Supplier (English)', zh: '供应商（英文）' }), inputEl({ value: f.supplier, onInput: v => { f.supplier = v; } })),
+        field(tr({ id: 'Supplier (原文)', en: 'Supplier (original)', zh: '供应商（原文）' }), inputEl({ value: f.supplierZh, onInput: v => { f.supplierZh = v; } })),
       ]),
       h('div.grid.g2', [
-        field('Currency', selectEl(['IDR', 'USD', 'CNY', 'EUR'], { value: f.currency, onChange: v => { f.currency = v; recompute(); } })),
-        field('Terms', selectEl(['Payment in Advance', 'TOP 3', 'TOP 14', 'TOP 30', 'TOP 45', 'TOP 60'], { value: f.terms, onChange: v => { f.terms = v; } })),
+        // Option values are the STORED currency / terms codes — untranslated.
+        field(tr({ id: 'Currency', en: 'Currency', zh: '币种' }), selectEl(['IDR', 'USD', 'CNY', 'EUR'], { value: f.currency, onChange: v => { f.currency = v; recompute(); } })),
+        field(tr({ id: 'Terms', en: 'Terms', zh: '付款条件' }), selectEl(['Payment in Advance', 'TOP 3', 'TOP 14', 'TOP 30', 'TOP 45', 'TOP 60'], { value: f.terms, onChange: v => { f.terms = v; } })),
       ]),
-      field('Contract No', inputEl({ value: f.contract, mono: true, onInput: v => { f.contract = v; } })),
+      field(tr({ id: 'Contract No', en: 'Contract No', zh: '合同号' }), inputEl({ value: f.contract, mono: true, onInput: v => { f.contract = v; } })),
       h('div', [
-        h('div.card-title', { style: { marginBottom: '8px' } }, 'Line Items'),
+        h('div.card-title', { style: { marginBottom: '8px' } }, tr({ id: 'Line Items', en: 'Line Items', zh: '明细行' })),
         h('div.row.gap8', { style: { fontSize: '10.5px', fontWeight: 700, color: 'var(--text-3)', paddingBottom: '6px' } }, [
-          h('div', { style: { flex: '2' } }, 'Desc'), h('div', { style: { width: '70px' } }, 'Qty'), h('div', { style: { width: '90px' } }, 'Price'),
-          h('div', { style: { width: '130px' } }, 'Unit'), h('div', { style: { width: '90px', textAlign: 'right' } }, 'Amount'), h('div', { style: { width: '58px' } }),
+          h('div', { style: { flex: '2' } }, tr({ id: 'Desc', en: 'Desc', zh: '描述' })),
+          h('div', { style: { width: '70px' } }, tr({ id: 'Qty', en: 'Qty', zh: '数量' })),
+          h('div', { style: { width: '90px' } }, tr({ id: 'Price', en: 'Price', zh: '单价' })),
+          h('div', { style: { width: '130px' } }, tr({ id: 'Unit', en: 'Unit', zh: '单位' })),
+          h('div', { style: { width: '90px', textAlign: 'right' } }, tr({ id: 'Amount', en: 'Amount', zh: '金额' })), h('div', { style: { width: '58px' } }),
         ]),
         ...itemRows,
         // Opaque id minted here, not left empty: two lines added in one edit
         // used to both carry lineId '' and collide on the same shipment key.
-        btn('Tambah Baris', { sm: true, iconName: 'plus', onClick: () => { f.items.push({ erp: '', d: '', dimension: '', cn: '', qty: 0, u: 0, a: 0, unit: '', lineId: newLineId() }); setUI({}); } }),
+        btn(tr({ id: 'Tambah Baris', en: 'Add Line', zh: '添加行' }), { sm: true, iconName: 'plus', onClick: () => { f.items.push({ erp: '', d: '', dimension: '', cn: '', qty: 0, u: 0, a: 0, unit: '', lineId: newLineId() }); setUI({}); } }),
       ]),
       h('div.stack', { style: { gap: '4px', alignItems: 'flex-end', fontSize: '12.5px' } }, [
-        h('div.row.gap8', [h('span', 'Subtotal'), subtotalEl]),
-        h('div.row.gap8', [h('span', 'PPN'), ppnEl]),
-        h('div.row.gap8', [h('span', { style: { fontWeight: 800 } }, 'TOTAL'), totalEl]),
+        h('div.row.gap8', [h('span', tr({ id: 'Subtotal', en: 'Subtotal', zh: '小计' })), subtotalEl]),
+        h('div.row.gap8', [h('span', tr({ id: 'PPN', en: 'PPN', zh: '增值税' })), ppnEl]),
+        h('div.row.gap8', [h('span', { style: { fontWeight: 800 } }, tr({ id: 'TOTAL', en: 'TOTAL', zh: '总计' })), totalEl]),
       ]),
     ],
     footer: [btn(t('cancel'), { onClick: () => setUI({ poEdit: null }) }), btn(t('save'), { variant: 'primary', onClick: () => savePoEdit() })],
@@ -353,7 +399,11 @@ async function savePoEdit() {
       // Restore the FULL pre-edit object, not just the approval fields.
       for (const k of Object.keys(po)) if (!(k in before)) delete po[k];
       Object.assign(po, before);
-      toast('Gagal simpan edit PO ke server: ' + (e.message || e));
+      toast({
+        id: 'Gagal simpan edit PO ke server: ' + (e.message || e),
+        en: 'Failed to save PO edit to server: ' + (e.message || e),
+        zh: '保存采购单修改到服务器失败：' + (e.message || e),
+      });
       return; // keep the modal open so nothing is lost
     }
   }
@@ -362,9 +412,17 @@ async function savePoEdit() {
     detail: `Edit isi PO oleh ${st.user.username} — total baru ${money(po.total, po.currency)}`
       + (commercialChange ? ' · APPROVAL DIRESET, PO masuk antrean lagi' : ''),
   });
-  toast(commercialChange
-    ? 'PO diperbarui — nilai berubah, approval direset & masuk antrean Wilbert lagi'
-    : 'PO diperbarui');
+  toast({
+    id: commercialChange
+      ? 'PO diperbarui — nilai berubah, approval direset & masuk antrean Wilbert lagi'
+      : 'PO diperbarui',
+    en: commercialChange
+      ? 'PO updated — value changed, approval reset & re-queued for Wilbert'
+      : 'PO updated',
+    zh: commercialChange
+      ? '采购单已更新 — 金额变动，审批已重置并重新进入 Wilbert 的队列'
+      : '采购单已更新',
+  });
   setUI({ poEdit: null });
   setState({});
 }

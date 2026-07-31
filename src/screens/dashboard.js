@@ -1,6 +1,6 @@
 import { h } from '../core/dom.js';
 import { getState, setState } from '../core/store.js';
-import { t } from '../i18n/index.js';
+import { t, tr } from '../i18n/index.js';
 import { card, sectionHead, badge, btn } from '../ui/components.js';
 import { money, fmtDate, daysUntil, sumByCurrency, moneyMulti } from '../core/format.js';
 import { outstandingPOs } from '../core/outstanding.js';
@@ -68,9 +68,9 @@ function quickActions(st, u) {
   if (u.role === 'cenjc') {
     // Navigation only — every destination is read-only for this account.
     return [
-      btn('Approval', { iconName: 'check', onClick: () => setState({ screen: 'approval' }) }),
-      btn('Surat Jalan', { iconName: 'box', onClick: () => setState({ screen: 'surat-jalan' }) }),
-      btn('Reports', { iconName: 'rep', variant: 'primary', onClick: () => setState({ screen: 'reports' }) }),
+      btn(tr({ id: 'Approval', en: 'Approval', zh: '审批' }), { iconName: 'check', onClick: () => setState({ screen: 'approval' }) }),
+      btn(tr({ id: 'Surat Jalan', en: 'Surat Jalan', zh: '送货单' }), { iconName: 'box', onClick: () => setState({ screen: 'surat-jalan' }) }),
+      btn(tr({ id: 'Reports', en: 'Reports', zh: '报表' }), { iconName: 'rep', variant: 'primary', onClick: () => setState({ screen: 'reports' }) }),
     ];
   }
   return [];
@@ -84,10 +84,20 @@ function wilbertBody(st) {
 
   return [
     h('div.grid.g4', [
-      stat(t('dash_po_pending'), String(pending.length), `${pending.length} menunggu`, true),
-      stat(t('dash_inv_due'), String(dueSoon.length), `${dueSoon.filter(i => daysUntil(i.due) < 0).length} overdue`),
+      stat(t('dash_po_pending'), String(pending.length), tr({
+        id: `${pending.length} menunggu`, en: `${pending.length} waiting`, zh: `${pending.length} 份待处理`,
+      }), true),
+      stat(t('dash_inv_due'), String(dueSoon.length), tr({
+        id: `${dueSoon.filter(i => daysUntil(i.due) < 0).length} overdue`,
+        en: `${dueSoon.filter(i => daysUntil(i.due) < 0).length} overdue`,
+        zh: `${dueSoon.filter(i => daysUntil(i.due) < 0).length} 份已逾期`,
+      })),
       stat(t('dash_prf_unpaid'), String(unpaidPrf.length), moneyMulti(sumByCurrency(unpaidPrf))),
-      stat(t('dash_ppkek_month'), String(ppkekMonth), `${st.ppkek.filter(p => p.status === 'Open').length} menunggu costing`),
+      stat(t('dash_ppkek_month'), String(ppkekMonth), tr({
+        id: `${st.ppkek.filter(p => p.status === 'Open').length} menunggu costing`,
+        en: `${st.ppkek.filter(p => p.status === 'Open').length} awaiting costing`,
+        zh: `${st.ppkek.filter(p => p.status === 'Open').length} 份待核算成本`,
+      })),
     ]),
     h('div.grid', { style: { gridTemplateColumns: '1.55fr 1fr', alignItems: 'start' } }, [
       card([
@@ -96,13 +106,17 @@ function wilbertBody(st) {
         ...pending.map(p => h('div.row.gap14', { style: { padding: '12px 18px', borderBottom: '1px solid var(--border)' } }, [
           h('div.grow', [
             h('div.mono', { style: { fontSize: '12px', fontWeight: 600, color: 'var(--text)' } }, p.no),
-            h('div', { style: { fontSize: '11.5px', color: 'var(--text-3)', marginTop: '2px' } }, `${p.supplier} · dari ${p.by}`),
+            h('div', { style: { fontSize: '11.5px', color: 'var(--text-3)', marginTop: '2px' } }, tr({
+              id: `${p.supplier} · dari ${p.by}`, en: `${p.supplier} · from ${p.by}`, zh: `${p.supplier} · 来自 ${p.by}`,
+            })),
           ]),
           h('div.mono', { style: { fontSize: '12.5px', fontWeight: 600 } }, money(p.total, p.currency)),
           badge(t('dash_awaiting_you'), 'amber'),
           btn(t('dash_review'), { sm: true, onClick: () => setState({ screen: 'approval', ui: { ...st.ui, selPO: p.id } }) }),
         ])),
-        pending.length ? null : h('div', { style: { padding: '18px', color: 'var(--text-3)', fontSize: '12px' } }, 'Tidak ada PO menunggu approval.'),
+        pending.length ? null : h('div', { style: { padding: '18px', color: 'var(--text-3)', fontSize: '12px' } }, tr({
+          id: 'Tidak ada PO menunggu approval.', en: 'No POs awaiting approval.', zh: '没有待审批的采购单。',
+        })),
       ]),
       activityCard(st.audit.slice(0, 6)),
     ]),
@@ -117,9 +131,17 @@ function labelPoBody(st, u) {
 
   return [
     h('div.grid.g4', [
-      stat(t('dash_my_po_pending'), String(myPending.length), `${myPending.length} menunggu approval Wilbert`, true),
-      stat(t('dash_new_labels'), String(myBatches.length), 'upload label request saya'),
-      stat(t('dash_missing_design'), String(missingDesign.length), 'item tanpa desain di library'),
+      stat(t('dash_my_po_pending'), String(myPending.length), tr({
+        id: `${myPending.length} menunggu approval Wilbert`,
+        en: `${myPending.length} awaiting Wilbert's approval`,
+        zh: `${myPending.length} 份等待 Wilbert 审批`,
+      }), true),
+      stat(t('dash_new_labels'), String(myBatches.length), tr({
+        id: 'upload label request saya', en: 'my label request uploads', zh: '我上传的标签申请',
+      })),
+      stat(t('dash_missing_design'), String(missingDesign.length), tr({
+        id: 'item tanpa desain di library', en: 'items with no design in the library', zh: '设计库中无设计稿的物料',
+      })),
     ]),
     h('div.grid', { style: { gridTemplateColumns: '1.55fr 1fr', alignItems: 'start' } }, [
       card([
@@ -132,7 +154,11 @@ function labelPoBody(st, u) {
           h('div.mono', { style: { fontSize: '12.5px', fontWeight: 600 } }, money(p.total, p.currency)),
           badge(t('ap_awaiting'), 'amber'),
         ])),
-        myPending.length ? null : h('div', { style: { padding: '18px', color: 'var(--text-3)', fontSize: '12px' } }, 'Tidak ada PO Anda yang menunggu approval.'),
+        myPending.length ? null : h('div', { style: { padding: '18px', color: 'var(--text-3)', fontSize: '12px' } }, tr({
+          id: 'Tidak ada PO Anda yang menunggu approval.',
+          en: 'None of your POs are awaiting approval.',
+          zh: '您没有待审批的采购单。',
+        })),
       ]),
       activityCard(st.audit.filter(a => a.user === u.username).slice(0, 6)),
     ]),
@@ -146,9 +172,17 @@ function sekarBody(st) {
 
   return [
     h('div.grid.g4', [
-      stat(t('dash_ppkek_month'), String(ppkekMonth.length), `${ppkekMonth.filter(p => p.status === 'Open').length} menunggu costing`, true),
+      stat(t('dash_ppkek_month'), String(ppkekMonth.length), tr({
+        id: `${ppkekMonth.filter(p => p.status === 'Open').length} menunggu costing`,
+        en: `${ppkekMonth.filter(p => p.status === 'Open').length} awaiting costing`,
+        zh: `${ppkekMonth.filter(p => p.status === 'Open').length} 份待核算成本`,
+      }), true),
       stat(t('dash_prf_outstanding'), String(outstandingPrf.length), moneyMulti(sumByCurrency(outstandingPrf))),
-      stat(t('dash_inv_due'), String(dueSoon.length), `${dueSoon.filter(i => daysUntil(i.due) < 0).length} overdue`),
+      stat(t('dash_inv_due'), String(dueSoon.length), tr({
+        id: `${dueSoon.filter(i => daysUntil(i.due) < 0).length} overdue`,
+        en: `${dueSoon.filter(i => daysUntil(i.due) < 0).length} overdue`,
+        zh: `${dueSoon.filter(i => daysUntil(i.due) < 0).length} 份已逾期`,
+      })),
     ]),
     h('div.grid', { style: { gridTemplateColumns: '1fr 1fr', alignItems: 'start' } }, [
       dueCard(st, dueSoon),
@@ -165,7 +199,9 @@ function financeBody(st) {
 
   return [
     h('div.grid.g4', [
-      stat(t('dash_prf_received_month'), String(receivedMonth.length), 'diterima bulan ini', true),
+      stat(t('dash_prf_received_month'), String(receivedMonth.length), tr({
+        id: 'diterima bulan ini', en: 'received this month', zh: '本月已接收',
+      }), true),
       stat(t('dash_overdue_total'), String(overdue.length), moneyMulti(sumByCurrency(overdue))),
       stat(t('dash_prf_unpaid'), String(outstanding.length), moneyMulti(sumByCurrency(outstanding))),
     ]),
@@ -208,25 +244,84 @@ function observerBody(st) {
     .map(p => ageOf(p.createdAt)).filter(v => v != null)
     .reduce((a, b) => Math.max(a, b), 0);
 
+  // `label` and `sub` are painted straight into the row and read nowhere else;
+  // `screen` is the routing key and stays untouched.
+  const empty = tr({ id: 'kosong', en: 'empty', zh: '无' });
   const stuck = [
-    { label: 'PO menunggu approval Wilbert', n: pending.length, sub: pending.length ? `paling lama ${oldestPending} hari` : 'kosong', screen: 'approval' },
-    { label: 'PO barang belum lengkap dikirim', n: outstanding.length, sub: `${outstanding.reduce((a, x) => a + x.lines.filter(l => l.outstanding > 0).length, 0)} baris item`, screen: 'surat-jalan' },
-    { label: 'Invoice lewat jatuh tempo', n: overdueInv.length, sub: overdueInv.length ? moneyMulti(sumByCurrency(overdueInv)) : 'kosong', screen: 'payment' },
-    { label: 'PRF belum dibayar', n: unpaidPrf.length, sub: unpaidPrf.length ? `${moneyMulti(sumByCurrency(unpaidPrf))} · paling lama ${oldestPrf} hari` : 'kosong', screen: 'finance' },
-    { label: 'PPKEK belum Closed', n: ppkekOpen.length, sub: `${ppkekOpen.filter(r => r.status === 'Open').length} belum costing`, screen: 'ppkek' },
-    { label: 'SKU label perlu dibeli', n: buyNow.length, sub: buyNow.length ? 'status BUY NOW di tracker' : 'stok aman', screen: 'label-stock' },
+    {
+      label: tr({ id: 'PO menunggu approval Wilbert', en: 'POs awaiting Wilbert\'s approval', zh: '等待 Wilbert 审批的采购单' }),
+      n: pending.length,
+      sub: pending.length ? tr({ id: `paling lama ${oldestPending} hari`, en: `oldest ${oldestPending} days`, zh: `最久已等待 ${oldestPending} 天` }) : empty,
+      screen: 'approval',
+    },
+    {
+      label: tr({ id: 'PO barang belum lengkap dikirim', en: 'POs not fully delivered', zh: '货物尚未交齐的采购单' }),
+      n: outstanding.length,
+      sub: tr({
+        id: `${outstanding.reduce((a, x) => a + x.lines.filter(l => l.outstanding > 0).length, 0)} baris item`,
+        en: `${outstanding.reduce((a, x) => a + x.lines.filter(l => l.outstanding > 0).length, 0)} item lines`,
+        zh: `${outstanding.reduce((a, x) => a + x.lines.filter(l => l.outstanding > 0).length, 0)} 个物料行`,
+      }),
+      screen: 'surat-jalan',
+    },
+    {
+      label: tr({ id: 'Invoice lewat jatuh tempo', en: 'Invoices past due', zh: '已过付款期的发票' }),
+      n: overdueInv.length,
+      sub: overdueInv.length ? moneyMulti(sumByCurrency(overdueInv)) : empty,
+      screen: 'payment',
+    },
+    {
+      label: tr({ id: 'PRF belum dibayar', en: 'PRFs not yet paid', zh: '尚未付款的付款申请单' }),
+      n: unpaidPrf.length,
+      sub: unpaidPrf.length ? tr({
+        id: `${moneyMulti(sumByCurrency(unpaidPrf))} · paling lama ${oldestPrf} hari`,
+        en: `${moneyMulti(sumByCurrency(unpaidPrf))} · oldest ${oldestPrf} days`,
+        zh: `${moneyMulti(sumByCurrency(unpaidPrf))} · 最久已等待 ${oldestPrf} 天`,
+      }) : empty,
+      screen: 'finance',
+    },
+    {
+      label: tr({ id: 'PPKEK belum Closed', en: 'PPKEK not yet Closed', zh: '尚未结案的报关单' }),
+      n: ppkekOpen.length,
+      sub: tr({
+        id: `${ppkekOpen.filter(r => r.status === 'Open').length} belum costing`,
+        en: `${ppkekOpen.filter(r => r.status === 'Open').length} not costed`,
+        zh: `${ppkekOpen.filter(r => r.status === 'Open').length} 份未核算成本`,
+      }),
+      screen: 'ppkek',
+    },
+    {
+      label: tr({ id: 'SKU label perlu dibeli', en: 'Label SKUs that need buying', zh: '需采购的标签 SKU' }),
+      n: buyNow.length,
+      sub: buyNow.length
+        ? tr({ id: 'status BUY NOW di tracker', en: 'BUY NOW status in the tracker', zh: '跟踪表中状态为 BUY NOW' })
+        : tr({ id: 'stok aman', en: 'stock is fine', zh: '库存充足' }),
+      screen: 'label-stock',
+    },
   ];
 
   return [
     h('div.grid.g4', [
-      stat('PO menunggu approval', String(pending.length), pending.length ? `paling lama ${oldestPending} hari` : 'antrian kosong', !!pending.length),
-      stat('Invoice overdue', String(overdueInv.length), overdueInv.length ? moneyMulti(sumByCurrency(overdueInv)) : 'tidak ada'),
-      stat('PRF belum lunas', String(unpaidPrf.length), unpaidPrf.length ? moneyMulti(sumByCurrency(unpaidPrf)) : 'tidak ada'),
-      stat('PPKEK belum Closed', String(ppkekOpen.length), `${ppkekOpen.filter(r => r.status === 'Open').length} belum costing`),
+      stat(tr({ id: 'PO menunggu approval', en: 'POs Awaiting Approval', zh: '待审批采购单' }), String(pending.length),
+        pending.length
+          ? tr({ id: `paling lama ${oldestPending} hari`, en: `oldest ${oldestPending} days`, zh: `最久已等待 ${oldestPending} 天` })
+          : tr({ id: 'antrian kosong', en: 'queue empty', zh: '队列为空' }), !!pending.length),
+      stat(tr({ id: 'Invoice overdue', en: 'Overdue Invoices', zh: '逾期发票' }), String(overdueInv.length),
+        overdueInv.length ? moneyMulti(sumByCurrency(overdueInv)) : tr({ id: 'tidak ada', en: 'none', zh: '无' })),
+      stat(tr({ id: 'PRF belum lunas', en: 'Unpaid PRFs', zh: '未结清付款申请单' }), String(unpaidPrf.length),
+        unpaidPrf.length ? moneyMulti(sumByCurrency(unpaidPrf)) : tr({ id: 'tidak ada', en: 'none', zh: '无' })),
+      stat(tr({ id: 'PPKEK belum Closed', en: 'PPKEK Not Closed', zh: '未结案报关单' }), String(ppkekOpen.length), tr({
+        id: `${ppkekOpen.filter(r => r.status === 'Open').length} belum costing`,
+        en: `${ppkekOpen.filter(r => r.status === 'Open').length} not costed`,
+        zh: `${ppkekOpen.filter(r => r.status === 'Open').length} 份未核算成本`,
+      })),
     ]),
     h('div.grid', { style: { gridTemplateColumns: '1.55fr 1fr', alignItems: 'start' } }, [
       card([
-        sectionHead(h('div.row.gap8', ['Yang sedang nyangkut', badge('Read-only', 'gray', { iconName: 'eye' })]), null),
+        sectionHead(h('div.row.gap8', [
+          tr({ id: 'Yang sedang nyangkut', en: 'What is stuck right now', zh: '当前卡住的事项' }),
+          badge(tr({ id: 'Read-only', en: 'Read-only', zh: '只读' }), 'gray', { iconName: 'eye' }),
+        ]), null),
         ...stuck.map(row => h('div.row.gap14', { style: { padding: '12px 18px', borderBottom: '1px solid var(--border)', cursor: 'pointer' }, onClick: () => setState({ screen: row.screen }) }, [
           h('div.grow', [
             h('div', { style: { fontSize: '12px', fontWeight: 600, color: 'var(--text)' } }, row.label),
@@ -260,11 +355,16 @@ function activityCard(items) {
 
 function dueCard(st, dueSoon) {
   return card([
-    sectionHead(t('dash_due_soon'), h('a.link', { onClick: () => setState({ screen: st.user.role === 'financemti' ? 'finance' : 'payment' }) }, 'Payment →')),
+    sectionHead(t('dash_due_soon'), h('a.link', { onClick: () => setState({ screen: st.user.role === 'financemti' ? 'finance' : 'payment' }) },
+      tr({ id: 'Payment →', en: 'Payment →', zh: '付款 →' }))),
     h('div', { style: { padding: '4px 18px 12px' } }, dueSoon.slice(0, 4).map(i => {
       const d = daysUntil(i.due);
       const tone = d < 0 ? 'red' : d <= 1 ? 'amber' : 'gray';
-      const lbl = d < 0 ? `Overdue ${-d}h` : d === 0 ? 'Hari ini' : d === 1 ? 'Besok' : fmtDate(i.due);
+      // Display label only — the tone above is decided from `d`, not from this text.
+      const lbl = d < 0 ? tr({ id: `Overdue ${-d}h`, en: `Overdue ${-d}d`, zh: `逾期 ${-d} 天` })
+        : d === 0 ? tr({ id: 'Hari ini', en: 'Today', zh: '今天' })
+        : d === 1 ? tr({ id: 'Besok', en: 'Tomorrow', zh: '明天' })
+        : fmtDate(i.due);
       return h('div.row.gap8', { style: { padding: '10px 0', borderBottom: '1px solid var(--border)' } }, [
         h('div.grow', [h('div', { style: { fontSize: '12px', fontWeight: 600, color: 'var(--text)' } }, i.supplier), h('div.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, i.no)]),
         h('div.mono', { style: { fontSize: '12px', fontWeight: 600 } }, money(i.amount, i.currency)),
@@ -276,6 +376,9 @@ function dueCard(st, dueSoon) {
 }
 
 const MONTHS_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+// Same twelve slots, per language — chart axis labels only.
+const MONTHS_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTHS_ZH = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
 
 // Real last-6-calendar-months IDR PO totals, derived from st.pos — this used
 // to be a hardcoded literal array (never wired to any data, seed or real).
@@ -288,7 +391,10 @@ function chartCard(st) {
   const months = [];
   for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push({ label: MONTHS_ID[d.getMonth()], year: d.getFullYear(), month: d.getMonth() });
+    months.push({
+      label: tr({ id: MONTHS_ID[d.getMonth()], en: MONTHS_EN[d.getMonth()], zh: MONTHS_ZH[d.getMonth()] }),
+      year: d.getFullYear(), month: d.getMonth(),
+    });
   }
   const totals = months.map(m => st.pos
     .filter(p => p.currency === 'IDR')
@@ -301,7 +407,8 @@ function chartCard(st) {
     h('div.card-pad', [
       h('div.row', { style: { justifyContent: 'space-between', alignItems: 'baseline' } }, [
         h('div.card-title', t('dash_po_value')),
-        h('div.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, 'IDR miliar'),
+        h('div.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } },
+          tr({ id: 'IDR miliar', en: 'IDR billion', zh: 'IDR 十亿' })),
       ]),
       hasData
         ? h('div.row', { style: { alignItems: 'flex-end', gap: '26px', height: '150px', marginTop: '16px', padding: '0 8px' } }, months.map((m, i) => {
@@ -313,7 +420,8 @@ function chartCard(st) {
               h('span', { style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-3)' } }, m.label),
             ]);
           }))
-        : h('div', { style: { padding: '48px 0', textAlign: 'center', fontSize: '12px', color: 'var(--text-3)' } }, 'Belum ada data PO'),
+        : h('div', { style: { padding: '48px 0', textAlign: 'center', fontSize: '12px', color: 'var(--text-3)' } },
+            tr({ id: 'Belum ada data PO', en: 'No PO data yet', zh: '暂无采购单数据' })),
     ]),
   ]);
 }

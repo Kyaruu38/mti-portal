@@ -182,9 +182,12 @@ export const DICT = {
   sj_regen: { id: 'Regenerate', en: 'Regenerate', zh: '重新生成' },
   sj_await_wh: { id: 'Menunggu pemeriksaan gudang', en: 'Awaiting warehouse inspection', zh: '等待仓库核对' },
 
+  restoring:    { id: 'Memulihkan sesi…', en: 'Restoring session…', zh: '正在恢复会话…' },
+  refresh_data: { id: 'Tarik data terbaru dari server', en: 'Fetch the latest data from the server', zh: '从服务器获取最新数据' },
+
   // --- ppkek ---
   pk_drop: { id: 'Drop RAR / ZIP dari portal PPKEK', en: 'Drop RAR / ZIP from PPKEK portal', zh: '拖入 PPKEK 门户的 RAR / ZIP' },
-  pk_drop_sub: { id: 'Dokumen kepabeanan diekstrak & diparse otomatis', en: 'Customs documents extracted & parsed automatically', zh: '海关单据自动解压并解析' },
+  pk_drop_sub: { id: 'Bisa banyak file sekaligus — diproses satu per satu', en: 'Many files at once — processed one by one', zh: '可一次拖入多个文件，逐个处理' },
   pk_extract_done: { id: 'Ekstraksi selesai', en: 'Extraction complete', zh: '解压完成' },
   pk_register: { id: 'Register PPKEK', en: 'PPKEK Register', zh: 'PPKEK 登记册' },
   pk_export: { id: 'Export Excel', en: 'Export Excel', zh: '导出 Excel' },

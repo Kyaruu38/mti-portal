@@ -1,7 +1,8 @@
 import { setState, getState, toast } from '../core/store.js';
 import { makeUser, usernameToEmail, allowedScreens } from './roles.js';
-import { isConfigured, signIn, signOut, fetchMustChangePassword } from '../core/supabase.js';
+import { isConfigured, signIn, signOut, fetchMustChangePassword, currentSession } from '../core/supabase.js';
 import { seedIfEmpty } from '../core/seed.js';
+import { getPref } from '../core/prefs.js';
 import { DEMO_PASSWORD } from '../config.js';
 import { t } from '../i18n/index.js';
 import { fetchSuratJalan } from '../core/suratJalanApi.js';
@@ -38,6 +39,55 @@ export async function login(username, password) {
     if (password !== DEMO_PASSWORD) { toast(t('login_bad')); return false; }
   }
 
+  // Honour the screen in the URL here too. In production a reload restores the
+  // session and never reaches this function — but when the token HAS expired,
+  // the user lands on the login form and typing the password should still put
+  // them back where they were, not on the Dashboard.
+  return hydrate(user, username, wantedScreen());
+}
+
+// Pick up the session left behind by a page reload.
+//
+// Everything below hydrate() used to live inside login(), reachable only by
+// typing a password — so a refresh could not get the data back even if the
+// token had survived, and the app had no honest choice but the login screen.
+// Split out, the same load runs for both doors.
+//
+// Returns false for anything unexpected (no session, an account no longer in
+// roles.js, a failed load) and the caller falls through to the login screen.
+// An auth path must fail towards asking for a password, never past it.
+export async function restoreSession() {
+  if (!isConfigured()) return false;
+  const session = await currentSession();
+  const email = session && session.user && session.user.email;
+  if (!email) return false;
+  const username = String(email).split('@')[0].toLowerCase();
+  const user = makeUser(username);
+  // Token still valid but the account has since been removed from roles.js.
+  // Sign it out rather than leaving a token that keeps half-working.
+  if (!user) { try { await signOut(); } catch { /* ignore */ } return false; }
+  try {
+    return await hydrate(user, username, wantedScreen(), prefLang());
+  } catch (e) {
+    console.warn('Session restore failed — falling back to login.', e);
+    return false;
+  }
+}
+
+// The screen named in the URL (#/ppkek), if any. The router writes it on every
+// navigation, so a reload can land back where the work was — which is the whole
+// point: being logged in again but dumped on the Dashboard is only half a fix.
+function prefLang() { return getPref('lang', null); }
+
+function wantedScreen() {
+  try { return String(location.hash || '').replace(/^#\/?/, '').trim(); }
+  catch { return ''; }
+}
+
+// Everything a signed-in session needs in memory. Called by BOTH login() and
+// restoreSession() — one load path, so a restored session can never quietly
+// have less data than a typed-password one.
+async function hydrate(user, username, preferScreen, preferLang) {
   // Seed fixtures are a DEMO MODE thing only — a real Supabase connection
   // means real (possibly still-empty) tables are the source of truth, and
   // showing fixture PO/supplier/activity data on top of that would just be
@@ -143,9 +193,24 @@ export async function login(username, password) {
   // rendering ANY other screen, regardless of st.screen.
   user.mustChangePassword = await fetchMustChangePassword(username);
 
-  const first = allowedScreens(username)[0] || 'dashboard';
-  setState({ user, screen: first, lang: user.lang || 'id', menuOpen: false });
+  const allowed = allowedScreens(username);
+  const first = allowed[0] || 'dashboard';
+  // A screen asked for by the URL only wins if this role is actually allowed
+  // it — the hash is user-editable, so it is a request, never a grant.
+  const screen = (preferScreen && allowed.includes(preferScreen)) ? preferScreen : first;
+  setState({ user, screen, lang: preferLang || user.lang || 'id', menuOpen: false });
   return true;
+}
+
+// Pull server state again without reloading the page. Same load as login(),
+// minus the auth — for the moment you want to see what someone else just
+// entered and would otherwise hit F5 for.
+export async function refreshData() {
+  const st = getState();
+  if (!st.user) return false;
+  // Keep the language the user is actually reading in — a data refresh is
+  // not a reason to snap back to the account default.
+  return hydrate(st.user, st.user.username, st.screen, st.lang);
 }
 
 export async function logout() {

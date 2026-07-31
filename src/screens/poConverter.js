@@ -1,6 +1,6 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
-import { t } from '../i18n/index.js';
+import { t, tr } from '../i18n/index.js';
 import { can } from '../auth/roles.js';
 import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField } from '../ui/components.js';
 import { parseZcPo } from '../parsers/zcPoPdf.js';
@@ -26,31 +26,46 @@ export function poConverterScreen() {
     h('span', { style: { width: '36px', height: '36px', borderRadius: '50%', background: 'var(--st-green-bg)', color: 'var(--st-green-tx)', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, icon('check', 16, { strokeWidth: 2.5 })),
     h('div.grow', [
       h('div.mono', { style: { fontSize: '13px', fontWeight: 700 } }, res.cgdd || res.contractNo || 'PO PDF'),
-      h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '2px' } }, `Parsed · ${res.items.length} line items · ${res.currency} · sumber: ${res.supplierEn || res.supplierZh || '—'}`),
+      h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '2px' } }, tr({
+        id: `Parsed · ${res.items.length} line items · ${res.currency} · sumber: ${res.supplierEn || res.supplierZh || '—'}`,
+        en: `Parsed · ${res.items.length} line items · ${res.currency} · source: ${res.supplierEn || res.supplierZh || '—'}`,
+        zh: `已解析 · ${res.items.length} 个明细行 · ${res.currency} · 来源：${res.supplierEn || res.supplierZh || '—'}`,
+      })),
     ]),
     // Never let a dropped row pass silently — the subtotal falls back to the sum
     // of the surviving items, so a short PO looks perfectly consistent.
     (res.skippedRows && res.skippedRows.length)
-      ? badge(`${res.skippedRows.length} baris TIDAK terbaca`, 'red', { iconName: 'warn' })
-      : badge('Rule-based parse', 'green'),
-    btn('Upload PDF lain', { onClick: () => setUI({ cvResult: null }) }),
+      ? badge(tr({
+          id: `${res.skippedRows.length} baris TIDAK terbaca`,
+          en: `${res.skippedRows.length} rows could NOT be read`,
+          zh: `${res.skippedRows.length} 行无法读取`,
+        }), 'red', { iconName: 'warn' })
+      : badge(tr({ id: 'Rule-based parse', en: 'Rule-based parse', zh: '规则解析' }), 'green'),
+    btn(tr({ id: 'Upload PDF lain', en: 'Upload another PDF', zh: '上传其他 PDF' }), { onClick: () => setUI({ cvResult: null }) }),
     // poCreate, mirroring pos_insert (is_label_staff). can(...,'approve') was
     // already used further down, but ONLY to pick the status string — it never
     // gated the insert itself, so screen presence was the real permission.
     can(st.user.role, 'poCreate')
       ? btn(t('cv_send_appr') + ' →', { variant: 'primary', onClick: () => openPopup() })
-      : badge('Read-only — PO dibuat oleh purchasing', 'gray', { iconName: 'eye' }),
+      : badge(tr({
+          id: 'Read-only — PO dibuat oleh purchasing',
+          en: 'Read-only — POs are created by purchasing',
+          zh: '只读 — 采购单由采购部创建',
+        }), 'gray', { iconName: 'eye' }),
   ]);
 
   const fields = card([
     h('div.card-pad', [
       h('div.row', { style: { justifyContent: 'space-between', marginBottom: '12px' } }, [h('div.card-title', t('cv_extracted')), h('span', { style: { fontSize: '10px', color: 'var(--text-3)' } }, [icon('edit', 11), ' ', t('cv_click_edit')])]),
       h('div.col.gap12', [
-        editField('CGDD / Contract No', res.contractNo || res.cgdd, v => (res.contractNo = v), true),
-        editField('Supplier (原文)', res.supplierZh, v => (res.supplierZh = v)),
-        editField('Supplier (English)', res.supplierEn, v => (res.supplierEn = v)),
-        h('div.grid.g2', [editField('Currency', res.currency, v => (res.currency = v), true), editField('Incoterm', res.incoterm, v => (res.incoterm = v))]),
-        editField('Payment (from PDF)', res.paymentText, v => (res.paymentText = v)),
+        editField(tr({ id: 'CGDD / Contract No', en: 'CGDD / Contract No', zh: 'CGDD / 合同号' }), res.contractNo || res.cgdd, v => (res.contractNo = v), true),
+        editField(tr({ id: 'Supplier (原文)', en: 'Supplier (original)', zh: '供应商（原文）' }), res.supplierZh, v => (res.supplierZh = v)),
+        editField(tr({ id: 'Supplier (English)', en: 'Supplier (English)', zh: '供应商（英文）' }), res.supplierEn, v => (res.supplierEn = v)),
+        h('div.grid.g2', [
+          editField(tr({ id: 'Currency', en: 'Currency', zh: '币种' }), res.currency, v => (res.currency = v), true),
+          editField(tr({ id: 'Incoterm', en: 'Incoterm', zh: '贸易术语' }), res.incoterm, v => (res.incoterm = v)),
+        ]),
+        editField(tr({ id: 'Payment (from PDF)', en: 'Payment (from PDF)', zh: '付款条件（来自 PDF）' }), res.paymentText, v => (res.paymentText = v)),
         h('div', { style: { borderTop: '1px solid var(--border)', paddingTop: '10px' } }, [
           h('div.field-label', `${t('cv_line_items')} · ${res.items.length}`),
           ...res.items.map(li => h('div.row.gap8', { style: { marginBottom: '6px' } }, [
@@ -63,7 +78,7 @@ export function poConverterScreen() {
         ]),
         h('div', { style: { borderTop: '1px solid var(--border)', paddingTop: '10px' } }, [
           row2(t('po_subtotal'), money(res.subtotal, res.currency)),
-          row2('PPN (11%)', res.ppnPresent ? (res.ppnSuspended ? 'Ditangguhkan — KEK' : money(res.ppn, res.currency)) : 'Ditangguhkan — KEK'),
+          row2('PPN (11%)', res.ppnPresent ? (res.ppnSuspended ? ppnSuspendedLabel() : money(res.ppn, res.currency)) : ppnSuspendedLabel()),
           row2(t('po_total'), money(res.total, res.currency), true),
         ]),
       ]),
@@ -74,8 +89,8 @@ export function poConverterScreen() {
     h('div.card-pad', [
       h('div.card-title', { style: { marginBottom: '12px' } }, t('cv_orig_gen')),
       h('div.grid.g2', [
-        h('div', [badge('ORIGINAL · 中文 PDF', 'gray'), h('div', { style: { marginTop: '8px', aspectRatio: '1/1.32', border: '1px solid var(--border)', borderRadius: '8px', background: 'repeating-linear-gradient(45deg,var(--ph-a) 0 10px,var(--ph-b) 10px 20px)', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, h('span.mono', { style: { fontSize: '10px', color: 'var(--text-3)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px' } }, res.cgdd || 'contract'))]),
-        h('div', [badge('GENERATED · ENGLISH PO', 'green'), genPreview(res)]),
+        h('div', [badge(tr({ id: 'ORIGINAL · 中文 PDF', en: 'ORIGINAL · 中文 PDF', zh: '原件 · 中文 PDF' }), 'gray'), h('div', { style: { marginTop: '8px', aspectRatio: '1/1.32', border: '1px solid var(--border)', borderRadius: '8px', background: 'repeating-linear-gradient(45deg,var(--ph-a) 0 10px,var(--ph-b) 10px 20px)', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, h('span.mono', { style: { fontSize: '10px', color: 'var(--text-3)', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', padding: '4px 10px' } }, res.cgdd || 'contract'))]),
+        h('div', [badge(tr({ id: 'GENERATED · ENGLISH PO', en: 'GENERATED · ENGLISH PO', zh: '生成件 · 英文采购单' }), 'green'), genPreview(res)]),
       ]),
       h('div.row.gap8', { style: { marginTop: '12px', background: 'var(--st-green-bg)', borderRadius: '9px', padding: '9px 13px' } }, [icon('check', 13, { stroke: 'var(--st-green-tx)', strokeWidth: 2.5 }), h('span', { style: { fontSize: '11.5px', fontWeight: 600, color: 'var(--st-green-tx)' } }, `${t('cv_valid')} (${money(res.total, res.currency)})`)]),
     ]),
@@ -83,10 +98,22 @@ export function poConverterScreen() {
 
   const skippedBanner = (res.skippedRows && res.skippedRows.length)
     ? h('div.cfg-banner', { style: { background: 'var(--st-red-bg)', color: 'var(--st-red-tx)', borderColor: 'var(--st-red-tx)', display: 'block' } }, [
-        h('div', { style: { fontWeight: 700, marginBottom: '4px' } }, [icon('warn', 14), ` ${res.skippedRows.length} baris item gagal diparse dan TIDAK masuk PO ini:`]),
+        h('div', { style: { fontWeight: 700, marginBottom: '4px' } }, [icon('warn', 14), tr({
+          id: ` ${res.skippedRows.length} baris item gagal diparse dan TIDAK masuk PO ini:`,
+          en: ` ${res.skippedRows.length} item rows failed to parse and are NOT in this PO:`,
+          zh: ` ${res.skippedRows.length} 个物料行解析失败，未计入本采购单：`,
+        })]),
         ...res.skippedRows.slice(0, 8).map(r => h('div.mono', { style: { fontSize: '10.5px' } }, `• ${r.erp} — ${r.reason}`)),
-        res.skippedRows.length > 8 ? h('div', { style: { fontSize: '10.5px' } }, `…dan ${res.skippedRows.length - 8} lagi`) : null,
-        h('div', { style: { fontSize: '10.5px', marginTop: '4px' } }, 'Cek PDF aslinya — subtotal di bawah dihitung dari baris yang berhasil terbaca saja.'),
+        res.skippedRows.length > 8 ? h('div', { style: { fontSize: '10.5px' } }, tr({
+          id: `…dan ${res.skippedRows.length - 8} lagi`,
+          en: `…and ${res.skippedRows.length - 8} more`,
+          zh: `…还有 ${res.skippedRows.length - 8} 行`,
+        })) : null,
+        h('div', { style: { fontSize: '10.5px', marginTop: '4px' } }, tr({
+          id: 'Cek PDF aslinya — subtotal di bawah dihitung dari baris yang berhasil terbaca saja.',
+          en: 'Check the original PDF — the subtotal below counts only the rows that were read successfully.',
+          zh: '请核对原始 PDF — 下方小计仅根据成功读取的行计算。',
+        })),
       ])
     : null;
 
@@ -116,9 +143,16 @@ function genPreview(res) {
 function unitOptions(st, current) {
   const codes = st.units.length ? st.units.map(u => u.code) : ['张', '条', '千克kg', 'set'];
   const labelFor = c => { const u = st.units.find(x => x.code === c); return u && u.intl ? `${u.code} · ${u.intl}` : c; };
-  const opts = [{ value: '', label: '— pilih —' }, ...codes.map(c => ({ value: c, label: labelFor(c) }))];
-  if (current && !codes.includes(current)) opts.push({ value: current, label: `${current} (dari PDF)` });
+  // Labels are display-only; `value` stays the raw unit CODE written to the PO.
+  const opts = [{ value: '', label: tr({ id: '— pilih —', en: '— select —', zh: '— 请选择 —' }) }, ...codes.map(c => ({ value: c, label: labelFor(c) }))];
+  if (current && !codes.includes(current)) opts.push({ value: current, label: tr({
+    id: `${current} (dari PDF)`, en: `${current} (from PDF)`, zh: `${current}（来自 PDF）`,
+  }) });
   return opts;
+}
+
+function ppnSuspendedLabel() {
+  return tr({ id: 'Ditangguhkan — KEK', en: 'Suspended — KEK', zh: '暂免征收 — KEK' });
 }
 
 function editField(label, value, onInput, mono) { return field(label, inputEl({ value: value || '', mono, onInput })); }
@@ -131,7 +165,7 @@ async function handlePdf(file) {
     const res = await parseZcPo(file);
     if (!res.ok && res.scanned) { setUI({ cvResult: res }); return; }
     setUI({ cvResult: res });
-  } catch (e) { console.error(e); toast('Parse gagal: ' + e.message); }
+  } catch (e) { console.error(e); toast({ id: 'Parse gagal: ' + e.message, en: 'Parse failed: ' + e.message, zh: '解析失败：' + e.message }); }
 }
 
 function openPopup() {
@@ -139,14 +173,18 @@ function openPopup() {
   // Checked here, before the modal opens — the modal is a full-screen
   // overlay, so blocking inside it would strand the user unable to reach the
   // unit dropdowns in the Extracted panel behind it.
-  if (res.items.some(li => !li.unit)) { toast('Unit belum dipilih untuk salah satu item — lengkapi dulu di panel Extracted'); return; }
+  if (res.items.some(li => !li.unit)) { toast({ id: 'Unit belum dipilih untuk salah satu item — lengkapi dulu di panel Extracted', en: 'One of the items has no unit — set it first in the Extracted panel', zh: '有物料尚未选择单位 — 请先在 Extracted 面板中补齐' }); return; }
   setUI({ cvPopup: true, cvForm: { no: res.cgdd || res.contractNo || '', terms: 'TOP 45', priority: 'Normal', contract: res.contractNo || res.cgdd || '', ppn: res.ppnSuspended || !res.ppnPresent ? 'kek' : 'bayar' } });
 }
 
 function popup() {
   const st = getState(); const f = st.ui.cvForm;
   return modal({
-    title: t('cv_send_appr'), subtitle: 'PO Converter → Approval Wilbert', width: 480, onClose: () => setUI({ cvPopup: false }),
+    title: t('cv_send_appr'), subtitle: tr({
+      id: 'PO Converter → Approval Wilbert',
+      en: 'PO Converter → Wilbert approval',
+      zh: 'PO Converter → Wilbert 审批',
+    }), width: 480, onClose: () => setUI({ cvPopup: false }),
     body: [
       field(t('po_contract_no') + ' *', poNoField(f)),
       // 'Custom…' removed: it had no follow-up input, so picking it produced
@@ -157,8 +195,9 @@ function popup() {
       // Priority drives expected arrival in Label Stock -> Order Tracking
       // (lead days come from label_settings: Normal 14 / Urgent 7 / Super 3).
       // Without it every order was assumed Normal and "overdue" meant nothing.
-      field('Prioritas', selectEl(['Normal', 'Urgent', 'Super Urgent'], { value: f.priority || 'Normal', onChange: v => (f.priority = v) })),
-      field('Contract No (合同号)', inputEl({ value: f.contract, mono: true, onInput: v => (f.contract = v) })),
+      // Option strings are the STORED priority values — labels only here.
+      field(tr({ id: 'Prioritas', en: 'Priority', zh: '优先级' }), selectEl(['Normal', 'Urgent', 'Super Urgent'], { value: f.priority || 'Normal', onChange: v => (f.priority = v) })),
+      field(tr({ id: 'Contract No (合同号)', en: 'Contract No (合同号)', zh: '合同号' }), inputEl({ value: f.contract, mono: true, onInput: v => (f.contract = v) })),
       field(t('po_ppn'), selectEl([{ value: 'bayar', label: t('po_ppn_paid') }, { value: 'kek', label: t('po_ppn_susp') }], { value: f.ppn, onChange: v => (f.ppn = v) })),
     ],
     footer: [btn(t('cancel'), { onClick: () => setUI({ cvPopup: false }) }), btn(t('generate') + ' PO', { variant: 'primary', onClick: () => genConverterPO() })],
@@ -168,8 +207,8 @@ function popup() {
 async function genConverterPO() {
   if (blockWrite('generate PO dari PDF')) return;
   const st = getState(); const res = st.ui.cvResult; const f = st.ui.cvForm;
-  if (!f.no || !f.no.trim()) { toast('No. PO wajib diisi'); return; }
-  if (res.items.some(li => !li.unit)) { toast('Unit belum dipilih untuk salah satu item — lengkapi dulu di panel Extracted'); return; }
+  if (!f.no || !f.no.trim()) { toast({ id: 'No. PO wajib diisi', en: 'PO number is required', zh: '采购单号必须填写' }); return; }
+  if (res.items.some(li => !li.unit)) { toast({ id: 'Unit belum dipilih untuk salah satu item — lengkapi dulu di panel Extracted', en: 'One of the items has no unit — set it first in the Extracted panel', zh: '有物料尚未选择单位 — 请先在 Extracted 面板中补齐' }); return; }
   const no = f.no.trim();
   const contract = f.contract || '';
   // Capability, not a username string. The literal comparison paired with the
@@ -210,18 +249,28 @@ async function genConverterPO() {
     // PO as created and then lose it on the next login. The modal stays open,
     // so the number can be corrected and sent again.
     if (duplicatePoNumber(e)) {
-      toast(`No. PO ${po.no} sudah dipakai — ganti nomornya`);
+      toast({
+        id: `No. PO ${po.no} sudah dipakai — ganti nomornya`,
+        en: `PO number ${po.no} is already taken — use a different one`,
+        zh: `采购单号 ${po.no} 已被使用 — 请更换号码`,
+      });
       return;
     }
     // Anything else (network, timeout) may well succeed on a retry, so the
     // original behaviour stands: keep it locally and say so.
-    toast('PO tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e));
+    toast({
+      id: 'PO tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e),
+      en: 'PO saved locally, but syncing to the server failed: ' + (e.message || e),
+      zh: '采购单已本地保存，但同步到服务器失败：' + (e.message || e),
+    });
   }
   // No post-insert lineId patch any more — the ids were minted above and are
   // identical in the local copy and the persisted row.
   st.pos.unshift(po);
   logAudit({ entity: 'po', target: no, action: 'convert', detail: `from ${contract || no}` });
   setUI({ cvPopup: false, cvResult: null });
-  toast(isWilbert ? `PO ${no} dibuat & di-approve` : `PO ${no} dikirim ke approval queue Wilbert`);
+  toast(isWilbert
+    ? { id: `PO ${no} dibuat & di-approve`, en: `PO ${no} created & approved`, zh: `采购单 ${no} 已创建并批准` }
+    : { id: `PO ${no} dikirim ke approval queue Wilbert`, en: `PO ${no} sent to Wilbert's approval queue`, zh: `采购单 ${no} 已提交至 Wilbert 的审批队列` });
   setState({ screen: 'approval' });
 }

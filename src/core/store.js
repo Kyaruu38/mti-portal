@@ -64,6 +64,13 @@ export function setUI(patch) {
 
 // Toast helper (auto-dismiss).
 let toastTimer = null;
+// Accepts a plain string OR a {id, en, zh} object.
+//
+// Objects are stored UNTRANSLATED and resolved at paint time (main.js toastEl
+// -> tr()). Translating here would freeze the message into whatever language
+// was active when the action fired: switch to English while a toast is up and
+// it would sit there in Indonesian. Resolving on render means the language
+// buttons re-word it in place, like everything else on screen.
 export function toast(msg) {
   clearTimeout(toastTimer);
   setState({ toast: msg });

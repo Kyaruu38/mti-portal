@@ -1,7 +1,7 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { blockWrite } from '../core/guard.js';
-import { t } from '../i18n/index.js';
+import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, statusTone, driveLink } from '../ui/components.js';
 import { money, num, fmtDate, romanMonth, daysUntil, topDays, addDays } from '../core/format.js';
 import { prfPaper } from '../ui/documents.js';
@@ -61,14 +61,14 @@ export function paymentScreen() {
   const banner = (ui.pfBannerClosed ? [] : needFaktur.slice(0, 1)).map(inv => h('div.cfg-banner', { style: { justifyContent: 'flex-start' } }, [
     icon('warn', 17), h('div.grow', [h('b', t('pay_faktur_warn'))]),
     btn(t('pay_upload_faktur'), { sm: true, onClick: () => uploadFaktur(inv) }),
-    btn(t('pay_continue_anyway'), { sm: true, variant: 'primary', onClick: () => { setUI({ pfBannerClosed: true }); toast('Diproses tanpa faktur pajak — ditandai follow-up'); } }),
+    btn(t('pay_continue_anyway'), { sm: true, variant: 'primary', onClick: () => { setUI({ pfBannerClosed: true }); toast({ id: 'Diproses tanpa faktur pajak — ditandai follow-up', en: 'Processed without a tax invoice — flagged for follow-up', zh: '未附税票继续处理 — 已标记跟进' }); } }),
   ]));
 
   // No PDF invoice parser exists (unlike PO Converter's zcPoPdf.js) — dropping
   // a file here can't auto-fill invoice fields. It does carry the file itself
   // through as an attachment though: opens the same "Add Invoice" modal with
   // the dropped file pre-attached, uploaded to Drive (category "Invoice") on save.
-  const dz = dropzone({ title: t('pay_drop_inv'), sub: t('pay_faktur_reminder'), accept: '.pdf', iconName: 'upload', compact: true, onFiles: f => { toast('File dilampirkan — lengkapi detail invoice'); openInvoiceModal(f[0]); } });
+  const dz = dropzone({ title: t('pay_drop_inv'), sub: t('pay_faktur_reminder'), accept: '.pdf', iconName: 'upload', compact: true, onFiles: f => { toast({ id: 'File dilampirkan — lengkapi detail invoice', en: 'File attached — fill in the invoice details', zh: '文件已附加 — 请补全发票明细' }); openInvoiceModal(f[0]); } });
 
   const flow = card([h('div.card-pad', [
     h('div.row.gap8', [h('div.card-title', t('pay_flow')), readonly ? badge(t('pay_readonly'), 'gray', { iconName: 'eye' }) : null]),
@@ -76,7 +76,11 @@ export function paymentScreen() {
       badge(`${i + 1} · ${trStage(s)}`, ['gray', 'amber', 'blue', 'green'][i]),
       i < 3 ? icon('arrowR', 13, { stroke: 'var(--text-3)' }) : null,
     ])),
-    h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', marginTop: '10px' } }, 'Invoice masuk PRF hanya setelah min. "Diproses Wilbert" · PRF USD & IDR terpisah per currency'),
+    h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', marginTop: '10px' } }, tr({
+      id: 'Invoice masuk PRF hanya setelah min. "Diproses Wilbert" · PRF USD & IDR terpisah per currency',
+      en: 'An invoice joins a PRF only from "Processed by Wilbert" onwards · USD and IDR PRFs are separate per currency',
+      zh: '发票须至少达到“Wilbert 处理中”才能进入付款申请单 · 美元与印尼盾付款申请单按币种分开',
+    })),
   ])]);
 
   return h('div.stack', [
@@ -101,12 +105,16 @@ function prfTrackingCard(st, readonly) {
   const tone = s => ({ 'Terbentuk': 'gray', 'Diproses Wilbert': 'amber', 'Diterima Finance': 'blue', 'Paid': 'green' }[s] || 'gray');
   return h('div.card', [
     h('div.card-head', [
-      h('div.card-title', 'Progress PRF'),
-      badge('Read-only', 'gray', { iconName: 'eye' }),
-      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${st.prfs.length} PRF · status diubah oleh Finance`),
+      h('div.card-title', tr({ id: 'Progress PRF', en: 'PRF Progress', zh: '付款申请单进度' })),
+      badge(tr({ id: 'Read-only', en: 'Read-only', zh: '只读' }), 'gray', { iconName: 'eye' }),
+      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
+        id: `${st.prfs.length} PRF · status diubah oleh Finance`,
+        en: `${st.prfs.length} PRF${st.prfs.length === 1 ? '' : 's'} · status changed by Finance`,
+        zh: `${st.prfs.length} 张付款申请单 · 状态由财务更新`,
+      })),
     ]),
     list.length ? h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', ['No. PRF', t('col_supplier'), t('col_amount'), 'Invoice', 'Dibuat', t('col_status')].map((c, i) => h('th' + (i === 2 ? '.r' : ''), c)))),
+      h('thead', h('tr', [tr({ id: 'No. PRF', en: 'PRF No.', zh: '付款申请单号' }), t('col_supplier'), t('col_amount'), tr({ id: 'Invoice', en: 'Invoice', zh: '发票' }), tr({ id: 'Dibuat', en: 'Created', zh: '创建' }), t('col_status')].map((c, i) => h('th' + (i === 2 ? '.r' : ''), c)))),
       h('tbody', list.map(p => h('tr', [
         h('td.mono.cell-strong', p.no),
         h('td', p.supplier),
@@ -122,7 +130,7 @@ function prfTrackingCard(st, readonly) {
           btn('PDF', { sm: true, iconName: 'download', onClick: () => printPrf(p) }),
         ])),
       ]))),
-    ])) : h('div', { style: { padding: '16px', fontSize: '12px', color: 'var(--text-3)' } }, 'Belum ada PRF dibuat.'),
+    ])) : h('div', { style: { padding: '16px', fontSize: '12px', color: 'var(--text-3)' } }, tr({ id: 'Belum ada PRF dibuat.', en: 'No PRF has been created yet.', zh: '尚未创建任何付款申请单。' })),
   ]);
 }
 
@@ -134,7 +142,7 @@ function printPrf(prf) {
   const supplier = st.suppliers.find(s => s.name === prf.supplier) || { name: prf.supplier };
   const html = wrapPrintable(prfPaper(prf, supplier, prf.lines || []).outerHTML, prf.no, 'landscape');
   const w = window.open('', '_blank');
-  if (!w) { toast('Popup diblokir — izinkan popup buat Save PDF'); return; }
+  if (!w) { toast({ id: 'Popup diblokir — izinkan popup buat Save PDF', en: 'Popup blocked — allow popups to save the PDF', zh: '弹窗被拦截 — 请允许弹窗以保存 PDF' }); return; }
   w.document.write(html); w.document.close();
   w.onload = () => { w.focus(); w.onafterprint = () => w.close(); setTimeout(() => w.print(), 300); };
 }
@@ -164,7 +172,7 @@ function invoiceTable(st, opts) {
   // observe-only branch, which needs the invoice list for monitoring but must
   // offer no way to advance a stage or add a row.
   const readonly = !!(opts && opts.readonly);
-  const head = h('thead', h('tr', ['Invoice', t('col_supplier'), 'PO Ref', t('col_amount'), t('col_due'), t('pay_faktur'), 'File', t('col_status')].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c))));
+  const head = h('thead', h('tr', [tr({ id: 'Invoice', en: 'Invoice', zh: '发票' }), t('col_supplier'), 'PO Ref', t('col_amount'), t('col_due'), t('pay_faktur'), tr({ id: 'File', en: 'File', zh: '文件' }), t('col_status')].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c))));
   const body = h('tbody', st.invoices.map(inv => {
     const d = daysUntil(inv.due);
     const dueTone = inv.status === 'Paid' ? '' : d < 0 ? 'red' : d <= 1 ? 'amber' : '';
@@ -176,7 +184,7 @@ function invoiceTable(st, opts) {
       h('td', inv.supplier),
       h('td.mono', { style: { color: 'var(--text-3)' } }, inv.poRef),
       h('td.mono.r', money(inv.amount, inv.currency)),
-      h('td.mono', { style: dueTone ? { color: `var(--st-${dueTone}-tx)`, fontWeight: 700 } : {} }, inv.status === 'Paid' ? 'paid' : fmtDate(inv.due) + (d < 0 ? ` · overdue ${-d}h` : '')),
+      h('td.mono', { style: dueTone ? { color: `var(--st-${dueTone}-tx)`, fontWeight: 700 } : {} }, inv.status === 'Paid' ? tr({ id: 'paid', en: 'paid', zh: '已付款' }) : fmtDate(inv.due) + (d < 0 ? tr({ id: ` · overdue ${-d}h`, en: ` · overdue ${-d}d`, zh: ` · 逾期 ${-d} 天` }) : '')),
       h('td', inv.faktur ? h('span', { style: { fontSize: '11px', fontWeight: 600, color: 'var(--st-green-tx)' } }, [icon('check', 11, { strokeWidth: 2.5 }), ' ', inv.faktur]) : badge(t('pay_faktur_missing'), 'amber', { iconName: 'warn' })),
       h('td', driveLink((inv.files && inv.files[0] && inv.files[0].url) || '')),
       h('td', h('div.row.gap8', [
@@ -188,8 +196,12 @@ function invoiceTable(st, opts) {
   return h('div.card', [
     h('div.card-head', [
       h('div.card-title', t('pay_inv_in')),
-      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${st.invoices.length} invoice`),
-      readonly ? null : h('div.mla', btn('Add Invoice', { sm: true, variant: 'primary', iconName: 'plus', onClick: () => openInvoiceModal() })),
+      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
+        id: `${st.invoices.length} invoice`,
+        en: `${st.invoices.length} invoice${st.invoices.length === 1 ? '' : 's'}`,
+        zh: `${st.invoices.length} 张发票`,
+      })),
+      readonly ? null : h('div.mla', btn(tr({ id: 'Add Invoice', en: 'Add Invoice', zh: '新增发票' }), { sm: true, variant: 'primary', iconName: 'plus', onClick: () => openInvoiceModal() })),
     ]),
     h('div.tbl-wrap', h('table.tbl', [head, body])),
   ]);
@@ -204,11 +216,15 @@ async function uploadFaktur(inv) {
     await updateInvoice(inv.id, { faktur: inv.faktur });
   } catch (e) {
     console.error('Supabase invoice faktur sync failed', e);
-    toast('Faktur tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e));
+    toast({
+      id: 'Faktur tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e),
+      en: 'Tax invoice saved locally, but sync to server failed: ' + (e.message || e),
+      zh: '税票已本地保存，但同步到服务器失败：' + (e.message || e),
+    });
     setState({});
     return;
   }
-  toast('Faktur pajak terupload');
+  toast({ id: 'Faktur pajak terupload', en: 'Tax invoice uploaded', zh: '税票已上传' });
   setState({});
 }
 
@@ -219,12 +235,16 @@ async function handToWilbert(inv) {
     await updateInvoice(inv.id, { status: inv.status });
   } catch (e) {
     console.error('Supabase invoice status sync failed', e);
-    toast('Status tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e));
+    toast({
+      id: 'Status tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e),
+      en: 'Status saved locally, but sync to server failed: ' + (e.message || e),
+      zh: '状态已本地保存，但同步到服务器失败：' + (e.message || e),
+    });
     setState({});
     return;
   }
   logAudit({ entity: 'invoice', target: inv.no, action: 'handed_wilbert' });
-  toast(`${inv.no} → Diproses Wilbert`);
+  toast({ id: `${inv.no} → Diproses Wilbert`, en: `${inv.no} → Processed by Wilbert`, zh: `${inv.no} → Wilbert 处理中` });
   setState({});
 }
 
@@ -239,21 +259,21 @@ function invoiceModal() {
     ? h('div.row.gap8', { style: { alignItems: 'center' } }, [
         icon('file', 14, { stroke: 'var(--text-3)' }),
         h('span.mono', { style: { fontSize: '12px' } }, f.file.name),
-        btn('Hapus', { sm: true, onClick: () => { f.file = null; setUI({}); } }),
+        btn(tr({ id: 'Hapus', en: 'Remove', zh: '移除' }), { sm: true, onClick: () => { f.file = null; setUI({}); } }),
       ])
-    : dropzone({ title: 'Upload file invoice (opsional)', sub: 'PDF/gambar scan invoice supplier', accept: '.pdf,.jpg,.jpeg,.png', iconName: 'upload', compact: true, onFiles: files => { f.file = files[0]; setUI({}); } });
+    : dropzone({ title: tr({ id: 'Upload file invoice (opsional)', en: 'Upload invoice file (optional)', zh: '上传发票文件（可选）' }), sub: tr({ id: 'PDF/gambar scan invoice supplier', en: 'PDF or scanned image of the supplier invoice', zh: '供应商发票的 PDF 或扫描件' }), accept: '.pdf,.jpg,.jpeg,.png', iconName: 'upload', compact: true, onFiles: files => { f.file = files[0]; setUI({}); } });
   return modal({
-    title: 'Add Invoice', width: 480, onClose: () => setUI({ invoiceModal: false }),
+    title: tr({ id: 'Add Invoice', en: 'Add Invoice', zh: '新增发票' }), width: 480, onClose: () => setUI({ invoiceModal: false }),
     body: [
-      field('No. Invoice', inputEl({ value: f.no, mono: true, onInput: v => (f.no = v) })),
+      field(tr({ id: 'No. Invoice', en: 'Invoice No.', zh: '发票号' }), inputEl({ value: f.no, mono: true, onInput: v => (f.no = v) })),
       field(t('col_supplier'), selectEl(st.suppliers.map(s => ({ value: s.id, label: s.name })), { value: f.supplierId, onChange: v => (f.supplierId = v) })),
       field('PO Ref', inputEl({ value: f.poRef, onInput: v => (f.poRef = v) })),
       h('div.grid.g2', [
-        field('Currency', selectEl(['IDR', 'USD', 'CNY', 'EUR'], { value: f.currency, onChange: v => (f.currency = v) })),
+        field(tr({ id: 'Currency', en: 'Currency', zh: '币种' }), selectEl(['IDR', 'USD', 'CNY', 'EUR'], { value: f.currency, onChange: v => (f.currency = v) })),
         field(t('col_amount'), inputEl({ mono: true, value: f.amount || '', onInput: v => (f.amount = Number(String(v).replace(/[,\s]/g, '')) || 0) })),
       ]),
       field(t('col_due'), h('input.input', { type: 'date', value: f.due, onInput: e => (f.due = e.target.value) })),
-      field('Lampiran', attachment),
+      field(tr({ id: 'Lampiran', en: 'Attachment', zh: '附件' }), attachment),
     ],
     footer: [btn(t('cancel'), { onClick: () => setUI({ invoiceModal: false }) }), btn(t('save'), { variant: 'primary', onClick: () => saveInvoiceModal() })],
   });
@@ -263,7 +283,7 @@ async function saveInvoiceModal() {
   if (blockWrite('simpan invoice')) return;
   const st = getState(); const f = st.ui.invoiceForm;
   const supplier = st.suppliers.find(s => s.id === f.supplierId);
-  if (!f.no || !supplier || !f.due) { toast('No. Invoice, supplier, dan tanggal jatuh tempo wajib diisi'); return; }
+  if (!f.no || !supplier || !f.due) { toast({ id: 'No. Invoice, supplier, dan tanggal jatuh tempo wajib diisi', en: 'Invoice no., supplier and due date are required', zh: '发票号、供应商和到期日为必填项' }); return; }
   // uploadToDrive() never throws — it degrades to a drive-error:// placeholder
   // internally on failure, same graceful-degradation contract as every other
   // upload site (ppkek.js, finance.js).
@@ -278,14 +298,18 @@ async function saveInvoiceModal() {
     local.id = saved.id;
   } catch (e) {
     console.error('Supabase invoice insert failed', e);
-    toast('Gagal simpan invoice ke server: ' + (e.message || e));
+    toast({
+      id: 'Gagal simpan invoice ke server: ' + (e.message || e),
+      en: 'Failed to save the invoice to the server: ' + (e.message || e),
+      zh: '发票保存到服务器失败：' + (e.message || e),
+    });
     return;
   }
   if (!local.id) local.id = uid('inv'); // demo mode: insertInvoice no-ops, keep a local id
   st.invoices.unshift(local);
   logAudit({ entity: 'invoice', target: local.no, action: 'create', detail: `${supplier.name} · ${money(local.amount, local.currency)}` });
   setUI({ invoiceModal: false });
-  toast(`Invoice ${local.no} ditambahkan`);
+  toast({ id: `Invoice ${local.no} ditambahkan`, en: `Invoice ${local.no} added`, zh: `发票 ${local.no} 已添加` });
 }
 
 // Shown only in PRF-generate-only mode (cania/visca) so it's obvious why the
@@ -294,11 +318,15 @@ function prfOnlyNote() {
   return card([h('div.card-pad', [
     h('div.row.gap8', [
       icon('card', 15, { stroke: 'var(--text-3)' }),
-      h('div.card-title', 'Buat PRF'),
-      badge('Generate only', 'gray', { iconName: 'eye' }),
+      h('div.card-title', tr({ id: 'Buat PRF', en: 'Create PRF', zh: '生成付款申请单' })),
+      badge(tr({ id: 'Generate only', en: 'Generate only', zh: '仅生成' }), 'gray', { iconName: 'eye' }),
     ]),
     h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '8px', lineHeight: 1.5 } },
-      'Invoice masuk & tracking status dipegang sekar/finance. Di sini cuma bikin PRF: yang muncul adalah invoice yang statusnya minimal "Diproses Wilbert" dan belum pernah masuk PRF. Satu PRF = satu currency. Detail rekening diambil otomatis dari master supplier.'),
+      tr({
+        id: 'Invoice masuk & tracking status dipegang sekar/finance. Di sini cuma bikin PRF: yang muncul adalah invoice yang statusnya minimal "Diproses Wilbert" dan belum pernah masuk PRF. Satu PRF = satu currency. Detail rekening diambil otomatis dari master supplier.',
+        en: 'Invoice intake & status tracking belong to sekar/finance. This screen only builds PRFs: it lists invoices that are at least "Processed by Wilbert" and have never been on a PRF. One PRF = one currency. Bank details are pulled automatically from the supplier master.',
+        zh: '发票录入与状态跟踪由 sekar/财务负责。此处仅生成付款申请单：列出状态至少为“Wilbert 处理中”且从未进入付款申请单的发票。一张付款申请单只对应一种币种。账户信息自动取自供应商主数据。',
+      })),
   ])]);
 }
 
@@ -308,11 +336,15 @@ function observeOnlyNote() {
   return card([h('div.card-pad', [
     h('div.row.gap8', [
       icon('eye', 15, { stroke: 'var(--text-3)' }),
-      h('div.card-title', 'Payment — Pantau'),
-      badge('Read-only', 'gray', { iconName: 'eye' }),
+      h('div.card-title', tr({ id: 'Payment — Pantau', en: 'Payment — Monitoring', zh: '付款 — 查看' })),
+      badge(tr({ id: 'Read-only', en: 'Read-only', zh: '只读' }), 'gray', { iconName: 'eye' }),
     ]),
     h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '8px', lineHeight: 1.5 } },
-      'Akun ini cuma memantau. Invoice masuk dipegang sekar, PRF dibikin sekar/cania/visca, status bayar diubah Finance. Di sini kelihatan posisi tiap dokumen tanpa tombol aksi apa pun.'),
+      tr({
+        id: 'Akun ini cuma memantau. Invoice masuk dipegang sekar, PRF dibikin sekar/cania/visca, status bayar diubah Finance. Di sini kelihatan posisi tiap dokumen tanpa tombol aksi apa pun.',
+        en: 'This account only monitors. Invoice intake belongs to sekar, PRFs are raised by sekar/cania/visca, and payment status is changed by Finance. You can see where every document stands here, with no action buttons at all.',
+        zh: '此账号仅用于查看。发票录入由 sekar 负责，付款申请单由 sekar/cania/visca 生成，付款状态由财务更新。此处可查看每份单据的进度，但没有任何操作按钮。',
+      })),
   ])]);
 }
 
@@ -346,11 +378,19 @@ function prfBuilder(st) {
     ...(outstanding.length ? outstanding.map((inv) => h('div.row.gap12', { style: { padding: '10px 16px', borderBottom: '1px solid var(--border)', background: sel[inv.no] ? 'var(--sel-row)' : 'transparent', cursor: 'pointer' }, onClick: () => { const s = { ...sel }; s[inv.no] = !s[inv.no]; setUI({ prfSel: s }); } }, [
       h('input', { type: 'checkbox', checked: !!sel[inv.no], style: { accentColor: 'var(--accent)' } }),
       h('div.grow', [h('div.mono', { style: { fontSize: '12px', fontWeight: 600 } }, inv.no), h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, inv.poRef)]),
-      h('span.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, 'due ' + fmtDate(inv.due)),
+      h('span.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, tr({ id: 'due ' + fmtDate(inv.due), en: 'due ' + fmtDate(inv.due), zh: '到期 ' + fmtDate(inv.due) })),
       h('span.mono', { style: { fontSize: '12.5px', fontWeight: 600 } }, money(inv.amount, inv.currency)),
-    ])) : [h('div', { style: { padding: '16px', fontSize: '12px', color: 'var(--text-3)' } }, 'Tidak ada invoice outstanding untuk supplier ini (harus min. "Diproses Wilbert").')]),
+    ])) : [h('div', { style: { padding: '16px', fontSize: '12px', color: 'var(--text-3)' } }, tr({
+      id: 'Tidak ada invoice outstanding untuk supplier ini (harus min. "Diproses Wilbert").',
+      en: 'No outstanding invoices for this supplier (they must be at least "Processed by Wilbert").',
+      zh: '该供应商暂无未付发票（状态须至少为“Wilbert 处理中”）。',
+    }))]),
     h('div.row.gap14', { style: { padding: '13px 16px', background: 'var(--surface2)' } }, [
-      h('div', { style: { fontSize: '12.5px', fontWeight: 800 } }, [h('span.mono', { style: { color: 'var(--accent-tx)' } }, String(chosen.length)), ` invoice · Total `, h('span.mono', money(sum, currency))]),
+      h('div', { style: { fontSize: '12.5px', fontWeight: 800 } }, [h('span.mono', { style: { color: 'var(--accent-tx)' } }, String(chosen.length)), tr({
+        id: ` invoice · Total `,
+        en: ` invoice${chosen.length === 1 ? '' : 's'} · Total `,
+        zh: ` 张发票 · 合计 `,
+      }), h('span.mono', money(sum, currency))]),
       badge(currency, ccyTone(currency)),
       h('div.mla', btn(t('pay_preview_prf') + ' →', { variant: 'primary', disabled: !chosen.length, onClick: () => openPrf(chosen, currency, supplierObj) })),
     ]),
@@ -373,7 +413,7 @@ async function openPrf(chosen, currency, supplierObj) {
   const st = getState();
   const supplier = supplierObj;
   const supplierName = supplier && supplier.name;
-  if (!supplier) { toast('Supplier tidak ditemukan — pilih ulang dari dropdown'); return; }
+  if (!supplier) { toast({ id: 'Supplier tidak ditemukan — pilih ulang dari dropdown', en: 'Supplier not found — pick it again from the dropdown', zh: '未找到供应商 — 请从下拉列表重新选择' }); return; }
   // NO number is allocated here.
   //
   // next_doc_seq() increments unconditionally and there is no way to hand a
@@ -407,21 +447,29 @@ function prfModal() {
       // case: a supplier whose account has never been reviewed at all.
       (d.supplier && d.supplier.bankChangePending)
         ? h('div.cfg-banner', { style: { marginTop: '8px' } }, [icon('warn', 14),
-            `Rekening ${d.supplier.name} belum direview supervisor — cek ke Master Data sebelum PRF ini dikirim.`])
+            tr({
+              id: `Rekening ${d.supplier.name} belum direview supervisor — cek ke Master Data sebelum PRF ini dikirim.`,
+              en: `The bank account of ${d.supplier.name} has not been reviewed by a supervisor — check Master Data before sending this PRF.`,
+              zh: `${d.supplier.name} 的银行账户尚未经主管审核 — 发送本付款申请单前请先到主数据核对。`,
+            })])
         : null,
     ],
     footer: [
       btn(t('close'), { onClick: () => setUI({ prfModal: false }) }),
       btn('PDF', { iconName: 'download', onClick: () => {
-        if (!d.no) { toast('Nomor PRF baru terbit setelah dikirim ke Wilbert — kirim dulu, lalu unduh dari daftar PRF'); return; }
+        if (!d.no) { toast({
+          id: 'Nomor PRF baru terbit setelah dikirim ke Wilbert — kirim dulu, lalu unduh dari daftar PRF',
+          en: 'The PRF number is issued only after it is sent to Wilbert — send it first, then download from the PRF list',
+          zh: '付款申请单编号在发送给 Wilbert 之后才生成 — 请先发送，再从付款申请单列表下载',
+        }); return; }
         const html = wrapPrintable(prfPaper(d, d.supplier, d.lines).outerHTML, d.no, 'landscape');
         const w = window.open('', '_blank');
-        if (!w) { toast('Popup diblokir — izinkan popup buat Save PDF'); return; }
+        if (!w) { toast({ id: 'Popup diblokir — izinkan popup buat Save PDF', en: 'Popup blocked — allow popups to save the PDF', zh: '弹窗被拦截 — 请允许弹窗以保存 PDF' }); return; }
         w.document.write(html); w.document.close();
         w.onload = () => { w.focus(); w.onafterprint = () => w.close(); setTimeout(() => w.print(), 300); };
       } }),
       d.submitted
-        ? btn(t('close') + ' & selesai', { variant: 'primary', onClick: () => setUI({ prfModal: false, prfDraft: null }) })
+        ? btn(t('close') + tr({ id: ' & selesai', en: ' & done', zh: ' 并完成' }), { variant: 'primary', onClick: () => setUI({ prfModal: false, prfDraft: null }) })
         : btn(t('prf_send_wilbert'), { variant: 'primary', onClick: () => submitPrf() }),
     ],
   });
@@ -455,7 +503,11 @@ async function submitPrf() {
       no = await nextPrfNo(st.prfs, romanMonth(), new Date().getFullYear(), prefix);
     } catch (e) {
       console.error('nextPrfNo failed', e);
-      toast('Gagal generate nomor PRF dari server: ' + (e.message || e));
+      toast({
+        id: 'Gagal generate nomor PRF dari server: ' + (e.message || e),
+        en: 'Failed to generate a PRF number from the server: ' + (e.message || e),
+        zh: '从服务器生成付款申请单编号失败：' + (e.message || e),
+      });
       return;
     }
   }
@@ -466,7 +518,11 @@ async function submitPrf() {
     prf.id = saved.id;
   } catch (e) {
     console.error('Supabase PRF insert failed', e);
-    toast('Gagal simpan PRF ke server: ' + (e.message || e));
+    toast({
+      id: 'Gagal simpan PRF ke server: ' + (e.message || e),
+      en: 'Failed to save the PRF to the server: ' + (e.message || e),
+      zh: '付款申请单保存到服务器失败：' + (e.message || e),
+    });
     return;
   }
   if (!prf.id) prf.id = uid('prf'); // demo mode: insertPrf no-ops, keep a local id
@@ -479,5 +535,9 @@ async function submitPrf() {
   // print at all. Keep the modal open, now carrying the real number, so the
   // document can be produced right after submission.
   setUI({ prfSel: {}, prfDraft: { ...d, no: prf.no, id: prf.id, stage: prf.stage, submitted: true } });
-  toast(`${prf.no} dibuat & dikirim ke Wilbert — silakan unduh PDF-nya`);
+  toast({
+    id: `${prf.no} dibuat & dikirim ke Wilbert — silakan unduh PDF-nya`,
+    en: `${prf.no} created & sent to Wilbert — you can download the PDF now`,
+    zh: `${prf.no} 已创建并发送给 Wilbert — 现在可以下载 PDF`,
+  });
 }

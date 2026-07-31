@@ -1,12 +1,14 @@
 import { h, svg, clear } from '../core/dom.js';
 import { ICONS } from '../core/icons.js';
-import { getState, setState, setUI } from '../core/store.js';
-import { t } from '../i18n/index.js';
+import { getState, setState, setUI, toast } from '../core/store.js';
+import { t, tr } from '../i18n/index.js';
 import { LANGS } from '../i18n/index.js';
 import { allowedScreens, USERS } from '../auth/roles.js';
-import { logout } from '../auth/session.js';
+import { logout, refreshData } from '../auth/session.js';
+import { setPref } from '../core/prefs.js';
 import { icon, iconBtn, badge, btn } from './components.js';
 import { COMPANY } from '../config.js';
+import { VERSION, VERSION_DATE, CHANGELOG } from '../version.js';
 import { LOGO_MTI } from '../assets/images.js';
 import { notificationsFor, unreadCount, notifTargetScreen, notifMessage } from '../core/notifications.js';
 import { fmtDateTime } from '../core/format.js';
@@ -63,7 +65,9 @@ function sidebar(st) {
   return h('aside.sidebar', [
     h('div.sidebar-brand', [
       brandMark(),
-      h('div', { style: { fontSize: '9px', fontWeight: 700, letterSpacing: '.22em', color: 'var(--sb-group)', marginTop: '7px' } }, 'PURCHASING PORTAL'),
+      h('div', { style: { fontSize: '9px', fontWeight: 700, letterSpacing: '.22em', color: 'var(--sb-group)', marginTop: '7px' } }, tr({
+        id: 'PURCHASING PORTAL', en: 'PURCHASING PORTAL', zh: '采购门户',
+      })),
     ]),
     h('nav.sidebar-nav', groups.map(g => h('div', [
       h('div.nav-group-label', t(g.label)),
@@ -80,8 +84,19 @@ function sidebar(st) {
     ]))),
     h('div.sidebar-foot', [
       h('div', { style: { fontSize: '11px', fontWeight: 700, color: '#E8EDF6' } }, COMPANY.name),
-      h('div', { style: { fontSize: '10px', color: 'var(--sb-group)', marginTop: '2px' } }, 'Kawasan Ekonomi Khusus'),
-      h('div.mono', { style: { fontSize: '9.5px', color: 'var(--sb-group)', marginTop: '8px' } }, COMPANY.version),
+      h('div', { style: { fontSize: '10px', color: 'var(--sb-group)', marginTop: '2px' } }, tr({
+        id: 'Kawasan Ekonomi Khusus',
+        en: 'Special Economic Zone',
+        zh: '经济特区',
+      })),
+      // Version + the date it shipped. This is the fastest way to answer "am I
+      // looking at the new build or a cached old one" — if the number has not
+      // moved after a push, the deploy or the cache is the problem, not the
+      // code. Hover shows what that release changed.
+      h('div.mono', {
+        style: { fontSize: '9.5px', color: 'var(--sb-group)', marginTop: '8px' },
+        title: `${VERSION} · ${VERSION_DATE}\n${tr(CHANGELOG[0].what)}`,
+      }, `${VERSION} · ${VERSION_DATE}`),
     ]),
   ]);
 }
@@ -89,8 +104,33 @@ function sidebar(st) {
 function langSwitch(st) {
   return h('div.lang-switch', LANGS.map(l => h('button', {
     class: st.lang === l.code ? 'on' : '', title: l.name,
-    onClick: () => setState({ lang: l.code }),
+    // Remembered across a reload — see core/prefs.js. Picking English and then
+    // refreshing used to hand the app back in Indonesian.
+    onClick: () => { setPref('lang', l.code); setState({ lang: l.code }); },
   }, l.label)));
+}
+
+// Reload the DATA without reloading the PAGE.
+//
+// The store is in memory and only fills up at login, so anything a colleague
+// entered five minutes ago is invisible until you sign in again. That made F5
+// the only refresh button in the app — and F5 used to mean logging back in.
+// This runs the same load login() does, minus the password.
+function refreshBtn(st) {
+  const busy = !!st.ui.refreshing;
+  return iconBtn('refresh', {
+    title: t('refresh_data'),
+    // Spun by CSS while it runs, because on a slow connection the whole load is
+    // several seconds of a screen that looks completely unchanged.
+    class: busy ? 'spin' : '',
+    onClick: async () => {
+      if (getState().ui.refreshing) return;
+      setUI({ refreshing: true });
+      try { await refreshData(); toast({ id: 'Data diperbarui dari server', en: 'Data refreshed from server', zh: '数据已从服务器刷新' }); }
+      catch (e) { console.error(e); toast({ id: 'Gagal menarik data terbaru: ' + (e.message || e), en: 'Could not fetch the latest data: ' + (e.message || e), zh: '无法获取最新数据：' + (e.message || e) }); }
+      finally { setUI({ refreshing: false }); }
+    },
+  });
 }
 
 // Global search: input stays a single, never-replaced DOM node — the
@@ -147,8 +187,10 @@ function globalSearchBox() {
     // displays it — cania/visca report on POs but have no approval queue. Show
     // the hit, drop the button, instead of offering a dead end.
     canOpen((getState().user || {}).role, r.type)
-      ? btn('Buka', { sm: true, onClick: () => navigateTo(r) })
-      : h('span', { style: { fontSize: '10px', color: 'var(--text-3)', flexShrink: 0 } }, 'lihat di Reports'),
+      ? btn(tr({ id: 'Buka', en: 'Open', zh: '打开' }), { sm: true, onClick: () => navigateTo(r) })
+      : h('span', { style: { fontSize: '10px', color: 'var(--text-3)', flexShrink: 0 } }, tr({
+          id: 'lihat di Reports', en: 'view in Reports', zh: '在报表中查看',
+        })),
   ]);
 
   const renderResults = (q) => {
@@ -156,7 +198,9 @@ function globalSearchBox() {
     clear(dropdown);
     if (!q.trim()) { dropdown.style.display = 'none'; return; }
     if (!results.length) {
-      dropdown.appendChild(h('div', { style: { padding: '12px', fontSize: '11.5px', color: 'var(--text-3)' } }, 'Tidak ada hasil'));
+      dropdown.appendChild(h('div', { style: { padding: '12px', fontSize: '11.5px', color: 'var(--text-3)' } }, tr({
+        id: 'Tidak ada hasil', en: 'No results', zh: '无结果',
+      })));
     } else {
       results.forEach(r => dropdown.appendChild(resultRow(r)));
     }
@@ -193,7 +237,11 @@ function header(st) {
     // is permanently empty reads as broken software, not as a permission.
     searchableTypes(u.role).length ? globalSearchBox() : h('div.grow'),
     langSwitch(st),
-    iconBtn(st.theme === 'light' ? 'moon' : 'sun', { title: 'Theme', onClick: () => setState({ theme: st.theme === 'light' ? 'dark' : 'light' }) }),
+    refreshBtn(st),
+    iconBtn(st.theme === 'light' ? 'moon' : 'sun', {
+      title: tr({ id: 'Theme', en: 'Theme', zh: '主题' }),
+      onClick: () => { const next = st.theme === 'light' ? 'dark' : 'light'; setPref('theme', next); setState({ theme: next }); },
+    }),
     bellMenu(st),
     h('div', { style: { width: '1px', height: '24px', background: 'var(--border)', flexShrink: 0 } }),
     userMenu(st),

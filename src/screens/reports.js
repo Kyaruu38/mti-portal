@@ -1,8 +1,9 @@
 import { h } from '../core/dom.js';
 import { getState, setUI, toast } from '../core/store.js';
-import { t } from '../i18n/index.js';
+import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, driveLink, selectEl } from '../ui/components.js';
 import { money, num, fmtDate } from '../core/format.js';
+import { statusText } from '../core/statusText.js';
 import { writeWorkbook } from '../core/xlsx.js';
 import { outstandingPOs } from '../core/outstanding.js';
 import { allowedReportModules } from '../auth/roles.js';
@@ -41,7 +42,17 @@ export function reportsScreen() {
     (String(new Date(r.date).getFullYear()) === f.year));
 
   const suppliers = [t('all'), ...new Set(st.suppliers.map(s => s.name))];
-  const statuses = [t('all'), 'Approved', 'Menunggu Approval', 'Paid', 'Open', 'Costed', 'Closed', 'Diterima Finance'];
+  // value = the STORED status string (compared with === above and matched
+  // against Postgres rows); label = display only. Never swap the two.
+  const statuses = [t('all'),
+    { value: 'Approved', label: tr({ id: 'Approved', en: 'Approved', zh: '已批准' }) },
+    { value: 'Menunggu Approval', label: tr({ id: 'Menunggu Approval', en: 'Awaiting Approval', zh: '待审批' }) },
+    { value: 'Paid', label: tr({ id: 'Paid', en: 'Paid', zh: '已付款' }) },
+    { value: 'Open', label: tr({ id: 'Open', en: 'Open', zh: '未结' }) },
+    { value: 'Costed', label: tr({ id: 'Costed', en: 'Costed', zh: '已核算成本' }) },
+    { value: 'Closed', label: tr({ id: 'Closed', en: 'Closed', zh: '已关闭' }) },
+    { value: 'Diterima Finance', label: tr({ id: 'Diterima Finance', en: 'Received by Finance', zh: '财务已接收' }) },
+  ];
 
   const filterBar = h('div.card', { style: { display: 'flex', alignItems: 'flex-end', gap: '10px', padding: '14px 18px', flexWrap: 'wrap' } }, [
     filt(t('rp_module'), [t('all'), ...allowedReportModules(st.user.role)], f.module, v => set({ module: v })),
@@ -50,7 +61,7 @@ export function reportsScreen() {
     filt(t('rp_status'), statuses, f.status, v => set({ status: v })),
     filt(t('col_supplier'), suppliers, f.supplier, v => set({ supplier: v })),
     filt(t('rp_currency'), [t('all'), 'IDR', 'USD', 'EUR', 'CNY'], f.currency, v => set({ currency: v })),
-    btn(t('rp_run'), { variant: 'navy', onClick: () => { setUI({}); toast(`Report: ${rows.length} baris`); } }),
+    btn(t('rp_run'), { variant: 'navy', onClick: () => { setUI({}); toast({ id: `Report: ${rows.length} baris`, en: `Report: ${rows.length} rows`, zh: `报表：${rows.length} 行` }); } }),
   ]);
 
   const tableCard = h('div.card', [
@@ -67,9 +78,15 @@ export function reportsScreen() {
         h('td.mono.cell-strong', r.doc),
         h('td', r.supplier),
         h('td.mono.r', r.value ? money(r.value, r.currency) : '—'),
-        h('td', badge(r.status, statusToneRp(r.status))),
+        // Translated for the eye only — statusToneRp and the filter above both
+        // still read the STORED value (see the filter's value/label split).
+        h('td', badge(statusText(r.status), statusToneRp(r.status))),
         h('td', driveLink(r.driveUrl)),
-      ])) : h('tr', h('td', { colspan: 7, style: { textAlign: 'center', padding: '24px', color: 'var(--text-3)' } }, 'Tidak ada data untuk filter ini'))),
+      ])) : h('tr', h('td', { colspan: 7, style: { textAlign: 'center', padding: '24px', color: 'var(--text-3)' } }, tr({
+        id: 'Tidak ada data untuk filter ini',
+        en: 'No data for this filter',
+        zh: '此筛选条件下没有数据',
+      })))),
     ])),
   ]);
 
@@ -87,17 +104,30 @@ function outstandingCard(st) {
   const rows = outstandingPOs(st);
   return h('div.card', [
     h('div.card-head', [
-      h('div.card-title', 'PO Outstanding (barang belum terkirim penuh)'),
+      h('div.card-title', tr({
+        id: 'PO Outstanding (barang belum terkirim penuh)',
+        en: 'Outstanding POs (goods not yet fully shipped)',
+        zh: '未结采购单（货物尚未全部发出）',
+      })),
       badge(String(rows.length), rows.length ? 'amber' : 'gray'),
       h('div.mla', btn(t('pk_export'), { iconName: 'download', onClick: () => exportOutstanding(rows) })),
     ]),
     h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', ['No. PO', t('col_supplier'), 'Baris Outstanding', 'Total Qty Outstanding'].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c)))),
+      h('thead', h('tr', [
+        tr({ id: 'No. PO', en: 'PO No.', zh: '采购单号' }),
+        t('col_supplier'),
+        tr({ id: 'Baris Outstanding', en: 'Outstanding Lines', zh: '未结行数' }),
+        tr({ id: 'Total Qty Outstanding', en: 'Total Outstanding Qty', zh: '未结总数量' }),
+      ].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c)))),
       h('tbody', rows.length ? rows.map(r => h('tr', [
         h('td.mono.cell-strong', r.po.contract || r.po.no), h('td', r.po.supplier),
         h('td.mono', String(r.lines.filter(l => l.outstanding > 0).length)),
         h('td.mono.r', num(r.totalOutstanding)),
-      ])) : h('tr', h('td', { colspan: 4, style: { textAlign: 'center', padding: '24px', color: 'var(--text-3)' } }, 'Semua PO sudah terkirim penuh'))),
+      ])) : h('tr', h('td', { colspan: 4, style: { textAlign: 'center', padding: '24px', color: 'var(--text-3)' } }, tr({
+        id: 'Semua PO sudah terkirim penuh',
+        en: 'Every PO has been fully shipped',
+        zh: '所有采购单均已全部发出',
+      })))),
     ])),
   ]);
 }
@@ -106,7 +136,11 @@ async function exportOutstanding(rows) {
   const header = ['No. PO', 'Supplier', 'Baris Outstanding', 'Total Qty Outstanding'];
   const aoa = [header, ...rows.map(r => [r.po.contract || r.po.no, r.po.supplier, r.lines.filter(l => l.outstanding > 0).length, r.totalOutstanding])];
   await writeWorkbook('MTI_PO_Outstanding.xlsx', [{ name: 'Outstanding', aoa }], []);
-  toast('Export PO Outstanding — Excel');
+  toast({
+    id: 'Export PO Outstanding — Excel',
+    en: 'Outstanding PO export — Excel',
+    zh: '未结采购单导出 — Excel',
+  });
 }
 
 function filt(label, opts, value, onChange) {
@@ -148,5 +182,9 @@ async function exportReport(rows, f) {
   await writeWorkbook(`MTI_Report_${f.module}_${f.month}_${f.year}.xlsx`.replace(/\s/g, ''), [
     { name: 'Report', aoa }, { name: 'Audit Trail', aoa: auditAoa },
   ], hyperlinks);
-  toast('Export Excel — hyperlink Drive aktif + tab Audit Trail');
+  toast({
+    id: 'Export Excel — hyperlink Drive aktif + tab Audit Trail',
+    en: 'Excel export — live Drive hyperlinks + Audit Trail tab',
+    zh: 'Excel 导出 — Drive 超链接有效 + 审计日志页',
+  });
 }

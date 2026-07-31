@@ -1,6 +1,6 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
-import { t } from '../i18n/index.js';
+import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, checkRow, driveLink, statusTone } from '../ui/components.js';
 import { money, num, fmtDate, fmtDateTime, daysUntil, similarity, normalize, sumByCurrency, moneyMulti } from '../core/format.js';
 import { parsePaymentProof } from '../parsers/bankProof.js';
@@ -12,6 +12,16 @@ import { blockWrite } from '../core/guard.js';
 import { confirmPrfPaid } from '../core/paymentsApi.js';
 import { isConfigured } from '../core/supabase.js';
 
+// DISPLAY ONLY. PRF stage values are stored in Postgres and compared with ===
+// throughout this file (and in prfsApi/paymentsApi); this lookup is used at the
+// point of rendering and nowhere else. Anything unmapped falls through as-is.
+const STAGE_TEXT = {
+  'Diproses Wilbert': 'st_diproses_wilbert',
+  'Diterima Finance': 'st_diterima_finance',
+  'Paid': 'st_paid',
+};
+function stageLabel(s) { return STAGE_TEXT[s] ? t(STAGE_TEXT[s]) : s; }
+
 export function financeScreen() {
   const st = getState(); const ui = st.ui;
   const canReceive = can(st.user.role, 'financeReceive');
@@ -21,13 +31,24 @@ export function financeScreen() {
   const overdue = st.invoices.filter(i => i.status !== 'Paid' && daysUntil(i.due) < 0);
   const overdueTotals = sumByCurrency(overdue);
   const banner = overdue.length ? h('div.cfg-banner', { style: { background: 'var(--st-red-bg)', color: 'var(--st-red-tx)', borderColor: 'var(--st-red-tx)', justifyContent: 'flex-start' } }, [
-    icon('warn', 17), h('div.grow', [h('b', `${overdue.length} ${t('fn_overdue_banner')}`), ` — total ${moneyMulti(overdueTotals)}. Tertua: ${overdue[0].supplier} (${overdue[0].no}).`]),
+    icon('warn', 17), h('div.grow', [h('b', `${overdue.length} ${t('fn_overdue_banner')}`), tr({
+      id: ` — total ${moneyMulti(overdueTotals)}. Tertua: ${overdue[0].supplier} (${overdue[0].no}).`,
+      en: ` — total ${moneyMulti(overdueTotals)}. Oldest: ${overdue[0].supplier} (${overdue[0].no}).`,
+      zh: ` — 合计 ${moneyMulti(overdueTotals)}。最久：${overdue[0].supplier}（${overdue[0].no}）。`,
+    })]),
   ]) : null;
 
   const prfIn = card([
     h('div.card-head', [h('div.card-title', t('fn_prf_in')), badge(String(st.prfs.filter(p => p.stage === 'Diproses Wilbert' || p.stage === 'Diterima Finance').length), 'accent')]),
     h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', ['PRF No', 'Dari', t('col_supplier'), t('col_amount'), 'Ccy', 'Kelengkapan', t('col_action')].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c)))),
+      h('thead', h('tr', [
+        tr({ id: 'PRF No', en: 'PRF No', zh: '付款申请单号' }),
+        tr({ id: 'Dari', en: 'From', zh: '来自' }),
+        t('col_supplier'), t('col_amount'),
+        tr({ id: 'Ccy', en: 'Ccy', zh: '币种' }),
+        tr({ id: 'Kelengkapan', en: 'Completeness', zh: '齐全度' }),
+        t('col_action'),
+      ].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c)))),
       h('tbody', st.prfs.map(p => {
         const done = Object.values(p.receiveChecklist || {}).filter(Boolean).length;
         const received = p.stage === 'Diterima Finance' || p.stage === 'Paid';
@@ -35,8 +56,10 @@ export function financeScreen() {
           h('td.mono.cell-strong', p.no), h('td', p.by), h('td', p.supplier),
           h('td.mono.r', num(p.amount, p.currency === 'USD' ? 2 : 0)),
           h('td', badge(p.currency, p.currency === 'USD' ? 'accent' : 'navy')),
-          h('td', received ? badge(`Diterima ✓ ${done}/4`, 'green') : badge('Menunggu checklist', 'amber')),
-          h('td', p.stage === 'Paid' ? badge('Paid', 'green') : (received ? h('span.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } }, fmtDateTime(p.createdAt)) : (canReceive ? btn(t('fn_receive'), { sm: true, variant: 'primary', onClick: () => setUI({ receiveModal: p.id }) }) : badge('Menunggu Finance', 'amber')))),
+          h('td', received
+            ? badge(tr({ id: `Diterima ✓ ${done}/4`, en: `Received ✓ ${done}/4`, zh: `已接收 ✓ ${done}/4` }), 'green')
+            : badge(tr({ id: 'Menunggu checklist', en: 'Awaiting checklist', zh: '等待单据核对' }), 'amber')),
+          h('td', p.stage === 'Paid' ? badge(stageLabel('Paid'), 'green') : (received ? h('span.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } }, fmtDateTime(p.createdAt)) : (canReceive ? btn(t('fn_receive'), { sm: true, variant: 'primary', onClick: () => setUI({ receiveModal: p.id }) }) : badge(tr({ id: 'Menunggu Finance', en: 'Awaiting Finance', zh: '等待财务' }), 'amber')))),
         ]);
       })),
     ])),
@@ -59,7 +82,7 @@ export function financeScreen() {
     title: t('fn_drop_proof'), sub: t('fn_drop_proof_sub'), accept: '.pdf', iconName: 'upload', compact: true,
     onFiles: f => handleProof(f[0]),
     disabled: isReadOnly(st.user.role),
-    disabledNote: 'Akun ini cuma bisa memantau',
+    disabledNote: tr({ id: 'Akun ini cuma bisa memantau', en: 'This account can only monitor', zh: '此账号仅可查看' }),
   });
   const matchPanel = ui.proofMatch ? matchCard(ui.proofMatch) : (ui.proofManual ? manualCard(ui.proofManual) : card([h('div.card-pad', { style: { minHeight: '150px', display: 'flex', alignItems: 'center', justifyContent: 'center' } }, h('span', { style: { fontSize: '12px', color: 'var(--text-3)' } }, t('fn_no_proof')))]));
 
@@ -81,10 +104,10 @@ function receiveModal(prfId) {
     title: t('fn_receive_modal'), subtitle: `${prf.no} · ${prf.supplier} · ${money(prf.amount, prf.currency)}`, width: 480, onClose: () => setUI({ receiveModal: null }),
     body: [
       h('div', { style: { fontSize: '11px', color: 'var(--text-3)' } }, t('fn_checklist_sub')),
-      checkRow(cl.a, t('fn_chk_prf'), 'Signed payment request form', () => { cl.a = !cl.a; setState({}); }),
-      checkRow(cl.b, t('fn_chk_inv'), 'Salinan invoice supplier', () => { cl.b = !cl.b; setState({}); }),
-      checkRow(cl.c, t('fn_chk_faktur'), 'Tax invoice', () => { cl.c = !cl.c; setState({}); }),
-      checkRow(cl.d, t('fn_chk_erp'), 'Bukti entry ERP INA', () => { cl.d = !cl.d; setState({}); }),
+      checkRow(cl.a, t('fn_chk_prf'), tr({ id: 'Signed payment request form', en: 'Signed payment request form', zh: '已签字的付款申请表' }), () => { cl.a = !cl.a; setState({}); }),
+      checkRow(cl.b, t('fn_chk_inv'), tr({ id: 'Salinan invoice supplier', en: 'Supplier invoice copy', zh: '供应商发票复印件' }), () => { cl.b = !cl.b; setState({}); }),
+      checkRow(cl.c, t('fn_chk_faktur'), tr({ id: 'Tax invoice', en: 'Tax invoice', zh: '税务发票' }), () => { cl.c = !cl.c; setState({}); }),
+      checkRow(cl.d, t('fn_chk_erp'), tr({ id: 'Bukti entry ERP INA', en: 'ERP INA entry proof', zh: 'ERP INA 录入凭证' }), () => { cl.d = !cl.d; setState({}); }),
     ],
     footer: [
       h('span', { style: { fontSize: '12px', fontWeight: 700, color: 'var(--text-2)', marginRight: 'auto' } }, [t('fn_completeness') + ' ', h('span.mono', { style: { color: 'var(--accent-tx)' } }, `${count}/4`)]),
@@ -104,13 +127,21 @@ async function receivePrf(prf) {
     await updatePrfStage(prf.id, { stage: prf.stage, receivedAt: prf.receivedAt, receiveChecklist: prf.receiveChecklist });
   } catch (e) {
     console.error('Supabase PRF receive sync failed', e);
-    toast('Tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e));
+    toast({
+      id: 'Tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e),
+      en: 'Saved locally, but syncing to the server failed: ' + (e.message || e),
+      zh: '已本地保存，但同步到服务器失败：' + (e.message || e),
+    });
     setUI({ receiveModal: null });
     return;
   }
   logAudit({ entity: 'prf', target: prf.no, action: 'finance_receive', detail: '4/4' });
   setUI({ receiveModal: null });
-  toast(`${prf.no} diterima Finance — kelengkapan 4/4`);
+  toast({
+    id: `${prf.no} diterima Finance — kelengkapan 4/4`,
+    en: `${prf.no} received by Finance — checklist 4/4`,
+    zh: `${prf.no} 已由财务接收 — 单据齐全 4/4`,
+  });
 }
 
 async function handleProof(file) {
@@ -138,19 +169,40 @@ async function handleProof(file) {
     }
     const up = await uploadToDrive(file, '', file.name, 'Bukti Bayar');
     setUI({ proofMatch: { file, fields: res.fields, template: res.templateLabel, prf: best, confidence: Math.min(0.99, bestScore), driveUrl: up.url }, proofManual: null });
-    if (!best) toast('Bukti terparse tapi tidak ada PRF cocok — pilih manual');
-  } catch (e) { console.error(e); toast('Parse bukti gagal: ' + e.message); }
+    if (!best) toast({
+      id: 'Bukti terparse tapi tidak ada PRF cocok — pilih manual',
+      en: 'Proof parsed but no matching PRF — pick one manually',
+      zh: '凭证已解析，但没有匹配的付款申请单 — 请手工选择',
+    });
+  } catch (e) { console.error(e); toast({ id: 'Parse bukti gagal: ' + e.message, en: 'Proof parsing failed: ' + e.message, zh: '凭证解析失败：' + e.message }); }
 }
 
 function matchCard(m) {
   const canPay = can(getState().user.role, 'markPaid');
   if (!m.prf) return manualCard({ file: m.file, fields: m.fields });
+  // Word picked first so the interpolation below stays identical in all three
+  // languages (the amount test itself is untouched).
+  const amtWord = Math.abs(m.prf.amount - m.fields.amount) < 1
+    ? tr({ id: 'sama persis', en: 'matches exactly', zh: '完全一致' })
+    : tr({ id: 'beda', en: 'differs', zh: '不一致' });
   return card([
     h('div.card-pad', { style: { border: '1.5px solid var(--accent)', borderRadius: '12px' } }, [
-      h('div.row.gap8', [badge(t('fn_automatch'), 'accent'), h('span.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${m.template || 'proof'} · ${m.file.name}`), h('span.mla', { style: { fontSize: '11px', fontWeight: 700, color: 'var(--st-green-tx)' } }, `Confidence ${Math.round(m.confidence * 100)}%`)]),
-      h('div', { style: { fontSize: '14px', fontWeight: 800, marginTop: '12px' } }, `Matched: ${m.prf.no} — ${m.prf.supplier}`),
+      h('div.row.gap8', [badge(t('fn_automatch'), 'accent'), h('span.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${m.template || 'proof'} · ${m.file.name}`), h('span.mla', { style: { fontSize: '11px', fontWeight: 700, color: 'var(--st-green-tx)' } }, tr({
+        id: `Confidence ${Math.round(m.confidence * 100)}%`,
+        en: `Confidence ${Math.round(m.confidence * 100)}%`,
+        zh: `匹配度 ${Math.round(m.confidence * 100)}%`,
+      }))]),
+      h('div', { style: { fontSize: '14px', fontWeight: 800, marginTop: '12px' } }, tr({
+        id: `Matched: ${m.prf.no} — ${m.prf.supplier}`,
+        en: `Matched: ${m.prf.no} — ${m.prf.supplier}`,
+        zh: `已匹配：${m.prf.no} — ${m.prf.supplier}`,
+      })),
       h('div.mono', { style: { fontSize: '13px', fontWeight: 600, color: 'var(--text-2)', marginTop: '4px' } }, `${money(m.fields.amount, m.fields.currency)} · ${m.fields.date}${m.fields.poNo ? ' · ' + m.fields.poNo : ''}`),
-      h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', marginTop: '8px' } }, `Nominal ${Math.abs(m.prf.amount - m.fields.amount) < 1 ? 'sama persis' : 'beda'} · payee match ${Math.round(similarity(m.prf.supplier, m.fields.beneficiary) * 100)}%${m.fields.poNo ? ' · PO ' + m.fields.poNo : ''}`),
+      h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', marginTop: '8px' } }, tr({
+        id: `Nominal ${amtWord} · payee match ${Math.round(similarity(m.prf.supplier, m.fields.beneficiary) * 100)}%${m.fields.poNo ? ' · PO ' + m.fields.poNo : ''}`,
+        en: `Amount ${amtWord} · payee match ${Math.round(similarity(m.prf.supplier, m.fields.beneficiary) * 100)}%${m.fields.poNo ? ' · PO ' + m.fields.poNo : ''}`,
+        zh: `金额${amtWord} · 收款方匹配 ${Math.round(similarity(m.prf.supplier, m.fields.beneficiary) * 100)}%${m.fields.poNo ? ' · PO ' + m.fields.poNo : ''}`,
+      })),
       h('div.row.gap8', { style: { justifyContent: 'flex-end', marginTop: '14px' } }, [
         // Clicking "pilih lain" is an explicit rejection of the auto-match, so
         // the picker opens with nothing selected rather than re-suggesting.
@@ -187,7 +239,9 @@ function manualCard(m) {
   const prfSelect = h('select.input', {
     onChange: e => { f.prfId = e.target.value; setUI({}); },
   }, [
-    h('option', { value: '', selected: !f.prfId }, candidates.length ? '— pilih PRF —' : '— tidak ada PRF di stage Diterima Finance —'),
+    h('option', { value: '', selected: !f.prfId }, candidates.length
+      ? tr({ id: '— pilih PRF —', en: '— pick a PRF —', zh: '— 选择付款申请单 —' })
+      : tr({ id: '— tidak ada PRF di stage Diterima Finance —', en: '— no PRF at the Received by Finance stage —', zh: '— 没有处于“财务已接收”阶段的付款申请单 —' })),
     ...candidates.map(p => h('option', { value: p.id, selected: p.id === f.prfId },
       `${p.no} · ${p.supplier} · ${money(p.amount, p.currency)}`)),
   ]);
@@ -198,11 +252,15 @@ function manualCard(m) {
     h('div.row.gap8', [
       badge(t('fn_manual_proof'), 'amber', { iconName: 'warn' }),
       h('span.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } }, m.file.name),
-      m.amountUnreadable ? badge('Nominal tidak terbaca', 'red', { iconName: 'warn' }) : null,
+      m.amountUnreadable ? badge(tr({ id: 'Nominal tidak terbaca', en: 'Amount unreadable', zh: '金额无法识别' }), 'red', { iconName: 'warn' }) : null,
     ]),
     m.amountUnreadable
       ? h('div', { style: { fontSize: '11px', color: 'var(--st-red-tx)', marginTop: '8px' } },
-          'Template banknya dikenali, tapi nominalnya gagal diparse. Ketik ulang manual dari bukti aslinya.')
+          tr({
+            id: 'Template banknya dikenali, tapi nominalnya gagal diparse. Ketik ulang manual dari bukti aslinya.',
+            en: 'The bank template was recognised, but the amount could not be parsed. Retype it manually from the original proof.',
+            zh: '已识别银行模板，但金额解析失败。请对照原始凭证手工重新输入。',
+          }))
       : null,
     h('div.grid.g3', { style: { marginTop: '12px' } }, [
       h('div', [h('div.field-label', t('fn_proof_amount')), h('input.input.mono', {
@@ -226,11 +284,15 @@ function manualCard(m) {
       h('div', [h('div.field-label', t('fn_proof_date')), h('input.input.mono', { value: f.date || '', onInput: e => (f.date = e.target.value) })]),
     ]),
     h('div', { style: { marginTop: '12px' } }, [
-      h('div.field-label', 'PRF yang dibayar *'),
+      h('div.field-label', tr({ id: 'PRF yang dibayar *', en: 'PRF being paid *', zh: '所付款的付款申请单 *' })),
       prfSelect,
       mismatch
         ? h('div', { style: { fontSize: '10.5px', color: 'var(--st-amber-tx)', marginTop: '6px', fontWeight: 700 } },
-            `Nominal bukti ${money(f.amount, chosen.currency)} ≠ nominal PRF ${money(chosen.amount, chosen.currency)} — pastikan ini memang benar.`)
+            tr({
+              id: `Nominal bukti ${money(f.amount, chosen.currency)} ≠ nominal PRF ${money(chosen.amount, chosen.currency)} — pastikan ini memang benar.`,
+              en: `Proof amount ${money(f.amount, chosen.currency)} ≠ PRF amount ${money(chosen.amount, chosen.currency)} — make sure this is really correct.`,
+              zh: `凭证金额 ${money(f.amount, chosen.currency)} ≠ 付款申请单金额 ${money(chosen.amount, chosen.currency)} — 请确认无误。`,
+            }))
         : null,
     ]),
     h('div.row.gap8', { style: { justifyContent: 'flex-end', marginTop: '14px' } }, [
@@ -253,7 +315,7 @@ function manualCard(m) {
 // this can't block the confirmation.
 async function confirmPaidManual(file, fields, prf) {
   if (blockWrite('tandai PRF lunas')) return;
-  if (!prf) { toast('Pilih PRF yang dibayar dulu'); return; }
+  if (!prf) { toast({ id: 'Pilih PRF yang dibayar dulu', en: 'Pick the PRF being paid first', zh: '请先选择要支付的付款申请单' }); return; }
   const up = await uploadToDrive(file, '', file.name, 'Bukti Bayar');
   confirmPaid({ file, fields, prf, driveUrl: up.url });
 }
@@ -277,7 +339,11 @@ async function confirmPaid(m) {
       paymentId = await confirmPrfPaid(prf.id, method, driveUrl);
     } catch (e) {
       console.error('confirm_prf_paid RPC failed — nothing changed (transaction rolled back)', e);
-      toast('Gagal konfirmasi pembayaran: ' + (e.message || e));
+      toast({
+        id: 'Gagal konfirmasi pembayaran: ' + (e.message || e),
+        en: 'Failed to confirm payment: ' + (e.message || e),
+        zh: '确认付款失败：' + (e.message || e),
+      });
       return;
     }
   }
@@ -287,14 +353,22 @@ async function confirmPaid(m) {
   (prf.invoices || []).forEach(no => { const inv = st.invoices.find(i => i.no === no); if (inv) inv.status = 'Paid'; });
   logAudit({ entity: 'prf', target: prf.no, action: 'mark_paid', detail: money(prf.amount, prf.currency) });
   setUI({ proofMatch: null, proofManual: null });
-  toast(`Pembayaran dikonfirmasi — ${prf.no} ditandai PAID`);
+  toast({
+    id: `Pembayaran dikonfirmasi — ${prf.no} ditandai PAID`,
+    en: `Payment confirmed — ${prf.no} marked PAID`,
+    zh: `付款已确认 — ${prf.no} 已标记为 PAID`,
+  });
 }
 
 function historyCard(st) {
   return card([
-    h('div.card-head', [h('div.card-title', t('fn_history')), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, 'bukti tersimpan di Drive')]),
+    h('div.card-head', [h('div.card-title', t('fn_history')), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({ id: 'bukti tersimpan di Drive', en: 'proofs stored on Drive', zh: '凭证保存在 Drive' }))]),
     h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', [t('col_date'), 'PRF', t('col_supplier'), t('col_amount'), 'Metode', 'Bukti'].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c)))),
+      h('thead', h('tr', [
+        t('col_date'), 'PRF', t('col_supplier'), t('col_amount'),
+        tr({ id: 'Metode', en: 'Method', zh: '方式' }),
+        tr({ id: 'Bukti', en: 'Proof', zh: '凭证' }),
+      ].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c)))),
       h('tbody', st.payments.map(p => h('tr', [
         h('td.mono', fmtDate(p.date)), h('td.mono.cell-strong', p.prf), h('td', p.supplier),
         h('td.mono.r', money(p.amount, p.currency)), h('td', p.method), h('td', driveLink(p.driveUrl)),

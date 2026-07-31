@@ -2,7 +2,7 @@
 import { h, svg, wireDrop } from '../core/dom.js';
 import { ICONS } from '../core/icons.js';
 import { setState, getState } from '../core/store.js';
-import { t } from '../i18n/index.js';
+import { t, tr } from '../i18n/index.js';
 
 export function icon(name, size = 15, extra) { return svg(ICONS[name] || '', size, extra); }
 
@@ -15,8 +15,8 @@ export function btn(label, { variant = '', iconName, onClick, disabled, sm } = {
   ]);
 }
 
-export function iconBtn(iconName, { onClick, title, badge } = {}) {
-  return h('button.icon-btn', { onClick, title }, [
+export function iconBtn(iconName, { onClick, title, badge, class: cls } = {}) {
+  return h('button.icon-btn', { onClick, title, class: cls || null }, [
     icon(iconName, 15),
     badge ? h('span', { style: { position: 'absolute', top: '-5px', right: '-5px', background: 'var(--accent)', color: '#fff', fontSize: '9px', fontWeight: 700, borderRadius: '999px', minWidth: '15px', height: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' } }, String(badge)) : null,
   ]);
@@ -73,11 +73,16 @@ function text(v) { return v == null ? '—' : String(v); }
 // auditing a screen for buttons. `disabledNote` replaces the subtitle so the box
 // says why it is inert instead of just looking broken.
 export function dropzone({ title, sub, accept, multiple, onFiles, iconName = 'upload', compact, disabled, disabledNote }) {
+  const readOnlyNote = () => tr({
+    id: 'Akun ini cuma bisa memantau',
+    en: 'This account can only view',
+    zh: '此账号只能查看',
+  });
   const dz = h('div.dropzone', compact ? { style: { minHeight: '150px', padding: '20px' } } : { style: { minHeight: '220px' } }, [
     h('span.dz-icon', icon(disabled ? 'eye' : iconName, 20)),
     h('div', { style: { fontSize: '14px', fontWeight: 700, color: 'var(--text)' } }, title),
-    (disabled ? (disabledNote || 'Akun ini cuma bisa memantau') : sub)
-      ? h('div', { style: { fontSize: '12px', color: 'var(--text-3)' } }, disabled ? (disabledNote || 'Akun ini cuma bisa memantau') : sub)
+    (disabled ? (disabledNote || readOnlyNote()) : sub)
+      ? h('div', { style: { fontSize: '12px', color: 'var(--text-3)' } }, disabled ? (disabledNote || readOnlyNote()) : sub)
       : null,
   ]);
   if (disabled) {
@@ -182,7 +187,11 @@ export function searchInput({ id, value = '', placeholder, mono, onChange, delay
 // from this field (see suratJalan.js qtyInput for the same lesson). Never
 // disables anything — this only informs, per the "warn, don't block" rule.
 export function poNoField(f, key = 'no') {
-  const warn = h('div', { style: { fontSize: '10.5px', color: 'var(--st-amber-tx)', marginTop: '4px', display: 'none' } }, '⚠ No PO ini sudah pernah ada — pastikan tidak dobel.');
+  const warn = h('div', { style: { fontSize: '10.5px', color: 'var(--st-amber-tx)', marginTop: '4px', display: 'none' } }, tr({
+    id: '⚠ No PO ini sudah pernah ada — pastikan tidak dobel.',
+    en: '⚠ This PO number already exists — make sure it is not a duplicate.',
+    zh: '⚠ 此采购单号已存在 — 请确认没有重复。',
+  }));
   const input = h('input.input.mono', {
     value: f[key] || '',
     onInput: e => { f[key] = e.target.value; },

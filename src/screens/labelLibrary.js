@@ -1,6 +1,6 @@
 import { h, pickFiles } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
-import { t } from '../i18n/index.js';
+import { t, tr } from '../i18n/index.js';
 import { badge, btn, icon, driveLink, selectEl, inputEl, searchInput } from '../ui/components.js';
 import { uploadToDrive } from '../core/drive.js';
 import { insertDesign } from '../core/designsApi.js';
@@ -30,7 +30,7 @@ export function labelLibraryScreen() {
     // all: every role that could open the library could also add to it.
     can(st.user.role, 'designWrite')
       ? h('div.mla', btn(t('lib_upload'), { variant: 'primary', iconName: 'upload', onClick: () => uploadDesign() }))
-      : h('div.mla', badge('Read-only', 'gray', { iconName: 'eye' })),
+      : h('div.mla', badge(tr({ id: 'Read-only', en: 'Read-only', zh: '只读' }), 'gray', { iconName: 'eye' })),
   ]);
 
   const grid = h('div.lib-grid', designs.map(d => card(d)));
@@ -42,7 +42,11 @@ function card(d) {
   return h('div.lib-card', [
     h('div.lib-thumb', h('div.lib-label', { style: hasImg ? { background: 'none', border: 'none' } : {} }, hasImg
       ? h('img', { src: d.designUrl })
-      : [h('span', { style: { width: '100%', height: '20px', background: d.color || '#1B3A6B' } }), h('span.mono', { style: { flex: 1, display: 'flex', alignItems: 'center', fontSize: '8.5px', color: 'var(--text-3)', writingMode: 'vertical-rl' } }, 'label artwork · 79×254 mm')])),
+      : [h('span', { style: { width: '100%', height: '20px', background: d.color || '#1B3A6B' } }), h('span.mono', { style: { flex: 1, display: 'flex', alignItems: 'center', fontSize: '8.5px', color: 'var(--text-3)', writingMode: 'vertical-rl' } }, tr({
+        id: 'label artwork · 79×254 mm',
+        en: 'label artwork · 79×254 mm',
+        zh: '标签图稿 · 79×254 mm',
+      }))])),
     h('div.mono', { style: { fontSize: '11.8px', fontWeight: 700, color: 'var(--text)', marginTop: '9px' } }, d.erp),
     h('div.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, d.spec),
     h('div.row.gap8', { style: { marginTop: '7px' } }, [
@@ -50,7 +54,7 @@ function card(d) {
       h('span', { style: { fontSize: '10px', color: 'var(--text-3)' } }, d.market),
       h('div.mla', driveLink(d.driveUrl)),
     ]),
-    h('div', { style: { fontSize: '9.5px', color: 'var(--text-3)', marginTop: '5px' } }, `${d.ver} · ${d.updated}`),
+    h('div', { style: { fontSize: '9.5px', color: 'var(--text-3)', marginTop: '5px' } }, `${d.ver} · ${updatedText(d.updated)}`),
   ]);
 }
 function brandTone(b) { const m = { MATAROAD: 'navy', HARIMAU: 'accent', SOLARIS: 'amber', ARJUNA: 'green' }; return m[b] || 'gray'; }
@@ -69,7 +73,13 @@ async function uploadDesign() {
   // unlike designUrl below. Non-fatal: a render failure just leaves the
   // library card on its color-swatch fallback, same as no thumb at all.
   const thumb = await renderThumb(file).catch(() => '');
-  const erp = prompt('ERP code untuk desain ini?', 'LBL-NEW-XX') || 'LBL-NEW-' + Date.now().toString(36).slice(-3).toUpperCase();
+  // Default value 'LBL-NEW-XX' is the seed for a stored ERP code — prompt text
+  // only is translated.
+  const erp = prompt(tr({
+    id: 'ERP code untuk desain ini?',
+    en: 'ERP code for this design?',
+    zh: '此设计的 ERP 编码？',
+  }), 'LBL-NEW-XX') || 'LBL-NEW-' + Date.now().toString(36).slice(-3).toUpperCase();
   const st = getState();
   // color/designUrl are local-only display fields — not persisted (see
   // designsApi.js header comment): color is a swatch fallback derivable from
@@ -81,10 +91,30 @@ async function uploadDesign() {
     design.id = saved.id;
   } catch (e) {
     console.error('Supabase design insert failed', e);
-    toast('Desain tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e));
+    toast({
+      id: 'Desain tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e),
+      en: 'Design saved locally, but sync to the server failed: ' + (e.message || e),
+      zh: '设计已保存在本地，但同步到服务器失败：' + (e.message || e),
+    });
   }
   st.designs.unshift(design);
   logAudit({ entity: 'design', target: erp, action: 'upload', detail: file.name });
-  toast(up.placeholder ? `Desain ${erp} tersimpan (${t('drive_unconfigured')})` : `Desain ${erp} diupload ke Drive`);
+  toast(up.placeholder ? {
+    id: `Desain ${erp} tersimpan (${t('drive_unconfigured')})`,
+    en: `Design ${erp} saved (${t('drive_unconfigured')})`,
+    zh: `设计 ${erp} 已保存（${t('drive_unconfigured')}）`,
+  } : {
+    id: `Desain ${erp} diupload ke Drive`,
+    en: `Design ${erp} uploaded to Drive`,
+    zh: `设计 ${erp} 已上传至 Drive`,
+  });
   setState({});
+}
+
+// 'hari ini' is written onto the design row at creation and lives in the
+// database, so it is a value, not a label — translated on the way out only.
+function updatedText(v) {
+  const s = String(v == null ? '' : v);
+  if (/^hari ini$/i.test(s)) return tr({ id: s, en: 'today', zh: '今天' });
+  return s;
 }

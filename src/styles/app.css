@@ -165,3 +165,8 @@ textarea.input { resize:vertical; }
 .cell-edit { width:100%; background:var(--input); border:1px dashed var(--border-strong); border-radius:7px; padding:5px 8px; font-size:11px; font-family:'IBM Plex Mono',monospace; color:var(--text); outline:none; }
 .cell-edit:focus { border-color:var(--accent); border-style:solid; box-shadow:0 0 0 3px var(--accent-ring); }
 .cell-edit.filled { border-style:solid; border-color:var(--input-bd); }
+
+/* Refresh in flight. Several seconds of an unchanged screen otherwise reads as
+   a button that did nothing. */
+@keyframes mti-spin { to { transform: rotate(360deg); } }
+.icon-btn.spin svg { animation: mti-spin .9s linear infinite; transform-origin: 50% 50%; }
