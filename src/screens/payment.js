@@ -68,7 +68,21 @@ export function paymentScreen() {
   // a file here can't auto-fill invoice fields. It does carry the file itself
   // through as an attachment though: opens the same "Add Invoice" modal with
   // the dropped file pre-attached, uploaded to Drive (category "Invoice") on save.
-  const dz = dropzone({ title: t('pay_drop_inv'), sub: t('pay_faktur_reminder'), accept: '.pdf', iconName: 'upload', compact: true, onFiles: f => { toast({ id: 'File dilampirkan — lengkapi detail invoice', en: 'File attached — fill in the invoice details', zh: '文件已附加 — 请补全发票明细' }); openInvoiceModal(f[0]); } });
+  // MULTIPLE, but a QUEUE rather than a batch — and the difference is forced by
+  // the data, not by taste. There is no invoice PDF parser (unlike PO
+  // Converter's zcPoPdf.js), so the invoice number, currency, amount and due
+  // date cannot be read from the file; someone has to type them. Processing
+  // seven files "automatically" would mean seven invoices with blank numbers.
+  //
+  // So: drop the whole stack, and the Add Invoice modal walks through them one
+  // at a time carrying "invoice 3 / 7", each with its file already attached.
+  // The typing is the same; the twenty-one clicks of dropping them one by one
+  // are gone.
+  const dz = dropzone({
+    title: t('pay_drop_inv'), sub: t('pay_faktur_reminder'), accept: '.pdf', iconName: 'upload', compact: true,
+    multiple: true,
+    onFiles: f => startInvoiceQueue(Array.from(f || [])),
+  });
 
   const flow = card([h('div.card-pad', [
     h('div.row.gap8', [h('div.card-title', t('pay_flow')), readonly ? badge(t('pay_readonly'), 'gray', { iconName: 'eye' }) : null]),
@@ -253,6 +267,36 @@ function openInvoiceModal(file) {
   setUI({ invoiceModal: true, invoiceForm: { no: '', supplierId: (st.suppliers[0] || {}).id || '', poRef: '', currency: 'IDR', amount: 0, due: '', ppnPaid: false, file: file || null } });
 }
 
+// The dropped stack, minus the one currently in the modal. Kept in ui so a
+// re-render cannot lose it.
+function startInvoiceQueue(files) {
+  const pdfs = files.filter(f => /\.(pdf|jpe?g|png)$/i.test(f.name || ''));
+  const skipped = files.length - pdfs.length;
+  if (!pdfs.length) {
+    toast({ id: 'Tidak ada file invoice yang bisa dibaca di antara yang di-drop', en: 'No usable invoice files among those dropped', zh: '拖入的文件中没有可用的发票文件' });
+    return;
+  }
+  setUI({ invoiceQueue: pdfs.slice(1), invoiceQueueTotal: pdfs.length });
+  openInvoiceModal(pdfs[0]);
+  if (pdfs.length > 1 || skipped) {
+    toast({
+      id: `${pdfs.length} file — isi detailnya satu per satu${skipped ? `, ${skipped} file dilewati` : ''}`,
+      en: `${pdfs.length} files — fill in the details one at a time${skipped ? `, ${skipped} skipped` : ''}`,
+      zh: `${pdfs.length} 个文件 — 请逐个填写明细${skipped ? `，已跳过 ${skipped} 个` : ''}`,
+    });
+  }
+}
+
+// Move to the next file in the queue, or close. Used by Save and by Skip, so
+// there is exactly one place that decides what "next" means.
+function nextInvoiceInQueue() {
+  const q = getState().ui.invoiceQueue || [];
+  if (!q.length) { setUI({ invoiceModal: false, invoiceQueue: null, invoiceQueueTotal: 0 }); return false; }
+  setUI({ invoiceQueue: q.slice(1) });
+  openInvoiceModal(q[0]);
+  return true;
+}
+
 function invoiceModal() {
   const st = getState(); const f = st.ui.invoiceForm;
   const attachment = f.file
@@ -262,8 +306,22 @@ function invoiceModal() {
         btn(tr({ id: 'Hapus', en: 'Remove', zh: '移除' }), { sm: true, onClick: () => { f.file = null; setUI({}); } }),
       ])
     : dropzone({ title: tr({ id: 'Upload file invoice (opsional)', en: 'Upload invoice file (optional)', zh: '上传发票文件（可选）' }), sub: tr({ id: 'PDF/gambar scan invoice supplier', en: 'PDF or scanned image of the supplier invoice', zh: '供应商发票的 PDF 或扫描件' }), accept: '.pdf,.jpg,.jpeg,.png', iconName: 'upload', compact: true, onFiles: files => { f.file = files[0]; setUI({}); } });
+  // Position in the dropped stack. Without it there is no way to tell a queue
+  // of seven from a single file, and no way to know how many are still coming.
+  const total = st.ui.invoiceQueueTotal || 0;
+  const left = (st.ui.invoiceQueue || []).length;
+  const idx = total ? total - left : 0;
   return modal({
-    title: tr({ id: 'Add Invoice', en: 'Add Invoice', zh: '新增发票' }), width: 480, onClose: () => setUI({ invoiceModal: false }),
+    title: tr({ id: 'Add Invoice', en: 'Add Invoice', zh: '新增发票' }),
+    subtitle: total > 1 ? tr({
+      id: `Invoice ${idx} dari ${total}${f.file ? ' · ' + f.file.name : ''}`,
+      en: `Invoice ${idx} of ${total}${f.file ? ' · ' + f.file.name : ''}`,
+      zh: `第 ${idx} / ${total} 张发票${f.file ? ' · ' + f.file.name : ''}`,
+    }) : null,
+    width: 480,
+    // Closing abandons the WHOLE queue, not just this one. Anything already
+    // saved stays saved.
+    onClose: () => setUI({ invoiceModal: false, invoiceQueue: null, invoiceQueueTotal: 0 }),
     body: [
       field(tr({ id: 'No. Invoice', en: 'Invoice No.', zh: '发票号' }), inputEl({ value: f.no, mono: true, onInput: v => (f.no = v) })),
       field(t('col_supplier'), selectEl(st.suppliers.map(s => ({ value: s.id, label: s.name })), { value: f.supplierId, onChange: v => (f.supplierId = v) })),
@@ -275,7 +333,14 @@ function invoiceModal() {
       field(t('col_due'), h('input.input', { type: 'date', value: f.due, onInput: e => (f.due = e.target.value) })),
       field(tr({ id: 'Lampiran', en: 'Attachment', zh: '附件' }), attachment),
     ],
-    footer: [btn(t('cancel'), { onClick: () => setUI({ invoiceModal: false }) }), btn(t('save'), { variant: 'primary', onClick: () => saveInvoiceModal() })],
+    footer: [
+      btn(t('cancel'), { onClick: () => setUI({ invoiceModal: false, invoiceQueue: null, invoiceQueueTotal: 0 }) }),
+      // Skip exists because a dropped stack will contain the odd file that is
+      // not an invoice, and without it the only way past that file is to
+      // abandon the remaining six.
+      left ? btn(tr({ id: 'Lewati', en: 'Skip', zh: '跳过' }), { onClick: () => nextInvoiceInQueue() }) : null,
+      btn(left ? tr({ id: 'Simpan & lanjut', en: 'Save & next', zh: '保存并继续' }) : t('save'), { variant: 'primary', onClick: () => saveInvoiceModal() }),
+    ],
   });
 }
 
@@ -308,8 +373,11 @@ async function saveInvoiceModal() {
   if (!local.id) local.id = uid('inv'); // demo mode: insertInvoice no-ops, keep a local id
   st.invoices.unshift(local);
   logAudit({ entity: 'invoice', target: local.no, action: 'create', detail: `${supplier.name} · ${money(local.amount, local.currency)}` });
-  setUI({ invoiceModal: false });
-  toast({ id: `Invoice ${local.no} ditambahkan`, en: `Invoice ${local.no} added`, zh: `发票 ${local.no} 已添加` });
+  // Straight on to the next file in the stack; closes only when it runs out.
+  const more = nextInvoiceInQueue();
+  toast(more
+    ? { id: `Invoice ${local.no} ditambahkan — lanjut ke berikutnya`, en: `Invoice ${local.no} added — on to the next`, zh: `发票 ${local.no} 已添加 — 继续下一张` }
+    : { id: `Invoice ${local.no} ditambahkan`, en: `Invoice ${local.no} added`, zh: `发票 ${local.no} 已添加` });
 }
 
 // Shown only in PRF-generate-only mode (cania/visca) so it's obvious why the

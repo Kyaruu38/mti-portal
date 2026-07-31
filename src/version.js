@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v3.4';
+export const VERSION = 'v3.5';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v3.5', date: '31 Jul 2026',
+    what: {
+      id: 'Intake invoice terima banyak PDF sekaligus — modal jalan satu per satu dengan penanda "invoice 3 dari 7", ada tombol Lewati.',
+      en: 'Invoice intake accepts many PDFs at once — the modal walks through them showing "invoice 3 of 7", with a Skip button.',
+      zh: '发票录入支持一次拖入多个 PDF — 弹窗逐个处理并显示“第 3 / 7 张发票”，可跳过。',
+    },
+  },
   {
     v: 'v3.4', date: '31 Jul 2026',
     what: {
