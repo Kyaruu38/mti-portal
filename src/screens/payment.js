@@ -261,7 +261,7 @@ function invoiceTable(st, opts) {
   const body = h('tbody', st.invoices.map(inv => {
     const d = daysUntil(inv.due);
     const dueTone = inv.status === 'Paid' ? '' : d < 0 ? 'red' : d <= 1 ? 'amber' : '';
-    // Handing off to Wilbert is purchasing-side work (sekar's job), not a
+    // Advancing an invoice is purchasing-side work (sekar's job), not a
     // finance-stage mutation — not gated by the finance "readonly" cap.
     const canAdvance = !readonly && inv.status === 'Diterima Purchasing';
     return h('tr', { style: inv.status === 'Diterima Purchasing' && !inv.faktur && poPpnPaid(inv) ? { background: 'var(--st-amber-bg)' } : {} }, [
@@ -274,7 +274,13 @@ function invoiceTable(st, opts) {
       h('td', driveLink((inv.files && inv.files[0] && inv.files[0].url) || '')),
       h('td', h('div.row.gap8', [
         badge(trStage(inv.status), statusTone(inv.status)),
-        canAdvance ? btn(t('handed_wilbert'), { sm: true, onClick: () => handToWilbert(inv) }) : null,
+        // Named for what it GETS YOU, not for the internal step it performs.
+        // It used to read "Handed to Wilbert", which is true and useless: it
+        // describes a stage transition, and nobody comes to this screen wanting
+        // a stage transition. Kyaru hit "why is there no PRF?" twice in a row
+        // with this button sitting right there, unclicked — because nothing on
+        // it suggested the PRF was on the other side of it.
+        canAdvance ? btn(t('pay_create_prf'), { sm: true, variant: 'primary', onClick: () => advanceToPrf(inv) }) : null,
       ])),
     ]);
   }));
@@ -313,7 +319,15 @@ async function uploadFaktur(inv) {
   setState({});
 }
 
-async function handToWilbert(inv) {
+// Move the invoice to the stage where it becomes PRF-able, and then actually
+// take the user there — pointed at this supplier, this currency, this invoice
+// already ticked. A button called "Create PRF" that only changed a badge would
+// be a worse lie than the old label.
+//
+// The STAGE NAME is untouched: 'Diproses Wilbert' is stored in the database and
+// on every audit row, and renaming stored values to fix a button is how history
+// stops matching itself. Only the label changed.
+async function advanceToPrf(inv) {
   if (blockWrite('serahkan invoice ke Wilbert')) return;
   inv.status = 'Diproses Wilbert';
   try {
@@ -329,8 +343,29 @@ async function handToWilbert(inv) {
     return;
   }
   logAudit({ entity: 'invoice', target: inv.no, action: 'handed_wilbert' });
-  toast({ id: `${inv.no} → Diproses Wilbert`, en: `${inv.no} → Processed by Wilbert`, zh: `${inv.no} → Wilbert 处理中` });
+
+  // Point the PRF builder at this invoice and tick it. Without this the click
+  // "worked" and the screen looked identical except for one badge, which is
+  // exactly the dead end the rename is meant to remove.
+  const st = getState();
+  const sup = st.suppliers.find(x => x.name === inv.supplier);
+  setUI({
+    prfSupplierId: sup ? sup.id : st.ui.prfSupplierId,
+    prfCcy: inv.currency,
+    prfSel: { ...(st.ui.prfSel || {}), [inv.no]: true },
+  });
+  toast({
+    id: `${inv.no} siap dibuatkan PRF — sudah dicentang di PRF Builder di bawah`,
+    en: `${inv.no} is ready for a PRF — already ticked in the PRF Builder below`,
+    zh: `${inv.no} 已可开具付款申请单 — 下方付款申请单构建器中已勾选`,
+  });
   setState({});
+  // Scroll the builder into view. requestAnimationFrame so it runs after the
+  // re-render setState() just queued, otherwise this measures the old layout.
+  requestAnimationFrame(() => {
+    const card = [...document.querySelectorAll('.content .card')].find(c => /PRF Builder/i.test(c.innerText));
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
 }
 
 async function openInvoiceModal(file) {
@@ -630,6 +665,29 @@ function observeOnlyNote() {
   ])]);
 }
 
+// What to say when the builder has nothing to show. "No outstanding invoices"
+// is accurate and a dead end — it names the absence without naming the cause,
+// and the cause was usually one unclicked button on the table directly above.
+// So: if this supplier HAS invoices that simply have not been advanced yet,
+// say that instead, and count them.
+function emptyBuilderNote(st, supplierId) {
+  const sup = st.suppliers.find(s => s.id === supplierId);
+  const waiting = sup ? st.invoices.filter(i => i.supplier === sup.name && i.status === 'Diterima Purchasing') : [];
+  const style = { padding: '16px', fontSize: '12px', color: 'var(--text-3)' };
+  if (!waiting.length) {
+    return h('div', { style }, tr({
+      id: 'Belum ada invoice outstanding untuk supplier ini.',
+      en: 'No outstanding invoices for this supplier yet.',
+      zh: '该供应商暂无未付发票。',
+    }));
+  }
+  return h('div', { style: { ...style, color: 'var(--st-amber-tx)', fontWeight: 600 } }, tr({
+    id: `${waiting.length} invoice supplier ini masih di tahap 1 — klik "Buat PRF" di baris invoice-nya (tabel di atas) supaya bisa dipilih di sini.`,
+    en: `${waiting.length} invoice${waiting.length === 1 ? '' : 's'} for this supplier are still at stage 1 — press "Create PRF" on the invoice row above to bring them here.`,
+    zh: `该供应商有 ${waiting.length} 张发票仍处于第 1 阶段 — 请在上方发票行点击"开具付款申请单"后才能在此选择。`,
+  }));
+}
+
 function prfBuilder(st) {
   const ui = st.ui;
   const supplierId = ui.prfSupplierId || (st.suppliers[0] || {}).id;
@@ -674,11 +732,7 @@ function prfBuilder(st) {
       h('div.grow', [h('div.mono', { style: { fontSize: '12px', fontWeight: 600 } }, inv.no), h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, inv.poRef)]),
       h('span.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, tr({ id: 'due ' + fmtDate(inv.due), en: 'due ' + fmtDate(inv.due), zh: '到期 ' + fmtDate(inv.due) })),
       h('span.mono', { style: { fontSize: '12.5px', fontWeight: 600 } }, money(inv.amount, inv.currency)),
-    ])) : [h('div', { style: { padding: '16px', fontSize: '12px', color: 'var(--text-3)' } }, tr({
-      id: 'Tidak ada invoice outstanding untuk supplier ini (harus min. "Diproses Wilbert").',
-      en: 'No outstanding invoices for this supplier (they must be at least "Processed by Wilbert").',
-      zh: '该供应商暂无未付发票（状态须至少为“Wilbert 处理中”）。',
-    }))]),
+    ])) : [emptyBuilderNote(st, supplierId)]),
     h('div.row.gap14', { style: { padding: '13px 16px', background: 'var(--surface2)' } }, [
       h('div', { style: { fontSize: '12.5px', fontWeight: 800 } }, [h('span.mono', { style: { color: 'var(--accent-tx)' } }, String(chosen.length)), tr({
         id: ` invoice · Total `,

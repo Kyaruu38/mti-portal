@@ -239,7 +239,11 @@ export const DICT = {
   st_diterima_finance: { id: 'Diterima Finance', en: 'Received by Finance', zh: '财务已接收' },
   st_paid: { id: 'Paid', en: 'Paid', zh: '已付款' },
   st_diterima_purchasing: { id: 'Diterima Purchasing', en: 'Received by Purchasing', zh: '采购已接收' },
+  // Kept for the AUDIT TRAIL: 'handed_wilbert' is the stored action name on
+  // every history row already written, so this label still has to exist.
   handed_wilbert: { id: 'Sudah diserahkan ke Wilbert', en: 'Handed to Wilbert', zh: '已转交 Wilbert' },
+  // The BUTTON, named for what it gets you rather than for the stage it moves.
+  pay_create_prf: { id: 'Buat PRF', en: 'Create PRF', zh: '开具付款申请单' },
 
   // --- finance ---
   fn_overdue_banner: { id: 'invoice OVERDUE — diterima tapi belum dibayar melewati jatuh tempo', en: 'invoices OVERDUE — received but unpaid past due date', zh: '张发票逾期 — 已收货但超过到期日未付' },

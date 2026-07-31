@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v6.0';
+export const VERSION = 'v6.1';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v6.1', date: '31 Jul 2026',
+    what: {
+      id: 'Tombol "Sudah diserahkan ke Wilbert" jadi "Buat PRF" — dan sekarang benar-benar mengantar ke sana: invoice naik tahap, PRF Builder langsung tertuju ke supplier itu dengan invoicenya sudah tercentang.',
+      en: '"Handed to Wilbert" is now "Create PRF" — and actually takes you there: the invoice advances, and the PRF builder opens on that supplier with the invoice already ticked.',
+      zh: '“已转交 Wilbert”改为“开具付款申请单”，并真正带你过去：发票推进阶段，付款申请单构建器直接定位该供应商且已勾选该发票。',
+    },
+  },
   {
     v: 'v6.0', date: '31 Jul 2026',
     what: {
