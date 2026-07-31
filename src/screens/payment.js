@@ -3,7 +3,7 @@ import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.j
 import { blockWrite } from '../core/guard.js';
 import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, statusTone, driveLink } from '../ui/components.js';
-import { money, num, fmtDate, romanMonth, daysUntil, topDays, addDays } from '../core/format.js';
+import { money, num, fmtDate, romanMonth, daysUntil, topDays, addDays, ccyTone } from '../core/format.js';
 import { prfPaper } from '../ui/documents.js';
 import { downloadBlob } from '../core/dom.js';
 import { can } from '../auth/roles.js';
@@ -335,7 +335,12 @@ async function handToWilbert(inv) {
 
 async function openInvoiceModal(file) {
   const st = getState();
-  const form = { no: '', supplierId: (st.suppliers[0] || {}).id || '', poRef: '', currency: 'IDR', amount: 0, due: '', ppnPaid: false, file: file || null };
+  // Open in the selected supplier's billing currency. Starting every entry at
+  // IDR meant a USD supplier was one forgotten dropdown away from an invoice
+  // recorded in the wrong currency — and the amount would look perfectly
+  // reasonable either way.
+  const first = st.suppliers[0] || {};
+  const form = { no: '', supplierId: first.id || '', poRef: '', currency: first.currency || 'IDR', amount: 0, due: '', ppnPaid: false, file: file || null };
   // Open FIRST, fill after. Reading a PDF takes a moment, and a modal that
   // appears only once the file has been read looks like a click that did
   // nothing — on a queue of seven that happens seven times.
@@ -635,7 +640,12 @@ function prfBuilder(st) {
   const allOut = st.invoices.filter(i => i.supplier === supplier && i.status !== 'Paid' && i.status !== 'Diterima Purchasing' && !prfInvoiceNos.has(i.no));
   // A PRF is ONE currency only. Group by currency; user picks which when >1.
   const currencies = [...new Set(allOut.map(i => i.currency))];
-  const currency = (ui.prfCcy && currencies.includes(ui.prfCcy)) ? ui.prfCcy : (currencies[0] || 'IDR');
+  // With eligible invoices, the currency comes from them. With none, it comes
+  // from the supplier's master record — which is a real answer, not the 'IDR'
+  // literal this used to fall back to. A supplier who has never been billed in
+  // rupiah should never see IDR sitting in this box.
+  const supDefaultCcy = (st.suppliers.find(s => s.id === supplierId) || {}).currency || 'IDR';
+  const currency = (ui.prfCcy && currencies.includes(ui.prfCcy)) ? ui.prfCcy : (currencies[0] || supDefaultCcy);
   const outstanding = allOut.filter(i => i.currency === currency);
   const sel = ui.prfSel || {};                       // keyed by invoice.no
   const chosen = outstanding.filter(inv => sel[inv.no]);
@@ -648,15 +658,16 @@ function prfBuilder(st) {
       h('select.input', { style: { width: 'auto', minWidth: '260px' }, onChange: e => setUI({ prfSupplierId: e.target.value, prfSel: {}, prfCcy: null }) }, st.suppliers.map(s => h('option', { value: s.id, selected: s.id === supplierId }, s.name))),
       // Currency selector — enforces one currency per PRF (never mixed).
       //
-      // Shown only when there is something to detect it FROM. With no eligible
-      // invoice the fallback is 'IDR', and printing that next to "currency
-      // detected from invoices" claimed a detection that never happened —
-      // beside a USD invoice sitting one panel above, it read as though the
-      // portal had decided the invoice was rupiah.
-      ...(currencies.length === 0 ? [] : currencies.length > 1
+      // The caption says which of the two sources this came from. It used to
+      // read "detected from invoices" unconditionally, so with nothing eligible
+      // it announced a detection that never happened — and next to a USD
+      // invoice one panel above, the 'IDR' fallback read as though the portal
+      // had decided the invoice was rupiah.
+      ...(currencies.length > 1
         ? currencies.map(c => h('button.btn.btn-sm' + (c === currency ? '.btn-navy' : ''), { onClick: () => setUI({ prfCcy: c, prfSel: {} }) }, c))
         : [badge(currency, ccyTone(currency))]),
-      currencies.length ? h('span', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, t('pay_ccy_detected')) : null,
+      h('span', { style: { fontSize: '10.5px', color: 'var(--text-3)' } },
+        currencies.length ? t('pay_ccy_detected') : t('pay_ccy_from_master')),
     ]),
     ...(outstanding.length ? outstanding.map((inv) => h('div.row.gap12', { style: { padding: '10px 16px', borderBottom: '1px solid var(--border)', background: sel[inv.no] ? 'var(--sel-row)' : 'transparent', cursor: 'pointer' }, onClick: () => { const s = { ...sel }; s[inv.no] = !s[inv.no]; setUI({ prfSel: s }); } }, [
       h('input', { type: 'checkbox', checked: !!sel[inv.no], style: { accentColor: 'var(--accent)' } }),
@@ -680,7 +691,6 @@ function prfBuilder(st) {
   ]);
 }
 
-function ccyTone(c) { return { USD: 'accent', EUR: 'blue', CNY: 'amber', IDR: 'navy' }[c] || 'gray'; }
 
 // Takes the supplier OBJECT the builder already resolved by id.
 //

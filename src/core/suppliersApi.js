@@ -31,6 +31,9 @@ function fromRow(row) {
     contact: row.contact, phone: row.phone, bank: row.bank, acct: row.acct, bankAddress: row.bank_address,
     pkp: row.pkp, overseas: row.overseas, top: row.top,
     swift: row.swift || '',
+    // The currency this supplier bills in. Known from the agreement, not
+    // guessed from whatever invoice happened to arrive first.
+    currency: row.currency || 'IDR',
   };
 }
 
@@ -40,6 +43,7 @@ function toRow(sup) {
     contact: sup.contact || null, phone: sup.phone || null, bank: sup.bank || null, acct: sup.acct || null,
     bank_address: sup.bankAddress || null, pkp: !!sup.pkp, overseas: !!sup.overseas, top: sup.top || '30 hari',
     swift: sup.swift || null,
+    currency: sup.currency || 'IDR',
   };
 }
 

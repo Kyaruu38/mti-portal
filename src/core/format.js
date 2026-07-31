@@ -8,6 +8,9 @@ export function num(n, dp = 0) {
 // Supported currencies. IDR shows no decimals; USD/EUR/CNY show 2.
 export const CURRENCIES = ['IDR', 'USD', 'EUR', 'CNY'];
 export function ccyDecimals(ccy) { return ccy === 'IDR' ? 0 : 2; }
+// Badge colour per currency. Lives here rather than inside payment.js because
+// Master Data shows the same badge and two copies would drift apart.
+export function ccyTone(c) { return { USD: 'accent', EUR: 'blue', CNY: 'amber', IDR: 'navy' }[c] || 'gray'; }
 
 // ---------------------------------------------------------------------------
 // PPN — single source of truth.

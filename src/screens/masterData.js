@@ -3,7 +3,7 @@ import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.j
 import { blockWrite } from '../core/guard.js';
 import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, modal, field, inputEl, selectEl, toggle, searchInput } from '../ui/components.js';
-import { fmtDateTime, TOP_OPTIONS } from '../core/format.js';
+import { fmtDateTime, CURRENCIES, TOP_OPTIONS, ccyTone } from '../core/format.js';
 import { termsText } from '../core/statusText.js';
 import { can } from '../auth/roles.js';
 import { insertSupplier, updateSupplier } from '../core/suppliersApi.js';
@@ -54,14 +54,14 @@ function suppliersTab(st) {
     h('div.row.gap8', [
       h('div.card-title', t('md_suppliers')),
       h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
-        id: `${st.suppliers.length} aktif · perubahan rekening wajib review supervisor`,
-        en: `${st.suppliers.length} active · account changes require supervisor review`,
-        zh: `${st.suppliers.length} 家启用 · 账户变更须经主管审核`,
+        id: `${st.suppliers.length} aktif · rekening & mata uang dipakai langsung oleh PRF`,
+        en: `${st.suppliers.length} active · account and currency are what the PRF uses`,
+        zh: `${st.suppliers.length} 家启用 · 账户与币种即付款申请单所用`,
       })),
       h('div.mla.row.gap8', [searchInput({ id: 'md-q-sup', placeholder: tr({ id: 'Search supplier…', en: 'Search supplier…', zh: '搜索供应商…' }), value: st.ui.mdQ || '', onChange: v => setUI({ mdQ: v }) }), editable ? btn(t('md_add_supplier'), { variant: 'primary', iconName: 'plus', onClick: () => openSup() }) : null]),
     ]),
     h('div.card', h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', [t('col_supplier'), t('md_city'), t('md_contact'), t('md_bank'), 'PKP', 'TOP', t('col_action')].map(c => h('th', c)))),
+      h('thead', h('tr', [t('col_supplier'), t('md_city'), t('md_contact'), t('md_bank'), 'PKP', tr({ id: 'Valuta', en: 'Currency', zh: '币种' }), 'TOP', t('col_action')].map(c => h('th', c)))),
       h('tbody', rows.map(s => h('tr', [
         h('td.cell-strong', [s.name, s.nameZh ? h('span', { style: { color: 'var(--text-3)', fontWeight: 500 } }, ' ' + s.nameZh) : null]),
         h('td', s.city),
@@ -74,6 +74,7 @@ function suppliersTab(st) {
           s.swift ? h('div', { style: { color: 'var(--text-3)', fontSize: '10.5px', marginTop: '2px' } }, s.swift) : null,
         ]),
         h('td', s.overseas ? badge(tr({ id: 'Overseas', en: 'Overseas', zh: '境外' }), 'gray') : badge(s.pkp ? 'PKP' : 'Non-PKP', s.pkp ? 'green' : 'gray')),
+        h('td', badge(s.currency || 'IDR', ccyTone(s.currency || 'IDR'))),
         // Master data value, shown translated, stored exactly as chosen —
         // the <select> below still writes '30 hari'.
         h('td.mono', termsText(s.top)),
@@ -94,8 +95,9 @@ function openSup(existing) {
       ? { editingId: existing.id, name: existing.name, address: existing.address || '', contact: existing.contact || '', phone: existing.phone || '',
           bank: existing.bank || '', acct: existing.acct || '', bankAddress: existing.bankAddress || '',
           swift: existing.swift || '',
+          currency: existing.currency || 'IDR',
           pkp: !!existing.pkp, overseas: !!existing.overseas, top: existing.top || '30 hari' }
-      : { name: '', address: '', contact: '', phone: '', bank: '', acct: '', bankAddress: '', swift: '', pkp: true, overseas: false, top: '30 hari' },
+      : { name: '', address: '', contact: '', phone: '', bank: '', acct: '', bankAddress: '', swift: '', currency: 'IDR', pkp: true, overseas: false, top: '30 hari' },
   });
 }
 
@@ -160,7 +162,19 @@ function supModal() {
             h('div.grow', [h('div', { style: { fontSize: '12px', fontWeight: 700 } }, t('md_pkp')), h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, t('md_pkp_d'))]),
             toggle(f.pkp, v => { f.pkp = v; setState({}); }),
           ]),
-      field(t('md_top'), selectEl(TOP_OPTIONS, { value: f.top, onChange: v => (f.top = v) })),
+      // CURRENCY and TOP sit together because they are the same kind of fact:
+      // what was agreed with this supplier, known before any invoice arrives.
+      //
+      // Without it the Add Invoice form opened at IDR for everyone, so a USD
+      // supplier started every entry with the wrong currency, and the PRF
+      // builder printed an "IDR" badge for a supplier who has never been
+      // billed in rupiah. Neither was reading anything — IDR was just the
+      // fallback, and a fallback shown as a fact is how wrong numbers get
+      // typed with confidence.
+      h('div.row.gap14', [
+        h('div.grow', field(t('md_currency'), selectEl(CURRENCIES, { value: f.currency, onChange: v => (f.currency = v) }))),
+        h('div.grow', field(t('md_top'), selectEl(TOP_OPTIONS, { value: f.top, onChange: v => (f.top = v) }))),
+      ]),
       // No review-queue notice: there is no queue. What replaces it is a plain
       // statement of consequence — this account is what the bank transfer will
       // use, and the change is signed. Saying "goes to review" when nothing
@@ -202,6 +216,7 @@ async function saveSup() {
     const patch = {
       name: f.name, address: f.address, contact: f.contact, phone: f.phone,
       bank: f.bank, acct: f.acct, bankAddress: f.bankAddress, swift: f.swift || '',
+      currency: f.currency || 'IDR',
       pkp: f.pkp, overseas: !!f.overseas, top: f.top, city: (f.address || '').split(',').pop().trim(),
     };
 
@@ -260,7 +275,7 @@ async function saveSup() {
   // four pending_* columns into the INSERT, the database has never had them,
   // and PostgREST rejects the whole row over one unknown column — so NO
   // supplier could be created at all. The flag is gone with the queue.
-  const localSup = { id: uid('sup'), name: f.name, address: f.address, contact: f.contact, phone: f.phone, bank: f.bank, acct: f.acct, bankAddress: f.bankAddress, swift: f.swift || '', pkp: f.pkp, overseas: !!f.overseas, top: f.top, city: (f.address || '').split(',').pop().trim() };
+  const localSup = { id: uid('sup'), name: f.name, address: f.address, contact: f.contact, phone: f.phone, bank: f.bank, acct: f.acct, bankAddress: f.bankAddress, swift: f.swift || '', currency: f.currency || 'IDR', pkp: f.pkp, overseas: !!f.overseas, top: f.top, city: (f.address || '').split(',').pop().trim() };
   try {
     const saved = await insertSupplier(localSup);
     localSup.id = saved.id;

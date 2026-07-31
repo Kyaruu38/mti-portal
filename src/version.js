@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v5.2';
+export const VERSION = 'v6.0';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v6.0', date: '31 Jul 2026',
+    what: {
+      id: 'Mata uang tagihan sekarang tersimpan di master supplier. Form Add Invoice langsung terbuka di mata uang supplier itu, dan PRF Builder berhenti menampilkan "IDR" untuk supplier yang tidak pernah ditagih rupiah.',
+      en: 'Billing currency now lives on the supplier master. Add Invoice opens in that currency, and the PRF builder stops showing "IDR" for a supplier who is never billed in rupiah.',
+      zh: '结算币种现存于供应商主数据。新增发票直接以该币种打开，付款申请单不再对从未以印尼盾计价的供应商显示 IDR。',
+    },
+  },
   {
     v: 'v5.2', date: '31 Jul 2026',
     what: {

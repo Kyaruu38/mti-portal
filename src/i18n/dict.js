@@ -210,6 +210,7 @@ export const DICT = {
   pay_prf_builder_sub: { id: 'Pilih supplier → centang invoice outstanding → preview PRF bilingual', en: 'Pick supplier → check outstanding invoices → preview bilingual PRF', zh: '选择供应商 → 勾选未付发票 → 预览双语付款申请单' },
   pay_supplier: { id: 'Supplier', en: 'Supplier', zh: '供应商' },
   pay_ccy_detected: { id: 'currency terdeteksi dari invoice', en: 'currency detected from invoices', zh: '币种由发票自动识别' },
+  pay_ccy_from_master: { id: 'currency default supplier (belum ada invoice yang masuk syarat)', en: "supplier's default currency (no eligible invoice yet)", zh: '供应商默认币种（暂无符合条件的发票）' },
   pay_preview_prf: { id: 'Preview PRF', en: 'Preview PRF', zh: '预览付款申请单' },
   pay_continue_anyway: { id: 'Lanjut tanpa faktur', en: 'Continue anyway', zh: '仍然继续' },
   pay_upload_faktur: { id: 'Upload Faktur', en: 'Upload Tax Invoice', zh: '上传税票' },
@@ -277,6 +278,7 @@ export const DICT = {
   md_pkp: { id: 'Status PKP', en: 'PKP Status', zh: '增值税一般纳税人' },
   md_pkp_d: { id: 'Pengusaha Kena Pajak — wajib faktur pajak', en: 'Taxable enterprise — tax invoice required', zh: '应税企业 — 需开税票' },
   md_top: { id: 'Default TOP (Terms of Payment)', en: 'Default TOP (Terms of Payment)', zh: '默认付款账期' },
+  md_currency: { id: 'Mata Uang Tagihan', en: 'Billing Currency', zh: '结算币种' },
   // Replaces md_bank_review_note. The old copy promised a supervisor review
   // that no longer exists; this one states what the value actually does.
   md_bank_live_note: { id: 'Rekening ini yang dipakai PRF & transfer. Setiap perubahan tercatat di History.', en: 'This account is what the PRF and the transfer use. Every change is recorded in History.', zh: '此账户即付款申请单与转账所用账户。所有变更均记入历史。' },
