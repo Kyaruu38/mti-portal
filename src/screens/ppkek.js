@@ -12,7 +12,17 @@ import { can } from '../auth/roles.js';
 import { blockWrite } from '../core/guard.js';
 
 // Report/register column order (2-tab LDP/TLDDP layout, from PPKEK DECEMBER.xlsx).
-const REPORT_COLS = ['Nopen', 'PPKEK Date', 'Contract No.', 'Suplier Name', 'USD', 'IDR', 'Jalur', 'SO', 'JO', 'Costing', 'PO ERP INA NO.', 'PPKEK Status', 'Tanggal Aktual Diterima', '__ROWID'];
+// Column order copied from PPKEK DECEMBER.xlsx, the register Kyaru actually
+// keeps. ONE ROW PER ITEM, not per document — nopen 12933 appears twice there
+// because that shipment carried two goods lines. A document with no readable
+// item lines still produces exactly one row, so nothing disappears from the
+// register just because the goods block failed to parse.
+const REPORT_COLS = [
+  'Nopen', 'PPKEK Date', 'ETA', 'Contract No.', 'Item Name', 'Item Code',
+  'Suplier Name', 'Address', 'Invoice No.', 'Unit Cost', 'Total Cost', 'PPN',
+  'Unit', 'PL No', 'PPKEK No.', 'PPKEK Status', 'SO', 'JO', 'Costing',
+  'PO ERP INA NO.', 'Tanggal Aktual Diterima', '__ROWID',
+];
 
 export function ppkekScreen() {
   const st = getState(); const ui = st.ui;
@@ -55,12 +65,18 @@ function extractStatus(ex) {
 }
 
 function parsedInfo(p) {
+  // Sticky duplicate warning — stays until the next import, unlike the toast.
+  const dupe = getState().ui.pkDupe;
   return card([
     h('div.card-pad', [
+      dupe ? h('div', { style: { background: 'var(--st-amber-bg)', color: 'var(--st-amber-tx)', border: '1px solid var(--st-amber-tx)', borderRadius: '8px', padding: '9px 12px', marginBottom: '11px', fontSize: '11.5px', fontWeight: 600 } },
+        dupe.mode === 'ulang'
+          ? `⚠ Nopen ${dupe.nopen} SUDAH PERNAH DISUBMIT — baris lama diperbarui, tidak ditambah baru. SO/JO/Costing/Status tidak diubah.`
+          : `⚠ Nopen ${dupe.nopen} sudah ada di register (dimasukkan sesi lain). Refresh untuk melihatnya.`) : null,
       h('div.row.gap8', { style: { marginBottom: '11px' } }, [badge('PARSED', 'green'), h('span.mono', { style: { fontSize: '12.5px', fontWeight: 700 } }, `Nopen ${p.nopen || '—'}`), h('div.mla.row.gap8', [badge(p.asal, 'navy'), badge('Fasilitas KEK', 'green')])]),
       h('div.grid.g2', { style: { gap: '9px 16px' } }, [
         kv('Tgl Pendaftaran', p.ppkekDate || '—'), kv('Supplier', p.supplier || '—'),
-        kv('Kurs NDPBM', p.kursNDPBM ? num(p.kursNDPBM) : '—'), kv('Nilai ' + p.valuta, p.valueForeign ? num(p.valueForeign, 2) : '—'),
+        kv('Kurs NDPBM', p.kursNDPBM ? num(p.kursNDPBM, 2) : '—'), kv('Nilai ' + p.valuta, p.valueForeign ? num(p.valueForeign, 2) : '—'),
         kv('Nilai IDR', p.valueIDR ? num(p.valueIDR) : '—'), kv('No. Kontrak', p.contractNo || '—'),
       ]),
       h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', borderTop: '1px dashed var(--border)', marginTop: '11px', paddingTop: '9px' } }, 'Nilai IDR = CIF × kurs NDPBM tanggal pendaftaran'),
@@ -210,9 +226,26 @@ async function handleArchive(file) {
       }
     }
     setUI({ pkExtract: { name: file.name, format, files }, pkParsed: parsed });
-    if (parsed && parsed.nopen) await addRegisterRow(parsed, folder, fileRecords);
+    let outcome = null;
+    if (parsed && parsed.nopen) outcome = await addRegisterRow(parsed, folder, fileRecords);
+    // Flagged on the parse panel too, because a toast lasts 3.6 seconds and the
+    // one thing you need to know here — "this document was already submitted" —
+    // must still be on screen after you look away. Previously the extraction
+    // toast below simply replaced whatever addRegisterRow had said, so a
+    // re-import looked identical to a first import: nothing was added and
+    // nothing explained why.
+    setUI({ pkDupe: outcome && outcome.mode !== 'baru' ? outcome : null });
     logAudit({ entity: 'ppkek', target: file.name, action: 'import', detail: `${files.length} docs (${format})` });
-    toast(`Ekstraksi ${format.toUpperCase()} selesai — ${files.length} dokumen`);
+    // ONE toast, composed last, so nothing overwrites the part that matters.
+    if (outcome && outcome.mode === 'ulang') {
+      toast(`Nopen ${outcome.nopen} SUDAH PERNAH DISUBMIT — baris diperbarui, tidak ditambah. ${outcome.docs} dokumen di Drive · SO/JO/Costing tidak diubah`);
+    } else if (outcome && outcome.mode === 'balapan') {
+      toast(`Nopen ${outcome.nopen} sudah ada di register (dimasukkan sesi lain) — refresh untuk melihatnya`);
+    } else if (outcome) {
+      toast(`Nopen ${outcome.nopen} masuk register · ${outcome.docs} dokumen ke Drive`);
+    } else {
+      toast(`Ekstraksi ${format.toUpperCase()} selesai — ${files.length} dokumen, tapi nopen tidak terbaca sehingga tidak masuk register`);
+    }
   } catch (e) {
     if (e.code === 'RAR_UNSUPPORTED') { toast('RAR belum bisa diekstrak di browser ini — unzip manual atau gunakan .zip'); return; }
     console.error(e); toast('Ekstraksi gagal: ' + e.message);
@@ -248,7 +281,11 @@ async function addRegisterRow(p, folder, files) {
     nopen: p.nopen, date: p.ppkekDate || new Date(), eta: p.eta || '', supplier: p.supplier || '—',
     address: p.address || '', invoiceNo: p.invoiceNo || '', plNo: p.plNo || '',
     usd: p.valuta === 'USD' ? p.valueForeign : 0, idr: p.valueIDR, jalur: p.asal, contractNo: p.contractNo,
-    kurs: p.kursNDPBM, so: '', jo: '', costing: '', poErpIna: '', status: 'Open',
+    kurs: p.kursNDPBM, ppkekNo: p.ppkekNo || '',
+    // Item lines were parsed and thrown away at this exact point. The register
+    // workbook is ONE ROW PER ITEM, so without them the export can never match.
+    items: p.items || [],
+    so: '', jo: '', costing: '', poErpIna: '', status: 'Open',
     driveFolder: folder, files: files || [],
   };
   try {
@@ -260,8 +297,7 @@ async function addRegisterRow(p, folder, files) {
     // and our write. Not an error the user did anything about — the document IS
     // in the register, just not in the copy this tab is holding.
     if (duplicateNopen(e)) {
-      toast(`Nopen ${local.nopen} sudah ada di register (baru saja dimasukkan sesi lain) — refresh untuk melihatnya.`);
-      return;
+      return { mode: 'balapan', nopen: local.nopen, docs: (files || []).length };
     }
     toast('PPKEK terparse tapi gagal simpan ke server: ' + (e.message || e));
     return;
@@ -270,7 +306,7 @@ async function addRegisterRow(p, folder, files) {
   const st = getState();
   st.ppkek.unshift(local);
   setState({});
-  toast(`Nopen ${local.nopen} masuk register · ${(files || []).length} dokumen ke Drive`);
+  return { mode: 'baru', nopen: local.nopen, docs: (files || []).length };
 }
 
 // Re-import of a nopen already in the register.
@@ -289,6 +325,8 @@ async function updateRegisterRow(row, p, folder, files) {
     plNo: p.plNo || row.plNo, contractNo: p.contractNo || row.contractNo,
     usd: p.valuta === 'USD' ? p.valueForeign : row.usd,
     idr: p.valueIDR || row.idr, kurs: p.kursNDPBM || row.kurs,
+    ppkekNo: p.ppkekNo || row.ppkekNo,
+    items: (p.items && p.items.length) ? p.items : row.items,
     jalur: p.asal || row.jalur, driveFolder: folder || row.driveFolder, files: merged,
   };
   Object.assign(row, patch);
@@ -301,12 +339,27 @@ async function updateRegisterRow(row, p, folder, files) {
     return;
   }
   setState({});
-  toast(`Nopen ${row.nopen} SUDAH ADA — baris diperbarui, tidak ditambah. ${merged.length} dokumen di Drive · SO/JO/Costing tidak diubah`);
+  return { mode: 'ulang', nopen: row.nopen, docs: merged.length };
 }
 
 async function exportRegister() {
   const st = getState();
-  const toAoa = (rows) => [REPORT_COLS, ...rows.map(r => [r.nopen, fmtDate(r.date), r.contractNo || '-', r.supplier, r.usd || '', r.idr, r.jalur, r.so, r.jo, r.costing, r.poErpIna, r.status, r.receivedDate || '', r.id])];
+  // Header fields repeat on every one of a document's item rows — that is how
+  // the workbook does it, and it is what makes the sheet filterable per item.
+  const itemRows = (r) => {
+    const items = (r.items && r.items.length) ? r.items : [null];
+    return items.map(it => [
+      r.nopen, fmtDate(r.date), r.eta ? fmtDate(r.eta) : '', r.contractNo || '-',
+      it ? (it.name || '') : '', it ? (it.code || '') : '',
+      r.supplier, r.address || '', r.invoiceNo || '',
+      it ? (it.price || '') : '', it ? (it.amount || '') : '',
+      r.ppn || '',
+      it ? [it.qty || '', it.unit || ''].filter(Boolean).join(' ') : '',
+      r.plNo || '', r.ppkekNo || '', r.status,
+      r.so, r.jo, r.costing, r.poErpIna, r.receivedDate || '', r.id,
+    ]);
+  };
+  const toAoa = (rows) => [REPORT_COLS, ...rows.flatMap(itemRows)];
   const ldp = st.ppkek.filter(r => r.jalur === 'LDP');
   const tlddp = st.ppkek.filter(r => r.jalur === 'TLDDP');
   const hyperlinks = [];

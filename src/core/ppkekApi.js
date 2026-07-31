@@ -19,6 +19,7 @@ function fromRow(row) {
     usd: row.usd || 0, idr: row.idr || 0, kurs: row.kurs || 0,
     jalur: row.jalur || 'LDP', so: row.so || '', jo: row.jo || '', costing: row.costing || '',
     poErpIna: row.po_erp_ina || '', status: row.status || 'Open', receivedDate: row.received_date || '',
+    ppkekNo: row.ppkek_no || '', items: row.items || [],
     driveFolder: row.drive_folder || '', files,
     driveUrl: (realFile || files[0] || {}).url || '',
   };
@@ -68,6 +69,7 @@ function toRow(r) {
     jalur: r.jalur === 'TLDDP' ? 'TLDDP' : 'LDP',
     so: r.so || '', jo: r.jo || '', costing: r.costing || '', po_erp_ina: r.poErpIna || '',
     status: r.status || 'Open', received_date: toIsoDate(r.receivedDate),
+    ppkek_no: r.ppkekNo || null, items: r.items || [],
     drive_folder: r.driveFolder || null, files: r.files || [],
   };
 }
