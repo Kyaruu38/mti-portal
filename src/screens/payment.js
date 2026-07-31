@@ -675,15 +675,17 @@ function prfModal() {
     body: [
       h('div', { style: { background: 'var(--bg)', padding: '20px', borderRadius: '10px' } }, prfPaper(d, d.supplier, d.lines)),
       h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, [icon('warn', 11), ' ', t('prf_bank_from_master'), ' · ', t('prf_desc_hint')]),
-      // The printed block always uses the APPROVED account (masterData.js stages
-      // changes in pending_* until wilbert approves). This flags the remaining
-      // case: a supplier whose account has never been reviewed at all.
-      (d.supplier && d.supplier.bankChangePending)
+      // A warning used to sit here for an account "not yet reviewed". With the
+      // review queue removed there is no such state — every account on file IS
+      // the live one. What still deserves a warning is the case that actually
+      // costs money: no account on file at all, which prints a payment request
+      // with nowhere to send it.
+      (d.supplier && !d.supplier.acct)
         ? h('div.cfg-banner', { style: { marginTop: '8px' } }, [icon('warn', 14),
             tr({
-              id: `Rekening ${d.supplier.name} belum direview supervisor — cek ke Master Data sebelum PRF ini dikirim.`,
-              en: `The bank account of ${d.supplier.name} has not been reviewed by a supervisor — check Master Data before sending this PRF.`,
-              zh: `${d.supplier.name} 的银行账户尚未经主管审核 — 发送本付款申请单前请先到主数据核对。`,
+              id: `${d.supplier.name} belum punya nomor rekening di Master Data — PRF ini kecetak tanpa tujuan transfer.`,
+              en: `${d.supplier.name} has no account number in Master Data — this PRF will print with no transfer destination.`,
+              zh: `${d.supplier.name} 在主数据中没有银行账号 — 本付款申请单将没有收款账户。`,
             })])
         : null,
     ],

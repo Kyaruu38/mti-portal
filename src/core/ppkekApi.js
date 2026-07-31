@@ -95,37 +95,58 @@ export async function fetchPpkek() {
   return data.map(fromRow);
 }
 
-// Columns this app writes that a not-yet-migrated database may not have. Each
-// one is ADDITIVE: losing it costs a field, not the row.
-const OPTIONAL_COLUMNS = ['valuta'];
-
 // PostgREST answers an unknown column with PGRST204 / "could not find the
 // 'valuta' column of 'ppkek' in the schema cache" and rejects the WHOLE insert.
 // So shipping a column before its migration has run does not degrade the
-// feature — it stops every PPKEK import dead, archive extracted, files in
+// feature — it stops every PPKEK import dead: archive extracted, files in
 // Drive, no register row. That is the exact shape of the ETA bug, and it was
 // silent from outside.
+//
+// This used to strip a HARD-CODED list of columns, which only ever survived the
+// mistake it already knew about. On the suppliers table the same pattern failed
+// exactly as hard as no guard at all: it dropped the column it expected while
+// the database was missing a different one. So read the name out of the error
+// and drop THAT, then try again — whatever the database does have still lands.
+const COL_RE = /could not find the '?([a-z0-9_]+)'? column|column "?([a-z0-9_]+)"? .* does not exist/i;
+
 function missingColumn(e) {
-  const msg = `${(e && e.message) || ''} ${(e && e.details) || ''}`.toLowerCase();
+  const msg = `${(e && e.message) || ''} ${(e && e.details) || ''}`;
   if (e && e.code === 'PGRST204') return true;
-  return /could not find the .* column|column .* does not exist|schema cache/.test(msg);
+  return /could not find the .* column|column .* does not exist|schema cache/i.test(msg);
+}
+
+function namedColumn(e) {
+  const m = `${(e && e.message) || ''} ${(e && e.details) || ''}`.match(COL_RE);
+  return m ? (m[1] || m[2]) : null;
+}
+
+// Run `write(payload)` and, each time the server rejects an unknown column,
+// drop that column and retry. Throws the LAST error if it never succeeds, so a
+// real failure (duplicate nopen, RLS) still surfaces instead of being swallowed.
+async function writeTolerant(write, row) {
+  let payload = { ...row };
+  let last;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (!Object.keys(payload).length) return null;
+    const res = await write(payload);
+    if (!res.error) return res.data;
+    last = res.error;
+    if (!missingColumn(res.error)) break;
+    const col = namedColumn(res.error);
+    if (!col || !(col in payload)) break;
+    console.warn(`ppkek: kolom '${col}' belum ada di database — dilewati, sisanya tetap disimpan.`);
+    delete payload[col];
+  }
+  throw last;
 }
 
 export async function insertPpkek(r) {
   if (!isConfigured()) return r;
   const c = await getClient();
   if (!c) throw new Error('Supabase client unavailable');
-  const row = toRow(r);
-  let { data, error } = await c.from('ppkek').insert(row).select().single();
-  if (error && missingColumn(error)) {
-    // Retry without the optional columns. The document still lands in the
-    // register — just without the currency code until the migration runs.
-    console.warn('ppkek: kolom opsional belum ada di database, insert diulang tanpa itu.', error.message);
-    const trimmed = { ...row };
-    for (const k of OPTIONAL_COLUMNS) delete trimmed[k];
-    ({ data, error } = await c.from('ppkek').insert(trimmed).select().single());
-  }
-  if (error) throw error;
+  // The document still lands in the register even on an un-migrated database —
+  // just without whichever field that database cannot hold yet.
+  const data = await writeTolerant(p => c.from('ppkek').insert(p).select().single(), toRow(r));
   return fromRow(data);
 }
 
@@ -170,15 +191,7 @@ export async function updatePpkek(id, patch) {
     row[col] = DATE_FIELDS.has(k) ? toIsoDate(patch[k]) : patch[k];
   }
   if (!Object.keys(row).length) return;
-  let { error } = await c.from('ppkek').update(row).eq('id', id);
-  if (error && missingColumn(error)) {
-    console.warn('ppkek: kolom opsional belum ada di database, update diulang tanpa itu.', error.message);
-    const trimmed = { ...row };
-    for (const k of OPTIONAL_COLUMNS) delete trimmed[k];
-    if (!Object.keys(trimmed).length) return;
-    ({ error } = await c.from('ppkek').update(trimmed).eq('id', id));
-  }
-  if (error) throw error;
+  await writeTolerant(p => c.from('ppkek').update(p).eq('id', id), row);
 }
 
 // ---------------------------------------------------------------------------

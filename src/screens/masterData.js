@@ -63,21 +63,15 @@ function suppliersTab(st) {
     h('div.card', h('div.tbl-wrap', h('table.tbl', [
       h('thead', h('tr', [t('col_supplier'), t('md_city'), t('md_contact'), t('md_bank'), 'PKP', 'TOP', t('col_action')].map(c => h('th', c)))),
       h('tbody', rows.map(s => h('tr', [
-        h('td.cell-strong', [s.name, s.nameZh ? h('span', { style: { color: 'var(--text-3)', fontWeight: 500 } }, ' ' + s.nameZh) : null, s.bankChangePending ? h('span', { style: { marginLeft: '8px' } }, badge(t('md_bank_change_review'), 'amber')) : null]),
+        h('td.cell-strong', [s.name, s.nameZh ? h('span', { style: { color: 'var(--text-3)', fontWeight: 500 } }, ' ' + s.nameZh) : null]),
         h('td', s.city),
         h('td', `${s.contact} · ${s.phone}`),
-        // Always shows the APPROVED account (what a PRF would print today).
-        // A staged change is listed underneath, clearly marked as not yet active.
+        // One account, live, and it is exactly what a PRF prints today. There
+        // is no second "proposed" line any more — see suppliersApi.js for why
+        // the staging layer was removed.
         h('td.mono', [
           h('div', `${s.bank || '—'} ${s.acct || ''}`),
-          s.bankChangePending
-            ? h('div', { style: { color: 'var(--st-amber-tx)', fontWeight: 600, fontSize: '10.5px', marginTop: '2px' } },
-                tr({
-                  id: `usulan: ${s.pendingBank || '—'} ${s.pendingAcct || ''} (belum aktif)`,
-                  en: `proposed: ${s.pendingBank || '—'} ${s.pendingAcct || ''} (not active yet)`,
-                  zh: `变更申请：${s.pendingBank || '—'} ${s.pendingAcct || ''}（尚未生效）`,
-                }))
-            : null,
+          s.swift ? h('div', { style: { color: 'var(--text-3)', fontSize: '10.5px', marginTop: '2px' } }, s.swift) : null,
         ]),
         h('td', s.overseas ? badge(tr({ id: 'Overseas', en: 'Overseas', zh: '境外' }), 'gray') : badge(s.pkp ? 'PKP' : 'Non-PKP', s.pkp ? 'green' : 'gray')),
         // Master data value, shown translated, stored exactly as chosen —
@@ -97,11 +91,9 @@ function openSup(existing) {
   setUI({
     supModal: true,
     supForm: existing
-      // Prefill with the STAGED account when one is waiting, so editing a
-      // supplier mid-review doesn't silently revert someone's pending proposal.
       ? { editingId: existing.id, name: existing.name, address: existing.address || '', contact: existing.contact || '', phone: existing.phone || '',
-          bank: existing.pendingBank || existing.bank || '', acct: existing.pendingAcct || existing.acct || '', bankAddress: existing.pendingBankAddress || existing.bankAddress || '',
-          swift: existing.pendingSwift || existing.swift || '',
+          bank: existing.bank || '', acct: existing.acct || '', bankAddress: existing.bankAddress || '',
+          swift: existing.swift || '',
           pkp: !!existing.pkp, overseas: !!existing.overseas, top: existing.top || '30 hari' }
       : { name: '', address: '', contact: '', phone: '', bank: '', acct: '', bankAddress: '', swift: '', pkp: true, overseas: false, top: '30 hari' },
   });
@@ -125,9 +117,8 @@ function supModal() {
       // disabled box would still say "you are missing something".
       //
       // It sits directly under Bank Address because it is part of the same
-      // instruction, and it goes through the SAME supervisor review as the
-      // account number — a payment routed to the right account number at the
-      // wrong SWIFT still lands in the wrong bank.
+      // instruction — a payment routed to the right account number at the wrong
+      // SWIFT still lands in the wrong bank, so the two are one thought.
       f.overseas ? field(tr({ id: 'SWIFT / BIC', en: 'SWIFT / BIC', zh: 'SWIFT / BIC' }), (() => {
         // SWIFT codes are upper case by definition (ISO 9362). Stored upper via
         // toUpperCase, and DISPLAYED upper via CSS rather than by rewriting the
@@ -170,7 +161,11 @@ function supModal() {
             toggle(f.pkp, v => { f.pkp = v; setState({}); }),
           ]),
       field(t('md_top'), selectEl(TOP_OPTIONS, { value: f.top, onChange: v => (f.top = v) })),
-      h('div.cfg-banner', [icon('warn', 14), t('md_bank_review_note')]),
+      // No review-queue notice: there is no queue. What replaces it is a plain
+      // statement of consequence — this account is what the bank transfer will
+      // use, and the change is signed. Saying "goes to review" when nothing
+      // reviews it would be worse than saying nothing.
+      h('div.cfg-banner', [icon('warn', 14), t('md_bank_live_note')]),
     ],
     footer: [btn(t('cancel'), { onClick: () => setUI({ supModal: false }) }), btn(t('md_save_supplier'), { variant: 'primary', onClick: () => saveSup() })],
   });
@@ -183,45 +178,32 @@ async function saveSup() {
   if (f.editingId) {
     const sup = st.suppliers.find(s => s.id === f.editingId);
     if (!sup) { setUI({ supModal: false }); return; }
-    // Compare the form against the STAGED values when a proposal exists,
-    // otherwise against the live ones. Comparing only against live meant:
-    //   * retyping the ORIGINAL account read as "no change", leaving the bad
-    //     proposal queued with no way to withdraw it; and
-    //   * editing just a phone number on a supplier with a pending proposal
-    //     re-fired a bank_change audit entry.
-    const stagedBank = sup.pendingBank || sup.bank;
-    const stagedAcct = sup.pendingAcct || sup.acct;
-    const stagedAddr = sup.pendingBankAddress || sup.bankAddress;
-    const stagedSwift = sup.pendingSwift || sup.swift || '';
-    const matchesApproved = sup.bank === f.bank && sup.acct === f.acct && sup.bankAddress === f.bankAddress && (sup.swift || '') === (f.swift || '');
-    const matchesStaged = stagedBank === f.bank && stagedAcct === f.acct && stagedAddr === f.bankAddress && stagedSwift === (f.swift || '');
-    // Typing the approved account back in WITHDRAWS a pending proposal.
-    const withdraw = !!sup.bankChangePending && matchesApproved;
-    const bankChanged = !matchesApproved && !(sup.bankChangePending && matchesStaged);
-    const before = `${sup.bank} ${sup.acct}`;
-
-    // ANTI-FRAUD: a changed account is STAGED, not applied. bank/acct/
-    // bankAddress keep their approved values until wilbert approves, so
-    // prfPaper() (ui/documents.js) cannot print an unreviewed account.
+    // The account is written LIVE. What used to happen here was a staging
+    // dance — the new account sat in pending_* until a supervisor approved it —
+    // and it is gone at the owner's instruction; suppliersApi.js records why.
     //
-    // This used to Object.assign the new bank/acct straight onto the live
-    // supplier and merely raise a `bankChangePending` flag that nothing read —
-    // so a PRF built one minute later already carried the new account, and the
-    // "Reject" button only fired a toast.
+    // The comparison stays, because the audit trail still needs to know whether
+    // this save touched the payment instruction or just a phone number. A
+    // `bank_change` entry on every phone edit would make the log unreadable,
+    // and an unreadable log is the same as no log.
+    // Field by field, so the audit line can name WHICH part moved. A summary
+    // built from bank+acct alone reported "HSBC 004-123 → HSBC 004-123" when
+    // only the SWIFT changed — an entry that says a payment instruction was
+    // edited while showing two identical strings is worse than no entry: it
+    // reads as a no-op and gets skimmed past. With no approval gate left, this
+    // line is the whole control, so it has to be legible on its own.
+    const BANK_FIELDS = [
+      ['bank', 'Bank'], ['acct', 'No. Rek'], ['bankAddress', 'Alamat Bank'], ['swift', 'SWIFT'],
+    ];
+    const moved = BANK_FIELDS.filter(([k]) => (sup[k] || '') !== (f[k] || ''));
+    const bankChanged = moved.length > 0;
+    const before = moved.map(([k, label]) => `${label}: ${sup[k] || '—'} → ${f[k] || '—'}`).join(' · ');
+
     const patch = {
       name: f.name, address: f.address, contact: f.contact, phone: f.phone,
+      bank: f.bank, acct: f.acct, bankAddress: f.bankAddress, swift: f.swift || '',
       pkp: f.pkp, overseas: !!f.overseas, top: f.top, city: (f.address || '').split(',').pop().trim(),
     };
-    if (withdraw) {
-      patch.pendingBank = ''; patch.pendingAcct = ''; patch.pendingBankAddress = ''; patch.pendingSwift = '';
-      patch.bankChangePending = false;
-    } else if (bankChanged) {
-      patch.pendingBank = f.bank;
-      patch.pendingAcct = f.acct;
-      patch.pendingBankAddress = f.bankAddress;
-      patch.pendingSwift = f.swift || '';
-      patch.bankChangePending = true;
-    }
 
     // Snapshot for rollback: nothing local may diverge from the server.
     const snapshot = { ...sup };
@@ -240,12 +222,11 @@ async function saveSup() {
       // in-memory record — and a PRF printed in that session showed an account
       // the server had refused.
       console.error('Supabase supplier sync failed', e);
-      // Object.assign cannot DELETE keys the patch introduced. Supplier objects
-      // that never went through suppliersApi.fromRow() (seeded/demo rows, or any
-      // environment where the pending_* migration hasn't run) have no pending*
-      // keys, so a rolled-back proposal stayed staged in memory and could then
-      // be approved into the live account — despite the toast saying it was
-      // cancelled.
+      // Object.assign cannot DELETE keys the patch introduced, and a supplier
+      // object that never went through suppliersApi.fromRow() (a seeded row)
+      // may not carry every key the patch does. Drop the additions first, then
+      // restore — otherwise a rejected edit leaves the new account sitting on
+      // the in-memory record and a PRF printed in that session shows it.
       for (const k of Object.keys(sup)) if (!(k in snapshot)) delete sup[k];
       Object.assign(sup, snapshot);
       toast({
@@ -257,19 +238,16 @@ async function saveSup() {
       return;
     }
 
-    if (withdraw) {
-      logAudit({ entity: 'supplier', target: sup.name, action: 'bank_withdrawn', detail: `usulan dibatalkan — tetap ${before}` });
+    if (bankChanged) {
+      // No approval gate left, so the audit line carries the whole story:
+      // what it was, what it is now, who did it, when. That entry is the only
+      // thing standing between a swapped account and nobody noticing — it is
+      // written from the OLD and NEW values, not from an intention.
+      logAudit({ entity: 'supplier', target: sup.name, action: 'bank_change', detail: before });
       toast({
-        id: 'Usulan rekening dibatalkan — rekening lama tetap aktif',
-        en: 'Account proposal withdrawn — the old account stays active',
-        zh: '账户变更申请已撤回 — 原账户继续有效',
-      });
-    } else if (bankChanged) {
-      logAudit({ entity: 'supplier', target: sup.name, action: 'bank_change', detail: `usulan ${f.bank} ${f.acct} (aktif tetap ${before})`, status: 'menunggu review' });
-      toast({
-        id: 'Supplier diperbarui — rekening BARU belum aktif, menunggu approval Wilbert',
-        en: "Supplier updated — the NEW account is not active yet, awaiting Wilbert's approval",
-        zh: '供应商已更新 — 新账户尚未生效，等待 Wilbert 审批',
+        id: 'Rekening supplier diubah & langsung aktif — tercatat di History',
+        en: 'Supplier account changed and live immediately — recorded in History',
+        zh: '供应商账户已变更并立即生效 — 已记入历史',
       });
     } else {
       toast({ id: 'Supplier diperbarui', en: 'Supplier updated', zh: '供应商已更新' });
@@ -277,12 +255,12 @@ async function saveSup() {
     setUI({ supModal: false });
     return;
   }
-  // A BRAND-NEW supplier has no previously-approved account to protect, so its
-  // details go in live (staging them would leave the supplier with no account
-  // at all and block a legitimate first PRF). It's still flagged
-  // bankChangePending so the review queue picks it up and the PRF preview warns
-  // — see prfModal() in screens/payment.js.
-  const localSup = { id: uid('sup'), name: f.name, address: f.address, contact: f.contact, phone: f.phone, bank: f.bank, acct: f.acct, bankAddress: f.bankAddress, swift: f.swift || '', pkp: f.pkp, overseas: !!f.overseas, top: f.top, city: (f.address || '').split(',').pop().trim(), bankChangePending: true, pendingBank: '', pendingAcct: '', pendingBankAddress: '', pendingSwift: '' };
+  // A brand-new supplier goes in live. It used to be flagged for a review
+  // queue as well, which is what broke this screen entirely: the flag pulled
+  // four pending_* columns into the INSERT, the database has never had them,
+  // and PostgREST rejects the whole row over one unknown column — so NO
+  // supplier could be created at all. The flag is gone with the queue.
+  const localSup = { id: uid('sup'), name: f.name, address: f.address, contact: f.contact, phone: f.phone, bank: f.bank, acct: f.acct, bankAddress: f.bankAddress, swift: f.swift || '', pkp: f.pkp, overseas: !!f.overseas, top: f.top, city: (f.address || '').split(',').pop().trim() };
   try {
     const saved = await insertSupplier(localSup);
     localSup.id = saved.id;
@@ -296,12 +274,12 @@ async function saveSup() {
     return;
   }
   st.suppliers.unshift(localSup);
-  logAudit({ entity: 'supplier', target: f.name, action: 'create', detail: `${f.bank} ${f.acct} · masuk review`, status: 'menunggu review' });
+  logAudit({ entity: 'supplier', target: f.name, action: 'create', detail: `${f.bank || '—'} ${f.acct || ''}${f.swift ? ' · ' + f.swift : ''}`.trim() });
   setUI({ supModal: false });
   toast({
-    id: 'Supplier tersimpan — detail bank masuk antrean review supervisor',
-    en: 'Supplier saved — bank details queued for supervisor review',
-    zh: '供应商已保存 — 银行账户信息已进入主管审核队列',
+    id: 'Supplier tersimpan & langsung aktif',
+    en: 'Supplier saved and active immediately',
+    zh: '供应商已保存并立即生效',
   });
 }
 
@@ -320,8 +298,7 @@ function auditDrawer(supId) {
   const entries = (serverEntries && serverEntries.length)
     ? serverEntries.map(a => ({ at: a.at, user: a.username, action: a.action, detail: a.detail, status: a.status }))
     : st.audit.filter(a => a.entity === 'supplier' && (a.target === (sup && sup.name)));
-  const isWilbert = st.user.role === 'wilbert';
-  const overlay = h('div', { style: { position: 'fixed', inset: 0, zIndex: 70 } }, [
+  const overlay =h('div', { style: { position: 'fixed', inset: 0, zIndex: 70 } }, [
     h('div', { style: { position: 'absolute', inset: 0, background: 'var(--overlay)' }, onClick: () => setUI({ auditFor: null }) }),
     h('div.drawer', [
       h('div', { style: { display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '18px 20px', borderBottom: '1px solid var(--border)' } }, [
@@ -329,7 +306,6 @@ function auditDrawer(supId) {
         h('button.x-btn', { onClick: () => setUI({ auditFor: null }) }, icon('x', 14)),
       ]),
       h('div', { style: { flex: 1, overflowY: 'auto', padding: '16px 20px' } }, [
-        sup && sup.bankChangePending ? h('div.cfg-banner', { style: { marginBottom: '16px' } }, [icon('warn', 14), tr({ id: 'Perubahan rekening menunggu approval supervisor', en: 'Account change awaiting supervisor approval', zh: '账户变更等待主管审批' })]) : null,
         ...(entries.length ? entries : [{ at: new Date().toISOString(), user: 'system', action: 'no_history', detail: tr({ id: 'Belum ada riwayat perubahan', en: 'No change history yet', zh: '暂无变更记录' }) }]).map((a, i, arr) => h('div', { style: { display: 'flex', gap: '12px' } }, [
           h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center' } }, [h('span', { style: { width: '11px', height: '11px', borderRadius: '50%', background: i === 0 ? 'var(--accent)' : 'var(--text-3)', border: '2px solid var(--surface)', boxShadow: i === 0 ? '0 0 0 2px var(--accent)' : 'none' } }), i < arr.length - 1 ? h('span', { style: { flex: 1, width: '2px', background: 'var(--border)' } }) : null]),
           h('div', { style: { paddingBottom: '20px' } }, [
@@ -339,67 +315,12 @@ function auditDrawer(supId) {
           ]),
         ])),
       ]),
-      isWilbert && sup && sup.bankChangePending ? h('div.stack', { style: { gap: '10px', padding: '14px 20px', borderTop: '1px solid var(--border)' } }, [
-        // Show wilbert exactly what he's approving — old vs proposed, side by
-        // side. Approving used to flip a local flag and write nothing.
-        h('div', { style: { fontSize: '11px', lineHeight: 1.7 } }, [
-          h('div', [h('span', { style: { color: 'var(--text-3)' } }, tr({ id: 'Aktif sekarang: ', en: 'Active now: ', zh: '当前生效：' })), h('b.mono', `${sup.bank || '—'} ${sup.acct || ''}`)]),
-          h('div', [h('span', { style: { color: 'var(--text-3)' } }, tr({ id: 'Usulan baru: ', en: 'Proposed: ', zh: '变更申请：' })), h('b.mono', { style: { color: 'var(--st-amber-tx)' } }, `${sup.pendingBank || '—'} ${sup.pendingAcct || ''}`)]),
-        ]),
-        h('div.row.gap8', [
-          btn(t('md_reject_change'), { variant: 'danger', onClick: () => resolveBankChange(sup, false) }),
-          btn(t('md_approve_bank'), { variant: 'primary', onClick: () => resolveBankChange(sup, true) }),
-        ]),
-      ]) : null,
+      // The Approve / Reject footer that used to sit here is gone with the
+      // review queue. The drawer is now purely a record — which is what anyone
+      // opening "History" was after in the first place.
     ]),
   ]);
   return overlay;
-}
-// Approve  -> promote pending_* into the live account columns, clear staging.
-// Reject   -> discard the staging, live account untouched.
-// Either way it is a real UPDATE, so the suppliers audit trigger fires and the
-// decision is recorded server-side. Previously Approve only flipped an
-// in-memory flag (lost on next login) and Reject did nothing at all.
-async function resolveBankChange(sup, approve) {
-  if (blockWrite('putuskan usulan rekening')) return;
-  const snapshot = { ...sup };
-  const proposed = `${sup.pendingBank || ''} ${sup.pendingAcct || ''}`.trim();
-  const previous = `${sup.bank || ''} ${sup.acct || ''}`.trim();
-
-  if (approve) {
-    sup.bank = sup.pendingBank || sup.bank;
-    sup.acct = sup.pendingAcct || sup.acct;
-    sup.bankAddress = sup.pendingBankAddress || sup.bankAddress;
-  }
-  sup.pendingBank = ''; sup.pendingAcct = ''; sup.pendingBankAddress = '';
-  sup.bankChangePending = false;
-
-  try {
-    if (UUID_RE.test(sup.id)) await updateSupplier(sup.id, sup);
-  } catch (e) {
-    console.error('Supabase bank-change resolution failed', e);
-    Object.assign(sup, snapshot);
-    toast({
-      id: 'Gagal simpan keputusan ke server — tidak ada yang berubah: ' + (e.message || e),
-      en: 'Failed to save the decision to server — nothing changed: ' + (e.message || e),
-      zh: '保存审批结果到服务器失败 — 未做任何变更：' + (e.message || e),
-    });
-    setState({});
-    return;
-  }
-
-  logAudit({
-    entity: 'supplier', target: sup.name,
-    action: approve ? 'bank_approved' : 'bank_rejected',
-    detail: approve ? `${proposed} (menggantikan ${previous})` : `usulan ${proposed} ditolak — tetap ${previous}`,
-  });
-  toast({
-    id: approve ? 'Rekening baru disetujui & aktif' : 'Usulan rekening ditolak — rekening lama tetap aktif',
-    en: approve ? 'New account approved & active' : 'Account proposal rejected — the old account stays active',
-    zh: approve ? '新账户已批准并生效' : '账户变更申请已驳回 — 原账户继续有效',
-  });
-  setUI({ auditFor: null });
-  setState({});
 }
 
 function actLabel(a) {

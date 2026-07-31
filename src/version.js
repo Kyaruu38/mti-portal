@@ -24,18 +24,26 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v4.0';
+export const VERSION = 'v5.0';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
   {
+    v: 'v5.0', date: '31 Jul 2026',
+    what: {
+      id: 'Rekening supplier disimpan langsung — antrean approval supervisor dihapus. Ini juga yang bikin "Save Supplier" gagal total: kolom antreannya tidak ada di database, dan satu kolom asing bikin seluruh baris ditolak.',
+      en: 'Supplier accounts save straight through — the supervisor approval queue is gone. That queue was also why "Save Supplier" failed outright: its columns were never created, and one unknown column rejects the whole row.',
+      zh: '供应商账户直接保存 — 取消主管审批队列。该队列也正是“保存供应商”彻底失败的原因：其字段从未建立，而一个未知字段会导致整行被拒绝。',
+    },
+  },
+  {
     v: 'v4.0', date: '31 Jul 2026',
     what: {
-      id: 'Kolom SWIFT/BIC untuk supplier import — muncul kalau Import dinyalakan, lewat review supervisor seperti nomor rekening, dan tercetak di PRF.',
-      en: 'A SWIFT/BIC field for import suppliers — appears when Import is on, goes through supervisor review like the account number, and prints on the PRF.',
-      zh: '进口供应商新增 SWIFT/BIC 字段 — 开启“进口”后出现，与账号一样需主管审核，并打印在付款申请单上。',
+      id: 'Kolom SWIFT/BIC untuk supplier import — muncul kalau Import dinyalakan dan tercetak di PRF.',
+      en: 'A SWIFT/BIC field for import suppliers — appears when Import is on, and prints on the PRF.',
+      zh: '进口供应商新增 SWIFT/BIC 字段 — 开启“进口”后出现，并打印在付款申请单上。',
     },
   },
   {

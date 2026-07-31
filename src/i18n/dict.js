@@ -267,7 +267,6 @@ export const DICT = {
   // --- master data ---
   md_suppliers: { id: 'Suppliers', en: 'Suppliers', zh: '供应商' },
   md_add_supplier: { id: 'Add Supplier', en: 'Add Supplier', zh: '新增供应商' },
-  md_bank_change_review: { id: 'BANK CHANGE — REVIEW', en: 'BANK CHANGE — REVIEW', zh: '账户变更 — 待审' },
   md_name: { id: 'Nama Supplier', en: 'Supplier Name', zh: '供应商名称' },
   md_address: { id: 'Alamat', en: 'Address', zh: '地址' },
   md_contact: { id: 'Kontak (PIC)', en: 'Contact (PIC)', zh: '联系人' },
@@ -278,11 +277,11 @@ export const DICT = {
   md_pkp: { id: 'Status PKP', en: 'PKP Status', zh: '增值税一般纳税人' },
   md_pkp_d: { id: 'Pengusaha Kena Pajak — wajib faktur pajak', en: 'Taxable enterprise — tax invoice required', zh: '应税企业 — 需开税票' },
   md_top: { id: 'Default TOP (Terms of Payment)', en: 'Default TOP (Terms of Payment)', zh: '默认付款账期' },
-  md_bank_review_note: { id: 'Detail rekening bank masuk antrean review supervisor sebelum aktif.', en: 'Bank details enter supervisor review queue before becoming active.', zh: '银行账户信息将进入主管审核队列后方可启用。' },
+  // Replaces md_bank_review_note. The old copy promised a supervisor review
+  // that no longer exists; this one states what the value actually does.
+  md_bank_live_note: { id: 'Rekening ini yang dipakai PRF & transfer. Setiap perubahan tercatat di History.', en: 'This account is what the PRF and the transfer use. Every change is recorded in History.', zh: '此账户即付款申请单与转账所用账户。所有变更均记入历史。' },
   md_save_supplier: { id: 'Simpan Supplier', en: 'Save Supplier', zh: '保存供应商' },
   md_audit_log: { id: 'Audit Log', en: 'Audit Log', zh: '审计日志' },
-  md_approve_bank: { id: 'Setujui Rekening Baru', en: 'Approve New Account', zh: '批准新账户' },
-  md_reject_change: { id: 'Tolak Perubahan', en: 'Reject Change', zh: '驳回变更' },
 
   // --- reports ---
   rp_module: { id: 'Module', en: 'Module', zh: '模块' },
