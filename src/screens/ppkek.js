@@ -17,12 +17,40 @@ import { blockWrite } from '../core/guard.js';
 // because that shipment carried two goods lines. A document with no readable
 // item lines still produces exactly one row, so nothing disappears from the
 // register just because the goods block failed to parse.
+//
+// 'Valuta' and 'Kurs NDPBM' are INSERTED after Total Cost rather than appended
+// at the end. Unit Cost and Total Cost are figures in the document's own
+// currency, and with CNY and USD shipments now sharing a sheet, a column that
+// says which belongs beside them, not twenty columns away. Kurs sits next to it
+// so the sheet can check itself: Total Cost x Kurs is the IDR value.
+//
+// Inserting is safe for the workbook because everything moves RIGHT — nothing
+// that was in a column loses its neighbours, and importUpdates() reads by
+// COLUMN NAME (see below), so a file exported before this change still imports.
 const REPORT_COLS = [
   'Nopen', 'PPKEK Date', 'ETA', 'Contract No.', 'Item Name', 'Item Code',
-  'Suplier Name', 'Address', 'Invoice No.', 'Unit Cost', 'Total Cost', 'PPN',
+  'Suplier Name', 'Address', 'Invoice No.', 'Unit Cost', 'Total Cost',
+  'Valuta', 'Kurs NDPBM', 'PPN',
   'Unit', 'PL No', 'PPKEK No.', 'PPKEK Status', 'SO', 'JO', 'Costing',
   'PO ERP INA NO.', 'Tanggal Aktual Diterima', '__ROWID',
 ];
+
+// Column title -> the field it carries. importUpdates() uses this to locate
+// columns BY NAME instead of by position.
+//
+// It used to count positions, and the positions it counted were the old
+// 12-column export's — never updated when the export was rewritten to 22. So
+// the advertised round-trip ("Export then Import for bulk round-trip") was
+// reading Unit Cost as SO, Total Cost as JO, PPN as Costing and PL No as
+// Status, then offering to WRITE those into the register. Silent, and
+// destructive if applied.
+//
+// By name, it also survives this very commit adding two columns, and survives
+// anyone reordering or hiding columns in Excel before importing.
+const IMPORT_FIELDS = {
+  'SO': 'so', 'JO': 'jo', 'Costing': 'costing',
+  'PO ERP INA NO.': 'poErpIna', 'PPKEK Status': 'status',
+};
 
 export function ppkekScreen() {
   const st = getState(); const ui = st.ui;
@@ -221,7 +249,9 @@ function registerTable(st, canWrite) {
     tr({ id: 'Supplier', en: 'Supplier', zh: '供应商' }),
     // Was literally 'USD'. The column holds the value in whatever currency the
     // document is denominated in, and the cell now prints the code next to it.
-    tr({ id: 'Valuta', en: 'Currency', zh: '外币' }), 'IDR',
+    tr({ id: 'Valuta', en: 'Currency', zh: '外币' }),
+    tr({ id: 'Kurs', en: 'Rate', zh: '汇率' }),
+    'IDR',
     tr({ id: 'Jalur', en: 'Lane', zh: '通道' }),
     tr({ id: 'Dok', en: 'Docs', zh: '单据' }),
     'SO ✎', 'JO ✎',
@@ -230,7 +260,8 @@ function registerTable(st, canWrite) {
     tr({ id: 'Status', en: 'Status', zh: '状态' }) + ' ✎',
   ]
     .map(c => (canWrite ? c : c.replace(' ✎', '')))
-    .map((c, i) => h('th' + (i === 3 || i === 4 ? '.r' : ''), { style: /✎/.test(c) ? { color: 'var(--accent-tx)' } : {} }, c))));
+    // 3=Valuta, 4=Kurs, 5=IDR — all numeric, all right-aligned.
+    .map((c, i) => h('th' + (i >= 3 && i <= 5 ? '.r' : ''), { style: /✎/.test(c) ? { color: 'var(--accent-tx)' } : {} }, c))));
   const body = h('tbody', rows.map(r => h('tr', {
     // Clicking a row pulls it back up into the parse panel, so the documents
     // attached to it (and their Drive links) are reachable again after the
@@ -257,6 +288,10 @@ function registerTable(st, canWrite) {
     // Now the code is always shown, so an unparsed amount reads as "CNY, amount
     // missing" rather than as "no amount".
     h('td.mono.r', r.usd ? `${r.valuta || 'USD'} ${num(r.usd, 2)}` : (r.valuta ? `${r.valuta} —` : '—')),
+    // NDPBM was stored and only visible after clicking into the row. On screen
+    // it is what makes the other two columns checkable at a glance: valuta
+    // x kurs should be the IDR figure beside it.
+    h('td.mono.r', r.kurs ? num(r.kurs, 2) : '—'),
     h('td.mono.r', num(r.idr)),
     h('td', badge(r.jalur, r.jalur === 'LDP' ? 'navy' : 'gray')),
     // How many documents from the bundle actually landed in Drive for this
@@ -657,6 +692,7 @@ async function exportRegister() {
       it ? (it.name || '') : '', it ? (it.code || '') : '',
       r.supplier, r.address || '', r.invoiceNo || '',
       it ? (it.price || '') : '', it ? (it.amount || '') : '',
+      r.valuta || 'USD', r.kurs || '',
       r.ppn || '',
       it ? [it.qty || '', it.unit || ''].filter(Boolean).join(' ') : '',
       r.plNo || '', r.ppkekNo || '', r.status,
@@ -668,10 +704,25 @@ async function exportRegister() {
   const tlddp = st.ppkek.filter(r => r.jalur === 'TLDDP');
   const hyperlinks = [];
   // Live Drive hyperlink example in the Nopen cell where a Drive folder exists.
+  // `A${i + 2}` assumed one sheet row per document. The export became one row
+  // per ITEM, so from the first document carrying two goods lines every
+  // hyperlink after it pointed at the wrong nopen — a link that opens someone
+  // else's folder is worse than no link.
   [{ name: 'LDP', rows: ldp }, { name: 'TLDDP', rows: tlddp }].forEach(tab => {
-    tab.rows.forEach((r, i) => { if (r.driveFolder) hyperlinks.push({ sheet: tab.name, cell: `A${i + 2}`, url: driveUrlOf(r), text: r.nopen }); });
+    let line = 2;                                   // row 1 is the header
+    tab.rows.forEach((r) => {
+      const span = (r.items && r.items.length) ? r.items.length : 1;
+      if (r.driveFolder) hyperlinks.push({ sheet: tab.name, cell: `A${line}`, url: driveUrlOf(r), text: r.nopen });
+      line += span;
+    });
   });
-  await writeWorkbook(`PPKEK_${new Date().getFullYear()}.xlsx`, [
+  // "LIST PPKEK 31072026 14-12-05.xlsx" — date then time, so two exports on the
+  // same day sort next to each other and never overwrite one another in
+  // Downloads. Colons are illegal in a Windows filename, hence the dashes.
+  const now = new Date();
+  const p2 = (n) => String(n).padStart(2, '0');
+  const stamp = `${p2(now.getDate())}${p2(now.getMonth() + 1)}${now.getFullYear()} ${p2(now.getHours())}-${p2(now.getMinutes())}-${p2(now.getSeconds())}`;
+  await writeWorkbook(`LIST PPKEK ${stamp}.xlsx`, [
     { name: 'LDP', aoa: toAoa(ldp) }, { name: 'TLDDP', aoa: toAoa(tlddp) },
   ], hyperlinks);
   toast({
@@ -690,28 +741,52 @@ async function importUpdates() {
   try {
     const wb = await readWorkbook(files[0]);
     const changes = [];
+    const missingHeaders = [];
+    const unknownRows = [];
     const st = getState();
     for (const sheet of wb.sheetNames) {
       const rows = wb.rows(sheet);
       if (!rows.length) continue;
-      const header = rows[0];
-      const idIdx = header.indexOf('__ROWID');
+      const header = rows[0].map(h => String(h ?? '').trim());
+      const at = (title) => header.indexOf(title);
+      const idIdx = at('__ROWID');
       if (idIdx < 0) continue;
+      const nopenIdx = at('Nopen');
+      // Columns located by NAME. A column that is not in the file is simply not
+      // compared — better than reading whatever happens to sit at that index.
+      const cols = Object.entries(IMPORT_FIELDS)
+        .map(([title, key]) => ({ title, key, idx: at(title) }))
+        .filter(c => c.idx >= 0);
+      if (!cols.length) {
+        missingHeaders.push(sheet);
+        continue;
+      }
       for (let i = 1; i < rows.length; i++) {
         const row = rows[i]; const id = row[idIdx];
         const existing = st.ppkek.find(r => r.id === id);
-        const nopen = row[0];
-        if (!existing) {
-          changes.push({ type: 'new', nopen, fields: { supplier: row[3], usd: row[4], idr: row[5], jalur: row[6] } });
-          continue;
+        const nopen = nopenIdx >= 0 ? row[nopenIdx] : '';
+        // A row whose __ROWID matches nothing is a row this register has never
+        // seen. Adding it from a spreadsheet would mean inventing a customs
+        // document from typed cells, with no PDF behind it — so it is reported,
+        // not created. Import them by dropping the bundle.
+        if (!existing) { unknownRows.push(nopen || `(baris ${i + 1})`); continue; }
+        for (const c of cols) {
+          const nv = String(row[c.idx] ?? '').trim(); const ov = String(existing[c.key] ?? '').trim();
+          if (nv !== ov) changes.push({ type: 'update', id, nopen, label: c.title, key: c.key, old: ov || '—', neu: nv || '—' });
         }
-        [['SO', 'so', 7], ['JO', 'jo', 8], ['Costing', 'costing', 9], ['PO ERP INA', 'poErpIna', 10], ['Status', 'status', 11]].forEach(([label, key, idx]) => {
-          const nv = String(row[idx] ?? '').trim(); const ov = String(existing[key] ?? '').trim();
-          if (nv !== ov) changes.push({ type: 'update', id, nopen, label, key, old: ov || '—', neu: nv || '—' });
-        });
       }
     }
-    setUI({ pkDiff: { changes, file: files[0].name } });
+    // Nothing recognised at all is a wrong-file mistake, and it used to look
+    // identical to "no changes found".
+    if (!changes.length && missingHeaders.length) {
+      toast({
+        id: `File ini tidak punya kolom SO/JO/Costing/Status — pastikan yang di-import adalah hasil Export Excel dari layar ini`,
+        en: `This file has no SO/JO/Costing/Status columns — import the file produced by Export Excel on this screen`,
+        zh: '该文件没有 SO/JO/Costing/Status 列 — 请导入本页“导出 Excel”生成的文件',
+      });
+      return;
+    }
+    setUI({ pkDiff: { changes, file: files[0].name, unknownRows } });
   } catch (e) {
     console.error(e);
     toast({ id: 'Import gagal: ' + e.message, en: 'Import failed: ' + e.message, zh: '导入失败：' + e.message });
@@ -729,17 +804,15 @@ function fieldLabel(l) { return FIELD_TEXT[l] ? tr(FIELD_TEXT[l]) : l; }
 function diffModal() {
   const st = getState(); const d = st.ui.pkDiff;
   const updates = d.changes.filter(c => c.type === 'update');
-  const news = d.changes.filter(c => c.type === 'new');
-  const rowsEl = d.changes.map(c => c.type === 'update'
-    ? h('div', { style: { display: 'grid', gridTemplateColumns: '1.1fr 1fr 1fr', gap: '1px', background: 'var(--border)' } }, [
+  // No 'new' change is produced any more — see importUpdates(). Rows whose
+  // __ROWID matches nothing are reported, not created: a customs document with
+  // no PDF behind it is not something a spreadsheet should be able to invent.
+  const unknown = d.unknownRows || [];
+  const rowsEl = d.changes.map(c =>
+    h('div', { style: { display: 'grid', gridTemplateColumns: '1.1fr 1fr 1fr', gap: '1px', background: 'var(--border)' } }, [
         h('div', { style: { background: 'var(--surface)', padding: '9px 11px' } }, [h('div.mono', { style: { fontSize: '11px', fontWeight: 700 } }, c.nopen), h('div', { style: { fontSize: '10px', color: 'var(--text-3)' } }, fieldLabel(c.label))]),
         h('div.mono', { style: { background: 'var(--surface)', padding: '9px 11px', fontSize: '11px', color: 'var(--text-3)', textDecoration: 'line-through' } }, c.old),
         h('div.mono', { style: { background: 'var(--st-green-bg)', padding: '9px 11px', fontSize: '11px', fontWeight: 700, color: 'var(--st-green-tx)' } }, c.neu),
-      ])
-    : h('div', { style: { display: 'grid', gridTemplateColumns: '1.1fr 1fr 1fr', gap: '1px', background: 'var(--border)' } }, [
-        h('div', { style: { background: 'var(--surface)', padding: '9px 11px' } }, [h('div.mono', { style: { fontSize: '11px', fontWeight: 700 } }, c.nopen), h('div', { style: { fontSize: '10px', color: 'var(--accent-tx)', fontWeight: 700 } }, tr({ id: 'baris baru', en: 'new row', zh: '新增行' }))]),
-        h('div', { style: { background: 'var(--surface)', padding: '9px 11px', fontSize: '11px', color: 'var(--text-3)' } }, '—'),
-        h('div.mono', { style: { background: 'var(--accent-soft)', padding: '9px 11px', fontSize: '11px', fontWeight: 700, color: 'var(--accent-tx)' } }, `${c.fields.supplier || ''}`),
       ]));
   return modal({
     title: t('pk_diff_title'), subtitle: tr({
@@ -750,7 +823,11 @@ function diffModal() {
     body: [
       h('div.row.gap8', { style: { fontSize: '11px' } }, [
         badge(tr({ id: `${updates.length} update`, en: `${updates.length} update${updates.length === 1 ? '' : 's'}`, zh: `${updates.length} 项更新` }), 'green'),
-        badge(tr({ id: `${news.length} baris baru`, en: `${news.length} new row${news.length === 1 ? '' : 's'}`, zh: `${news.length} 个新增行` }), 'accent'),
+        unknown.length ? badge(tr({
+          id: `${unknown.length} baris tidak dikenal — dilewati`,
+          en: `${unknown.length} unknown row${unknown.length === 1 ? '' : 's'} — skipped`,
+          zh: `${unknown.length} 行无法识别 — 已跳过`,
+        }), 'amber') : null,
       ]),
       h('div', { style: { border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' } }, [
         h('div', { style: { display: 'grid', gridTemplateColumns: '1.1fr 1fr 1fr', gap: '1px', background: 'var(--border)' } }, [tr({ id: 'Nopen · Field', en: 'Nopen · Field', zh: '报关单号 · 字段' }), t('pk_old'), t('pk_new')].map(x => h('div', { style: { background: 'var(--surface2)', padding: '7px 11px', fontSize: '9.5px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-3)' } }, x))),
@@ -764,8 +841,11 @@ function diffModal() {
 async function applyDiff() {
   if (blockWrite('terapkan perubahan register PPKEK')) return;
   const st = getState(); const d = st.ui.pkDiff;
+  // Every change is an update to a row that already exists. The old else-branch
+  // INSERTED a register row built from spreadsheet cells, which is how a customs
+  // document with no PDF behind it could enter the register.
   for (const c of d.changes) {
-    if (c.type === 'update') {
+    {
       const r = st.ppkek.find(x => x.id === c.id);
       if (!r) continue;
       const value = c.neu === '—' ? '' : c.neu;
@@ -779,20 +859,6 @@ async function applyDiff() {
           zh: `${c.nopen} 同步到服务器失败：` + (e.message || e),
         });
       }
-    } else {
-      const local = { nopen: c.nopen, date: new Date(), supplier: c.fields.supplier || '—', usd: Number(c.fields.usd) || 0, idr: Number(c.fields.idr) || 0, jalur: c.fields.jalur || 'LDP', so: '', jo: '', costing: '', poErpIna: '', status: 'Open', files: [] };
-      try { const saved = await insertPpkek(local); Object.assign(local, saved); }
-      catch (e) {
-        console.error('Supabase ppkek insert failed', e);
-        toast({
-          id: `Gagal simpan baris baru ${c.nopen}: ` + (e.message || e),
-          en: `Failed to save new row ${c.nopen}: ` + (e.message || e),
-          zh: `新增行 ${c.nopen} 保存失败：` + (e.message || e),
-        });
-        continue;
-      }
-      if (!local.id) local.id = uid('pk'); // demo mode: insertPpkek no-ops, keep a local id
-      st.ppkek.push(local);
     }
   }
   logAudit({ entity: 'ppkek', target: d.file, action: 'import_apply', detail: `${d.changes.length} changes` });

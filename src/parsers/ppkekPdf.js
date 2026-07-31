@@ -149,23 +149,142 @@ export async function parsePpkekPdf(file) {
   if (/TLDDP/i.test(text)) out.asal = 'TLDDP';
   else if (/LDP|Luar Daerah Pabean/i.test(text)) out.asal = 'LDP';
 
-  // Item lines: code + name + numbers.
-  const ERP = /^(MTI-[\w-]+|\d{6,}[A-Za-z]{0,3})\b/;
-  for (const l of lines) {
-    const m = l.match(ERP);
-    if (!m) continue;
-    const nums = (l.match(/[\d.,]+/g) || []).map(toNum);
-    out.items.push({
-      code: m[0],
-      name: l.slice(m[0].length).replace(/[\d.,]+.*$/, '').trim(),
-      qty: nums.slice(-3)[0] || 0,
-      unit: (l.match(/KGM|PCE|张|条|SET|PC|ROLL/i) || [''])[0],
-      price: nums.slice(-2)[0] || 0,
-      amount: nums.slice(-1)[0] || 0,
-    });
-  }
+  out.items = parseGoods(pdf);
 
   return out;
+}
+
+// =============================================================================
+// M. DATA BARANG — read as a TABLE, using where the text sits on the page.
+//
+// The old rule scanned FLATTENED lines for anything that looked like a code:
+//
+//     const ERP = /^(MTI-[\w-]+|\d{6,}[A-Za-z]{0,3})\b/;
+//     for (const l of lines) { if (l.match(ERP)) out.items.push(...) }
+//
+// A flattened line is a horizontal slice across EVERY column of the goods
+// table, and this form wraps a single item across three or four of them, with
+// values cut mid-string. One item therefore produced up to seven "items", each
+// holding a different fragment — which is exactly what the export showed:
+//
+//     Item Code: 73121020 | 010205 | MTI-I-S | 010205814ID | 38121000
+//
+// Those are, in order: an HS code, the NOPEN, and three slices of one item
+// code. Five rows, one real item, and not one of them right.
+//
+// What the page actually holds for a single item (x in brackets):
+//
+//     y=288  [58]3404909  [93]RUBBER ANTIOZONE WAX  [189]MTI-I-S-  [323]21.600,
+//     y=287  [43]1        [222]12.0000  [253]1800.0000  [292]TNE
+//     y=281  [58]0        [93]OZOACE-0013           [189]0102069   [323]00
+//     y=274                                         [189]17ID
+//
+// Read down each COLUMN instead of across each line and it resolves:
+//     Kode HS   34049090
+//     Uraian    RUBBER ANTIOZONE WAX OZOACE-0013
+//     Kode      MTI-I-S-010206917ID
+//     Amount    21.600,00
+//
+// Same reconstruction the INCLUSION PO fix needed, for the same reason.
+// =============================================================================
+
+// Header cell -> field. The x of each header cell gives the column its anchor.
+const GOODS_COLUMNS = [
+  ['No', 'no'], ['Kode HS', 'hs'], ['Uraian Barang', 'name'], ['Kode', 'code'],
+  ['Jumlah', 'qty'], ['Harga', 'price'], ['Satuan', 'unit'], ['Amount', 'amount'],
+  ['Nilai Pabean', 'customs'], ['Negara', 'country'], ['Jenis Bayar', 'payType'],
+  ['Ref Dok', 'refDoc'], ['Tanggal', 'refDate'],
+];
+
+// Where the goods block stops. Everything below this is a different section.
+const GOODS_END = /^\s*(?:N\.|O\.|P\.)\s|PUNGUTAN NEGARA|PENERIMAAN NEGARA/i;
+
+function parseGoods(pdf) {
+  const items = [];
+  for (const page of (pdf.pages || [])) {
+    const lines = page.lines || [];
+    // The header row carries every column label on ONE line — that is what
+    // makes it identifiable, and its part positions are the column anchors.
+    const hIdx = lines.findIndex(l => {
+      const t = (l.parts || []).map(p => p.str).join(' ');
+      return /Kode\s*HS/i.test(t) && /Uraian\s*Barang/i.test(t) && /Jumlah/i.test(t);
+    });
+    if (hIdx < 0) continue;
+
+    const anchors = [];
+    for (const [label, key] of GOODS_COLUMNS) {
+      const part = (lines[hIdx].parts || []).find(p => p.str.trim() === label);
+      if (part) anchors.push({ key, x: part.x });
+    }
+    if (anchors.length < 5) continue;   // not the table we think it is
+
+    // Nearest anchor wins. Data does not sit flush under its header — the
+    // Uraian column's text starts 26pt LEFT of its label while Kode starts 6pt
+    // left of its own — so a "which band contains x" test puts the description
+    // in the HS column. Nearest-anchor gets all thirteen right on the sample.
+    const columnOf = (x) => {
+      let best = null, bestD = Infinity;
+      for (const a of anchors) { const d = Math.abs(a.x - x); if (d < bestD) { bestD = d; best = a.key; } }
+      return best;
+    };
+
+    // Collect the block, stopping at the next lettered section.
+    const block = [];
+    for (let i = hIdx + 1; i < lines.length; i++) {
+      const t = (lines[i].parts || []).map(p => p.str).join(' ');
+      if (GOODS_END.test(t)) break;
+      if ((lines[i].parts || []).some(p => p.str.trim())) block.push(lines[i]);
+    }
+    if (!block.length) continue;
+
+    // Record boundaries: the "No" column counts 1, 2, 3… and is the only place
+    // a bare small integer appears. It sits on the SECOND line of its record,
+    // so a record runs from one line above its own marker down to one line
+    // above the next marker.
+    const markers = [];
+    block.forEach((l, i) => {
+      for (const p of (l.parts || [])) {
+        const v = p.str.trim();
+        if (/^\d{1,3}$/.test(v) && columnOf(p.x) === 'no') markers.push({ i, n: Number(v) });
+      }
+    });
+    if (!markers.length) continue;
+
+    markers.forEach((m, k) => {
+      const from = k === 0 ? 0 : Math.max(markers[k - 1].i + 1, m.i - 1);
+      const to = k < markers.length - 1 ? markers[k + 1].i - 2 : block.length - 1;
+      const cell = {};
+      for (let i = from; i <= to && i < block.length; i++) {
+        for (const p of (block[i].parts || [])) {
+          const v = p.str.trim();
+          if (!v) continue;
+          const key = columnOf(p.x);
+          if (!key || key === 'no') continue;
+          // Fragments of the SAME cell are joined with nothing — they are one
+          // value cut in half by the page ("3404909" + "0"). Only the
+          // description is genuinely multi-word, and its parts are separate
+          // strings on separate lines, so it gets a space.
+          cell[key] = cell[key] == null ? v : (key === 'name' ? `${cell[key]} ${v}` : cell[key] + v);
+        }
+      }
+      const it = {
+        no: m.n,
+        code: (cell.code || '').trim(),
+        hs: (cell.hs || '').trim(),
+        name: (cell.name || '').replace(/\s+/g, ' ').trim(),
+        qty: parseNumber(cell.qty || '') || 0,
+        unit: (cell.unit || '').trim(),
+        price: parseNumber(cell.price || '') || 0,
+        amount: parseNumber(cell.amount || '') || 0,
+        country: (cell.country || '').replace(/\s*-\s*/g, ' ').trim(),
+      };
+      // A record with neither a code nor a description is a stray line, not a
+      // good. Dropping it is safer than exporting an empty row that looks like
+      // a real one.
+      if (it.code || it.name) items.push(it);
+    });
+  }
+  return items;
 }
 
 // PPKEK is a Bea Cukai (Indonesian customs) form — every monetary field and
