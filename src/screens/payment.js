@@ -5,6 +5,7 @@ import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, statusTone, driveLink } from '../ui/components.js';
 import { money, num, fmtDate, romanMonth, daysUntil, topDays, addDays } from '../core/format.js';
 import { prfPaper } from '../ui/documents.js';
+import { downloadBlob } from '../core/dom.js';
 import { can } from '../auth/roles.js';
 import { wrapPrintable } from './approval.js';
 import { nextPrfNo } from '../core/docSeqApi.js';
@@ -126,6 +127,15 @@ function prfTrackingCard(st, readonly) {
         en: `${st.prfs.length} PRF${st.prfs.length === 1 ? '' : 's'} · status changed by Finance`,
         zh: `${st.prfs.length} 张付款申请单 · 状态由财务更新`,
       })),
+      // One PRF at a time was fine when there was one. USD and IDR are separate
+      // PRFs per currency, so a single supplier already produces two, and a
+      // week's run produces a stack — each needing its own click, its own print
+      // dialog, its own Save As.
+      list.length > 1 ? h('div.mla', btn(tr({
+        id: `Download semua (${list.length}) · ZIP`,
+        en: `Download all (${list.length}) · ZIP`,
+        zh: `全部下载（${list.length}）· ZIP`,
+      }), { sm: true, iconName: 'download', onClick: () => downloadAllPrf(list) })) : null,
     ]),
     list.length ? h('div.tbl-wrap', h('table.tbl', [
       h('thead', h('tr', [tr({ id: 'No. PRF', en: 'PRF No.', zh: '付款申请单号' }), t('col_supplier'), t('col_amount'), tr({ id: 'Invoice', en: 'Invoice', zh: '发票' }), tr({ id: 'Dibuat', en: 'Created', zh: '创建' }), t('col_status')].map((c, i) => h('th' + (i === 2 ? '.r' : ''), c)))),
@@ -159,6 +169,61 @@ function printPrf(prf) {
   if (!w) { toast({ id: 'Popup diblokir — izinkan popup buat Save PDF', en: 'Popup blocked — allow popups to save the PDF', zh: '弹窗被拦截 — 请允许弹窗以保存 PDF' }); return; }
   w.document.write(html); w.document.close();
   w.onload = () => { w.focus(); w.onafterprint = () => w.close(); setTimeout(() => w.print(), 300); };
+}
+
+// Every PRF on the card, zipped.
+//
+// The files are printable HTML, not PDF — the same format Surat Jalan already
+// stores in Drive. This project bans html2pdf/html2canvas (they rasterise the
+// page, so the result is a picture of a document: unsearchable, unselectable,
+// and wrong at any zoom other than the one it was rendered at). The HTML opens
+// in a browser and prints to PDF with the layout intact, which is what the
+// single-PRF button has always done — this just does it in bulk without twenty
+// print dialogs.
+//
+// Bank details come from the supplier MASTER for every one of them, not from
+// the stored PRF row — the same anti-fraud rule the single-document path
+// follows, and the reason this loops through the lookup rather than trusting
+// what is on the row.
+async function downloadAllPrf(list) {
+  const rows = (list || []).filter(p => p && p.no);
+  if (!rows.length) { toast({ id: 'Belum ada PRF untuk di-download', en: 'No PRF to download yet', zh: '暂无可下载的付款申请单' }); return; }
+  toast(t('loading'));
+  try {
+    const JSZip = (await import('jszip')).default;
+    const zip = new JSZip();
+    const st = getState();
+    const used = new Set();
+    for (const prf of rows) {
+      const supplier = st.suppliers.find(x => x.name === prf.supplier) || { name: prf.supplier };
+      const html = wrapPrintable(prfPaper(prf, supplier, prf.lines || []).outerHTML, prf.no, 'landscape');
+      // PRF numbers carry slashes (PRF/PC/VII/012), which are path separators
+      // inside a zip — left alone they would silently become nested folders.
+      let name = `${String(prf.no).replace(/[\\/:*?"<>|]/g, '-')}.html`;
+      // Two PRFs cannot share a number, but a local-only row might; a duplicate
+      // name would overwrite silently.
+      let n = 2;
+      while (used.has(name)) name = `${String(prf.no).replace(/[\\/:*?"<>|]/g, '-')}-${n++}.html`;
+      used.add(name);
+      zip.file(name, html);
+    }
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const now = new Date();
+    const p2 = (v) => String(v).padStart(2, '0');
+    downloadBlob(blob, `PRF ${p2(now.getDate())}${p2(now.getMonth() + 1)}${now.getFullYear()} ${p2(now.getHours())}-${p2(now.getMinutes())}-${p2(now.getSeconds())}.zip`);
+    toast({
+      id: `${rows.length} PRF di-download sebagai ZIP`,
+      en: `${rows.length} PRFs downloaded as a ZIP`,
+      zh: `${rows.length} 张付款申请单已打包下载`,
+    });
+  } catch (e) {
+    console.error('PRF zip failed', e);
+    toast({
+      id: 'Gagal membuat ZIP: ' + (e.message || e),
+      en: 'Could not build the ZIP: ' + (e.message || e),
+      zh: '打包失败：' + (e.message || e),
+    });
+  }
 }
 
 // PRE-EXISTING CRASH, fixed here because this screen now has one more reader.

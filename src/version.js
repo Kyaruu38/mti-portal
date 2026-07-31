@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v3.5';
+export const VERSION = 'v3.6';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v3.6', date: '31 Jul 2026',
+    what: {
+      id: 'Download semua PRF sekaligus dalam satu ZIP, bukan satu-satu.',
+      en: 'Download every PRF at once as a single ZIP instead of one at a time.',
+      zh: '一次性打包下载全部付款申请单，无需逐张下载。',
+    },
+  },
   {
     v: 'v3.5', date: '31 Jul 2026',
     what: {
