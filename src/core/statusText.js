@@ -32,6 +32,10 @@ const TEXT = {
   'Diterima Purchasing': { en: 'Received by Purchasing', zh: '采购已接收' },
   'Diterima Finance':    { en: 'Received by Finance', zh: '财务已接收' },
   'Paid':                { en: 'Paid',                zh: '已付款' },
+  // Label requests
+  'Diminta':             { en: 'Requested',           zh: '已申请' },
+  'PO Terbit':           { en: 'PO raised',           zh: '已开单' },
+  'Ditolak':             { en: 'Declined',            zh: '已拒绝' },
   // PPKEK
   'Open':                { en: 'Open',                zh: '未结' },
   'Costed':              { en: 'Costed',              zh: '已核算' },

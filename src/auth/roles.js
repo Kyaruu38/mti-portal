@@ -91,6 +91,14 @@ export const ACCESS = {
 //  ppkekWrite      PPKEK register: dropzone, inline cell edit, import-apply. ppkek_rw
 //  designWrite     upload to the design library.                        designs_write
 //  poCreate        generate a PO (PO Converter + Label Request).         pos_insert
+//  labelRequestAsk submit a parsed label sheet as a REQUEST, for purchasing to
+//                  turn into a PO. sona's half of the split: she owns the
+//                  weekly workbook and knows what needs printing; cania and
+//                  visca own suppliers and purchase orders. Before this the
+//                  screen collapsed both into one button and gave it to
+//                  everyone who could parse — so sona was raising POs, and
+//                  nothing recorded what she had actually asked for.
+//  labelRequestFill pick up a submitted request and turn it into a PO.
 //  labelParse      parse a label Excel into the item master.
 //
 //  readOnly        this account may not write ANYTHING. Powers the central guard
@@ -106,9 +114,9 @@ export const ACCESS = {
 const grant = (...names) => Object.fromEntries(names.join(' ').split(/\s+/).filter(Boolean).map(n => [n, true]));
 
 export const CAPS = {
-  wilbert:    grant('approve editMaster labelStockWrite paymentWrite prfCreate prfReceive markPaid sjWrite ppkekWrite designWrite poCreate labelParse'),
-  cania:      grant('editMaster labelStockWrite prfCreate sjWrite designWrite poCreate labelParse'),
-  visca:      grant('editMaster labelStockWrite prfCreate sjWrite designWrite poCreate labelParse'),
+  wilbert:    grant('approve editMaster labelStockWrite paymentWrite prfCreate prfReceive markPaid sjWrite ppkekWrite designWrite poCreate labelParse labelRequestFill'),
+  cania:      grant('editMaster labelStockWrite prfCreate sjWrite designWrite poCreate labelParse labelRequestFill'),
+  visca:      grant('editMaster labelStockWrite prfCreate sjWrite designWrite poCreate labelParse labelRequestFill'),
   // sekar: purchasing-side payment + PPKEK; payment STATUS is read-only for sekar.
   sekar:      grant('paymentWrite prfCreate paymentReadonly ppkekWrite markPaid'),
   // finance: receive + mark paid; cannot approve POs or raise a PRF. Keeps
@@ -118,7 +126,9 @@ export const CAPS = {
   // sona: label stock upload + ERP matching, label parse, and raising a label
   // request PO. Still NOT in is_purchasing() server-side — no sjWrite, no
   // designWrite, no editMaster.
-  sona:       grant('labelStockWrite poCreate labelParse'),
+  // sona ASKS, she does not raise the PO. poCreate removed on 31 Jul 2026 —
+  // see labelRequestAsk above.
+  sona:       grant('labelStockWrite labelParse labelRequestAsk'),
   // cenjc: nothing. Not one write capability, by design.
   cenjc:      grant('readOnly'),
 };

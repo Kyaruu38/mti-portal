@@ -21,6 +21,7 @@ const state = {
   descDict: [],        // learning bilingual description dictionary { en, zh }
   pos: [],             // purchase orders / contracts
   labelBatches: [],    // uploaded label requests
+  labelRequests: [],   // sona's parsed requests awaiting a PO from purchasing
   ppkek: [],           // ppkek register rows
   invoices: [],        // incoming invoices
   prfs: [],            // payment request forms

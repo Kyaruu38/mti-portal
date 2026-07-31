@@ -13,6 +13,7 @@ import { fetchDescDict } from '../core/descDictApi.js';
 import { fetchItems } from '../core/itemsApi.js';
 import { fetchBrandMap } from '../core/brandMapApi.js';
 import { fetchDesigns } from '../core/designsApi.js';
+import { fetchLabelRequests } from '../core/labelRequestsApi.js';
 import { fetchUnits } from '../core/unitsApi.js';
 import { fetchInvoices } from '../core/invoicesApi.js';
 import { fetchPrfs } from '../core/prfsApi.js';
@@ -138,6 +139,8 @@ async function hydrate(user, username, preferScreen, preferLang) {
   const brandMapFromServer = await fetchBrandMap();
   if (brandMapFromServer) getState().brandMap = brandMapFromServer;
 
+  const labelReqFromServer = await fetchLabelRequests();
+  if (labelReqFromServer) getState().labelRequests = labelReqFromServer;
   const designsFromServer = await fetchDesigns();
   if (designsFromServer) getState().designs = designsFromServer;
 

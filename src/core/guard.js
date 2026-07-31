@@ -112,6 +112,7 @@ const ACTIONS = {
   'hapus PRF':                         { en: 'deleting the PRF', zh: '删除付款申请单' },
   'kembalikan invoice ke tahap 1':     { en: 'moving the invoice back to stage 1', zh: '将发票退回第 1 阶段' },
   'tandai PRF diterima':               { en: 'marking PRFs as received', zh: '标记付款申请单已收到' },
+  'kirim request label':               { en: 'sending the label request', zh: '发送标签申请' },
   'kirim PRF':                         { en: 'submitting the PRF', zh: '提交付款申请单' },
   'terima PRF di Finance':             { en: 'receiving the PRF in Finance', zh: '财务接收付款申请单' },
   'tandai PRF lunas':                  { en: 'marking the PRF paid', zh: '标记付款申请单已付' },

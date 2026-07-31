@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v10.3';
+export const VERSION = 'v11.0';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v11.0', date: '31 Jul 2026',
+    what: {
+      id: 'Label Request dipisah: sona MEMINTA (parse lalu "Kirim ke Purchasing"), cania/visca yang assign supplier dan menerbitkan PO dari baris yang sona kirim. Permintaannya tersimpan utuh dan tersambung ke nomor PO-nya.',
+      en: 'Label Request is split: sona ASKS (parse, then "Send to Purchasing"), and cania/visca assign the supplier and raise the PO from the rows she sent. The request is stored intact and linked to its PO number.',
+      zh: '标签申请流程拆分：sona 提出申请（解析后"发送给采购"），由 cania/visca 指定供应商并依其提交的明细开具采购单。申请内容完整留存并与采购单号关联。',
+    },
+  },
   {
     v: 'v10.3', date: '31 Jul 2026',
     what: {

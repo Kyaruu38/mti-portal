@@ -147,6 +147,7 @@ export function seedIfEmpty() {
     suppliers, designs, items, units, pos, invoices, prfs, payments, ppkek, descDict, audit,
     brandMap: DEFAULT_BRAND_MAP.slice(),
     labelBatches: [],
+    labelRequests: [],
     suratJalan: [],
   });
 }

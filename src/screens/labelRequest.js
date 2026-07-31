@@ -4,10 +4,13 @@ import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField, searchInput } from '../ui/components.js';
 import { readWorkbook } from '../core/xlsx.js';
 import { parseLabelSheet } from '../parsers/excelLabels.js';
-import { money, num, ppnFor, ppnModeFromForm } from '../core/format.js';
+import { money, num, ppnFor, ppnModeFromForm, fmtDateTime } from '../core/format.js';
 import { can } from '../auth/roles.js';
+import { statusText } from '../core/statusText.js';
+import { insertLabelRequest, updateLabelRequest } from '../core/labelRequestsApi.js';
 import { insertPO, newLineId, duplicatePoNumber } from '../core/posApi.js';
 import { blockWrite } from '../core/guard.js';
+import { UUID_RE } from '../core/supabase.js';
 
 export function labelRequestScreen() {
   const st = getState();
@@ -26,7 +29,7 @@ export function labelRequestScreen() {
   else if (step === 2) content = step2();
   else content = step3();
 
-  return h('div.stack', [stepsBar, content, ui.poModal ? poModal() : null]);
+  return h('div.stack', [incomingRequests(st), myRequests(st), stepsBar, content, ui.poModal ? poModal() : null]);
 }
 
 function stepEl(n, label, cur) {
@@ -222,15 +225,135 @@ function step3() {
   const actionBar = h('div.card', { style: { position: 'sticky', bottom: '14px', display: 'flex', alignItems: 'center', gap: '14px', border: '1.5px solid var(--accent)', boxShadow: 'var(--paper-shadow)', padding: '12px 18px' } }, [
     h('div', [h('div', { style: { fontSize: '13px', fontWeight: 800 } }, [h('span.mono', { style: { color: 'var(--accent-tx)' } }, String(selCount)), ' ' + t('lr_selected')]), h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, t('lr_merge_note'))]),
     h('div.mla.row.gap8', [
-      h('span', { style: { fontSize: '11px', fontWeight: 600, color: 'var(--text-3)' } }, t('lr_assign_sup')),
-      selectEl(supplierNames, { value: ui.assignSup || supplierNames[0], onChange: v => setUI({ assignSup: v }) }),
+      // Hidden for the requester: offering a supplier picker to someone whose
+      // choice is ignored is worse than not offering it — it reads as input.
+      can(st.user.role, 'poCreate') ? h('span', { style: { fontSize: '11px', fontWeight: 600, color: 'var(--text-3)' } }, t('lr_assign_sup')) : null,
+      can(st.user.role, 'poCreate') ? selectEl(supplierNames, { value: ui.assignSup || supplierNames[0], onChange: v => setUI({ assignSup: v }) }) : null,
+      // Two different jobs, two different buttons — never both.
+      //
+      // poCreate (cania/visca/wilbert) assigns a supplier and raises the PO.
+      // labelRequestAsk (sona) submits what she needs and stops there: she owns
+      // the workbook and knows what has to be printed, but the supplier and the
+      // purchase order are not hers to decide.
       can(st.user.role, 'poCreate')
         ? btn(t('lr_assign_gen'), { variant: 'primary', onClick: () => openPoModal() })
-        : badge(tr({ id: 'Read-only', en: 'Read-only', zh: '只读' }), 'gray', { iconName: 'eye' }),
+        : can(st.user.role, 'labelRequestAsk')
+          ? btn(t('lr_submit_req'), { variant: 'primary', iconName: 'check', onClick: () => submitRequest() })
+          : badge(tr({ id: 'Read-only', en: 'Read-only', zh: '只读' }), 'gray', { iconName: 'eye' }),
     ]),
   ]);
 
   return h('div.stack', { style: { gap: '14px' } }, [summary, ...warn, table, actionBar]);
+}
+
+// sona's half: freeze what she selected and hand it over. Nothing about the
+// supplier or the PO is decided here.
+async function submitRequest() {
+  if (blockWrite('kirim request label')) return;
+  const st = getState(); const ui = st.ui;
+  const res = ui.labelResult;
+  const chosen = (res.items || []).filter((_, i) => (ui.labelSel || {})[i]);
+  if (!chosen.length) {
+    toast({ id: 'Centang dulu baris yang mau diminta', en: 'Tick the rows you are requesting first', zh: '请先勾选要申请的行' });
+    return;
+  }
+  const local = {
+    file: ui.labelFile, sheet: ui.labelSheet, rows: chosen,
+    by: st.user.username, at: new Date().toISOString(), status: 'Diminta',
+  };
+  try {
+    const saved = await insertLabelRequest(local);
+    local.id = saved.id; local.at = saved.at || local.at;
+  } catch (e) {
+    // Do NOT keep it locally on failure. A request that exists only on sona's
+    // screen is worse than none: she stops chasing it, and purchasing never
+    // sees it.
+    console.error('Supabase label request insert failed', e);
+    toast({
+      id: 'Gagal kirim request ke server: ' + (e.message || e),
+      en: 'Failed to send the request to the server: ' + (e.message || e),
+      zh: '发送申请到服务器失败：' + (e.message || e),
+    });
+    return;
+  }
+  if (!local.id) local.id = uid('lr');
+  st.labelRequests.unshift(local);
+  logAudit({ entity: 'label', target: local.file, action: 'request', detail: `${chosen.length} baris · sheet ${local.sheet}` });
+  setUI({ labelStep: 1, labelResult: null, labelSel: {} });
+  setState({ labelRequests: st.labelRequests });
+  toast({
+    id: `${chosen.length} baris dikirim ke Purchasing — mereka yang assign supplier & bikin PO`,
+    en: `${chosen.length} rows sent to Purchasing — they assign the supplier and raise the PO`,
+    zh: `${chosen.length} 行已发送采购 — 由其指定供应商并开具采购单`,
+  });
+}
+
+// sona's own view. Without it, submitting is a one-way drop: she would have to
+// ask someone whether her request had been picked up, which is the question the
+// record exists to answer.
+function myRequests(st) {
+  if (!can(st.user.role, 'labelRequestAsk')) return null;
+  const mine = (st.labelRequests || []).filter(r => r.by === st.user.username).slice(0, 8);
+  if (!mine.length) return null;
+  const tone = (x) => ({ 'Diminta': 'amber', 'PO Terbit': 'green', 'Ditolak': 'red' }[x] || 'gray');
+  return h('div.card', [
+    h('div.card-head', [h('div.card-title', t('lr_my_reqs')), badge(String(mine.filter(r => r.status === 'Diminta').length), 'amber')]),
+    h('div.tbl-wrap', h('table.tbl', [
+      h('thead', h('tr', [tr({ id: 'File', en: 'File', zh: '文件' }), 'Sheet', t('col_qty'), tr({ id: 'Dikirim', en: 'Sent', zh: '发送时间' }), t('col_supplier'), 'PO', t('col_status')].map((c, i) => h('th' + (i === 2 ? '.r' : ''), c)))),
+      h('tbody', mine.map(r => h('tr', [
+        h('td.mono', { style: { fontSize: '11px' } }, r.file || '—'),
+        h('td.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } }, r.sheet || '—'),
+        h('td.mono.r', String((r.rows || []).length)),
+        h('td', { style: { fontSize: '11px', color: 'var(--text-3)' } }, fmtDateTime(r.at)),
+        h('td', r.supplier || '—'),
+        h('td.mono', { style: { fontSize: '11px' } }, r.poNo || '—'),
+        h('td', badge(statusText(r.status), tone(r.status))),
+      ]))),
+    ])),
+  ]);
+}
+
+// Purchasing's half: what is waiting, and how to pick it up.
+function incomingRequests(st) {
+  const open = (st.labelRequests || []).filter(r => r.status === 'Diminta');
+  if (!can(st.user.role, 'labelRequestFill') || !open.length) return null;
+  return h('div.card', [
+    h('div.card-head', [
+      h('div.card-title', t('lr_incoming')),
+      badge(String(open.length), 'accent'),
+      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, t('lr_incoming_sub')),
+    ]),
+    h('div.tbl-wrap', h('table.tbl', [
+      h('thead', h('tr', [t('lr_req_by'), tr({ id: 'File', en: 'File', zh: '文件' }), 'Sheet', t('col_qty'), tr({ id: 'Diminta', en: 'Requested', zh: '申请时间' }), t('col_action')].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c)))),
+      h('tbody', open.map(r => h('tr', [
+        h('td.cell-strong', r.by),
+        h('td.mono', { style: { fontSize: '11px' } }, r.file || '—'),
+        h('td.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } }, r.sheet || '—'),
+        h('td.mono.r', String((r.rows || []).length)),
+        h('td', { style: { fontSize: '11px', color: 'var(--text-3)' } }, fmtDateTime(r.at)),
+        h('td', btn(t('lr_open_req'), { sm: true, variant: 'primary', onClick: () => openRequest(r) })),
+      ]))),
+    ])),
+  ]);
+}
+
+// Load a request's frozen rows straight into step 3. The rows are NOT re-parsed
+// from the file — purchasing acts on exactly what sona submitted, which is the
+// entire reason the rows were stored rather than the filename.
+function openRequest(r) {
+  const rows = r.rows || [];
+  setUI({
+    labelStep: 3,
+    labelFile: r.file,
+    labelSheet: r.sheet,
+    labelResult: {
+      items: rows,
+      warnings: [],
+      stats: { total: rows.length, skipped: 0, headerRow: '—', newItems: rows.filter(x => x.isNew).length },
+    },
+    labelSel: Object.fromEntries(rows.map((_, i) => [i, true])),
+    labelFillingReq: r.id,
+  });
 }
 
 function hasDesign(r) { return getState().designs.some(d => d.erp === r.erp) || r.hasTemplate; }
@@ -350,7 +473,35 @@ async function genPO() {
   }
   st.pos.unshift(po);
   logAudit({ entity: 'po', target: po.no, action: 'generate', detail: `${supplier.name} · ${selItems.length} lines` });
-  setUI({ poModal: false });
+
+  // If this PO came from one of sona's requests, close it — and record WHICH
+  // PO answered it. That link is the whole point: months later, "was this the
+  // label she asked for?" is answerable by opening the request beside the PO.
+  //
+  // Deliberately after the PO is safely created. Closing the request first and
+  // then failing to raise the PO would leave sona thinking it was handled.
+  const reqId = st.ui.labelFillingReq;
+  if (reqId) {
+    const req = (st.labelRequests || []).find(r => r.id === reqId);
+    if (req) {
+      const patch = { status: 'PO Terbit', supplier: supplier.name, poNo: po.no, handledBy: st.user.username, handledAt: new Date().toISOString() };
+      Object.assign(req, patch);
+      try {
+        if (UUID_RE.test(String(req.id))) await updateLabelRequest(req.id, patch);
+      } catch (e) {
+        // The PO exists either way; only the link failed. Say so plainly rather
+        // than rolling back a purchase order over a status field.
+        console.error('label request close failed', e);
+        toast({
+          id: `PO ${po.no} dibuat, tapi status request-nya gagal diupdate — tandai manual.`,
+          en: `PO ${po.no} created, but the request status failed to update — mark it by hand.`,
+          zh: `采购单 ${po.no} 已创建，但申请状态更新失败 — 请手动标记。`,
+        });
+      }
+      logAudit({ entity: 'label', target: req.file, action: 'request_filled', detail: `${po.no} · ${supplier.name}` });
+    }
+  }
+  setUI({ poModal: false, labelFillingReq: null });
   toast(isWilbert ? {
     id: `PO ${po.no} dibuat & di-approve (skip queue)`,
     en: `PO ${po.no} created & approved (queue skipped)`,
