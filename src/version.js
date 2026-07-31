@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v6.1';
+export const VERSION = 'v7.0';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v7.0', date: '31 Jul 2026',
+    what: {
+      id: 'Nomor invoice kembar untuk supplier yang sama DITOLAK — invoice kembar bisa kebayar dua kali. Dan PRF untuk supplier import mencetak ZHANG PEI YAN sebagai pengaju; audit trail tetap mencatat user yang sebenarnya.',
+      en: 'A duplicate invoice number for the same supplier is REJECTED — a duplicate can be paid twice. And an import PRF prints ZHANG PEI YAN as applicant; the audit trail still records the real user.',
+      zh: '同一供应商的重复发票号将被拒绝 — 重复发票可能被支付两次。进口付款申请单以 ZHANG PEI YAN 为申请人；审计日志仍记录真实操作用户。',
+    },
+  },
   {
     v: 'v6.1', date: '31 Jul 2026',
     what: {

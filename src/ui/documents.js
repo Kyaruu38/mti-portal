@@ -6,7 +6,7 @@
 import { h } from '../core/dom.js';
 import { num, fmtDate } from '../core/format.js';
 import { ccyDecimals, ppnFor, poTermDays, isAdvanceTerm } from '../core/format.js';
-import { COMPANY } from '../config.js';
+import { COMPANY, IMPORT_APPLICANT } from '../config.js';
 import { CAP_MTI, LOGO_MTI } from '../assets/images.js';
 import { amountInWords } from '../parsers/amountWords.js';
 
@@ -234,7 +234,20 @@ export function prfPaper(prf, supplier, lines) {
   const V = (extra) => ({ border: bd, padding: '6px 9px', fontSize: '10px', color: '#111827', verticalAlign: 'top', whiteSpace: 'pre-line', ...extra });
   const bank = supplier ? `${supplier.bank || ''}, ACC: ${supplier.acct || ''} a/n. ${supplier.name}` : (prf.bank || '-');
   const descLines = (lines || []).map(l => `${l.no} — ${l.desc}`).join('\n');
-  const applicant = prf.by || '';
+  // APPLICANT on an IMPORT PRF is the person who owns the import, not whoever
+  // pressed the button. Kyaru raises these himself, but the import desk is
+  // Zhang Pei Yan's, and the people on the other side of this document deal
+  // with her — a name they do not recognise is a phone call, every time.
+  //
+  // This changes the PRINTED name only. `prf.by` is untouched in the database
+  // and the audit trail still records the real user who created the PRF, so
+  // "who actually did this" stays answerable. A document naming one person
+  // while the log names another is fine precisely because the log is the one
+  // nobody can edit — it would stop being fine the moment the log was made to
+  // agree with the paper.
+  const applicant = (supplier && supplier.overseas && IMPORT_APPLICANT)
+    ? IMPORT_APPLICANT
+    : (prf.by || '');
 
   return h('div.paper', { style: { width: '1040px', padding: '26px 32px', color: '#111827' } }, [
     h('table', { style: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' } }, h('tbody', [

@@ -598,6 +598,35 @@ async function saveInvoiceModal() {
   const st = getState(); const f = st.ui.invoiceForm;
   const supplier = st.suppliers.find(s => s.id === f.supplierId);
   if (!f.no || !supplier || !f.due) { toast({ id: 'No. Invoice, supplier, dan tanggal jatuh tempo wajib diisi', en: 'Invoice no., supplier and due date are required', zh: '发票号、供应商和到期日为必填项' }); return; }
+
+  // ONE INVOICE NUMBER, ONE INVOICE, PER SUPPLIER.
+  //
+  // Kyaru dropped the same PDF twice and ended up with two identical rows.
+  // Both would advance, both would appear in the PRF builder looking the same,
+  // and a PRF built from both pays 25,459.20 twice. Double payment is the
+  // commonest way money leaves an AP function, and it does not look like a
+  // mistake at any point along the way — every row is individually correct.
+  //
+  // Compared case-insensitively and whitespace-stripped, because "IN-HC-001"
+  // and "in-hc-001 " are the same invoice to everyone except a string compare.
+  // Scoped to the SUPPLIER: two different suppliers can legitimately both use
+  // "INV-001", and rejecting that would block real work.
+  //
+  // This is the client-side half. The database half is a unique index (see
+  // supabase_invoice_no_unique.sql) — needed because this check reads state
+  // loaded at login, so two people entering the same invoice at the same time
+  // would both pass it.
+  const key = (v) => String(v || '').replace(/\s+/g, '').toUpperCase();
+  const clash = st.invoices.find(i => i.supplier === supplier.name && key(i.no) === key(f.no));
+  if (clash) {
+    toast({
+      id: `No. Invoice ${f.no} sudah ada untuk ${supplier.name} (${money(clash.amount, clash.currency)}, jatuh tempo ${fmtDate(clash.due)}). Tidak disimpan — invoice kembar bisa kebayar dua kali.`,
+      en: `Invoice no. ${f.no} already exists for ${supplier.name} (${money(clash.amount, clash.currency)}, due ${fmtDate(clash.due)}). Not saved — a duplicate can be paid twice.`,
+      zh: `${supplier.name} 已存在发票号 ${f.no}（${money(clash.amount, clash.currency)}，到期 ${fmtDate(clash.due)}）。未保存 — 重复发票可能被支付两次。`,
+    });
+    return;
+  }
+
   // uploadToDrive() never throws — it degrades to a drive-error:// placeholder
   // internally on failure, same graceful-degradation contract as every other
   // upload site (ppkek.js, finance.js).

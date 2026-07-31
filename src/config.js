@@ -32,6 +32,21 @@ export const DRIVE_UPLOAD_URL = `${SUPABASE_URL}/functions/v1/drive-upload`;
 export const DRIVE_ROOT_FOLDER_ID = '1OwIcxTn03Uoi1kQLtAwFjbigRZhgXe63';
 
 // -----------------------------------------------------------------------------
+// APPLICANT printed on an IMPORT PRF.
+//
+// A PRF for an overseas supplier prints this name in "Applicant / 申请人"
+// instead of the logged-in user, because the import desk belongs to one person
+// and the counterparties know her by name. It is a PRINT rule only — the
+// database still stores who actually created the PRF, and the audit trail
+// still names them, so the question "who raised this?" always has a real
+// answer regardless of what the paper says.
+//
+// Set to '' to switch it off and print the real user on every PRF.
+// Domestic suppliers are never affected.
+// -----------------------------------------------------------------------------
+export const IMPORT_APPLICANT = 'ZHANG PEI YAN';
+
+// -----------------------------------------------------------------------------
 // Company constants (used in generated documents). Adjust if needed.
 // -----------------------------------------------------------------------------
 export const COMPANY = {
