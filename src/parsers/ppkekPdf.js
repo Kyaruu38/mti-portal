@@ -131,7 +131,12 @@ export async function parsePpkekPdf(file) {
     // Fallback: FOB line, same shape, same generalisation.
     //     4. Nilai - FOB USD : 21,600
     const fob = text.match(/Nilai\s*[-–]?\s*FOB\s*([A-Z]{3})[^\d\n]*([\d.,]+)/i);
-    if (fob) { out.valueForeign = toNum(fob[2]); if (!val) out.valuta = fob[1].toUpperCase(); }
+    // ENGLISH number format, unlike every other figure on this form. The FOB,
+    // freight and insurance lines print "472,500" and "397,261.44" while Nilai
+    // Pabean two lines below prints "498.605,63". Reading the FOB with
+    // Indonesian rules turns 472,500 into 472.5 — a value 1000x too small that
+    // still looks like a number, so nothing would have flagged it.
+    if (fob) { out.valueForeign = toNumAuto(fob[2]); if (!val) out.valuta = fob[1].toUpperCase(); }
   }
   // Derived only as a last resort, and it must agree with the printed figure
   // when both exist — see the invariant check in the test harness.
@@ -199,8 +204,134 @@ const GOODS_COLUMNS = [
 // Where the goods block stops. Everything below this is a different section.
 const GOODS_END = /^\s*(?:N\.|O\.|P\.)\s|PUNGUTAN NEGARA|PENERIMAAN NEGARA/i;
 
+// The attachment sheet uses the SAME table, ROTATED.
+//
+// Six of seventeen real documents put nothing in the main goods table but the
+// single word "Terlampir" — attached. Their goods live on the LEMBAR LAMPIRAN
+// DATA BARANG sheet at the back, where the layout is transposed: the field
+// names run DOWN the left in one narrow column, and each ITEM is a COLUMN
+// across the page.
+//
+//     y=229 [229]Kode Barang   [246]MTI-I-S-      [276]MTI-I-S-      [306]MTI-I-S-
+//     y=227               [256]010205814ID  [286]010205803ID  [316]010205818ID
+//     y=291 [229]Jumlah        [251]8000.0000     [281]9600.0000     [311]4000.0000
+//     y=351 [229]Harga         [251]5.9900        [281]3.3400        [311]2.8000
+//     y=458 [229]Amount        [251]47.920,00     [281]32.064,00     [311]11.200,00
+//
+// So the main-table reader's axes are simply swapped: rows are found by
+// nearest LABEL in y, columns by nearest ITEM ANCHOR in x. The item numbers on
+// the "No" row give those anchors.
+//
+// This is why the register showed one item per document at best. It also
+// explains the six blanks exactly — those are the documents that said
+// "Terlampir" and meant it.
+// Every label on the sheet is listed, including the two whose values this
+// parser does not use. A label that is NOT listed leaves its values with no
+// row of their own, and they drift into the nearest listed one — that is how
+// "Penangguhan BM" ended up in the country field.
+const SHEET_LABELS = {
+  'no': 'no', 'kode hs': 'hs', 'uraian barang': 'name', 'kode barang': 'code',
+  'kode': 'code', 'jumlah': 'qty', 'harga': 'price', 'satuan': 'unit',
+  'amount': 'amount', 'nilai pabean': 'customs', 'negara': 'country',
+  'jenis bayar': 'payType', 'referensi dokumen': 'refDoc',
+};
+const SHEET_MARK = /LEMBAR\s+LAMPIRAN\s+DATA\s+BARANG/i;
+// A value sits within a few points of its own label. 20 is generous for that
+// and still far below the smallest gap between two labels (31), so a value can
+// never be pulled into the neighbouring row.
+const SHEET_BAND = 20;
+
+function parseGoodsSheet(page) {
+  const lines = page.lines || [];
+  if (!lines.some(l => SHEET_MARK.test((l.parts || []).map(p => p.str).join(' ')))) return [];
+
+  // Labels, and where each one sits.
+  const labels = [];
+  for (const l of lines) {
+    for (const p of (l.parts || [])) {
+      const key = SHEET_LABELS[p.str.trim().toLowerCase()];
+      if (key && !labels.some(a => a.key === key)) labels.push({ key, x: p.x, y: l.y });
+    }
+  }
+  const noLabel = labels.find(a => a.key === 'no');
+  if (!noLabel || labels.length < 5) return [];
+  const labelX = Math.max(...labels.map(a => a.x));
+
+  // Row bands are the MIDPOINTS between neighbouring labels, not a fixed
+  // window. A fixed one cannot work: the description is the tallest row on the
+  // sheet by far — "SILANE COUPLING AGENT CROSILE-" and its wrapped "69" sit 50
+  // points apart — while "No" and "Kode HS" are only 31 apart. Any window wide
+  // enough for the first merges the second.
+  labels.sort((a, b) => b.y - a.y);
+  const EDGE = 60;
+  labels.forEach((a, i) => {
+    a.hi = i === 0 ? a.y + EDGE : (a.y + labels[i - 1].y) / 2;
+    a.lo = i === labels.length - 1 ? a.y - EDGE : (a.y + labels[i + 1].y) / 2;
+  });
+
+  // The item numbers on the "No" row ARE the column anchors.
+  const anchors = [];
+  for (const l of lines) {
+    if (Math.abs(l.y - noLabel.y) > SHEET_BAND) continue;
+    for (const p of (l.parts || [])) {
+      if (p.x > labelX + 6 && /^\d{1,3}$/.test(p.str.trim())) anchors.push({ n: Number(p.str.trim()), x: p.x });
+    }
+  }
+  if (!anchors.length) return [];
+  anchors.sort((a, b) => a.x - b.x);
+  // Right edge of the last column, so the signature block and the printed
+  // legend down the side cannot be read as a further item.
+  const gap = anchors.length > 1 ? (anchors[anchors.length - 1].x - anchors[0].x) / (anchors.length - 1) : 34;
+  const maxX = anchors[anchors.length - 1].x + gap;
+
+  const cells = anchors.map(() => ({}));
+  // Top-to-bottom then left-to-right, so a value split across two lines
+  // ("MTI-I-S-" above "010205814ID") reassembles in the order it is printed.
+  const parts = [];
+  for (const l of lines) for (const p of (l.parts || [])) {
+    const v = p.str.trim();
+    if (!v || p.x <= labelX + 6 || p.x > maxX) continue;
+    parts.push({ v, x: p.x, y: l.y });
+  }
+  // READING ORDER IS ACROSS X, because the sheet is rotated a quarter turn: a
+  // value too long for its cell wraps into the NEXT x, not the next y. Sorting
+  // by y instead produced "006569MTI-IM-MSN-" on one document and the correct
+  // "MTI-I-S-010205814ID" on another — the two happened to wrap the other way
+  // round, which is exactly the tell that y was never the ordering axis.
+  parts.sort((a, b) => a.x - b.x || b.y - a.y);
+  for (const p of parts) {
+    const band = labels.find(a => p.y > a.lo && p.y <= a.hi);
+    if (!band || band.key === 'no') continue;
+    const row = band.key;
+    let col = 0, colD = Infinity;
+    anchors.forEach((a, i) => { const d = Math.abs(a.x - p.x); if (d < colD) { colD = d; col = i; } });
+    const c = cells[col];
+    if (c[row] == null) { c[row] = p.v; continue; }
+    // A word broken across the wrap keeps its hyphen and loses the space:
+    // "...CROSILE-" + "69" is CROSILE-69, not "CROSILE- 69".
+    const joiner = (row === 'name' && !/-$/.test(c[row])) ? ' ' : '';
+    c[row] = c[row] + joiner + p.v;
+  }
+
+  return cells.map((c, i) => ({
+    no: anchors[i].n,
+    code: (c.code || '').trim(),
+    hs: (c.hs || '').trim(),
+    name: (c.name || '').replace(/\s+/g, ' ').trim(),
+    qty: parseNumber(c.qty || '') || 0,
+    unit: (c.unit || '').trim(),
+    price: parseNumber(c.price || '') || 0,
+    amount: parseNumber(c.amount || '') || 0,
+    country: (c.country || '').replace(/\s*-\s*/g, ' ').trim(),
+  })).filter(it => it.code || it.name);
+}
+
 function parseGoods(pdf) {
   const items = [];
+  // Attachment sheets first — a document that uses them puts nothing but the
+  // word "Terlampir" in the main table, so there is nothing there to prefer.
+  for (const page of (pdf.pages || [])) items.push(...parseGoodsSheet(page));
+  if (items.length) return items;
   for (const page of (pdf.pages || [])) {
     const lines = page.lines || [];
     // The header row carries every column label on ONE line — that is what
@@ -300,6 +431,14 @@ function parseGoods(pdf) {
 // failure masquerading as a number.
 function toNum(v) {
   const n = parseNumber(v, 'id');
+  return Number.isFinite(n) ? n : 0;
+}
+
+// For the handful of fields this form prints in English format. 'auto' decides
+// the decimal separator from the string itself and gets both conventions right
+// (472,500 -> 472500; 498.605,63 -> 498605.63).
+function toNumAuto(v) {
+  const n = parseNumber(v, 'auto');
   return Number.isFinite(n) ? n : 0;
 }
 

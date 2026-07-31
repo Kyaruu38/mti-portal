@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v3.3';
+export const VERSION = 'v3.4';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v3.4', date: '31 Jul 2026',
+    what: {
+      id: 'Barang di LEMBAR LAMPIRAN ikut terbaca — dokumen yang isinya cuma "Terlampir" tidak lagi kosong. 17 bundel asli: 24 baris barang, 6 dokumen lebih dari satu barang.',
+      en: 'Goods on the ATTACHMENT SHEET are read too — documents that only said "Terlampir" are no longer blank. 17 real bundles: 24 goods lines, 6 documents with more than one item.',
+      zh: '附页货物明细现已读取 — 仅标注“Terlampir”的单据不再为空。17 个真实压缩包：24 条货物明细，其中 6 份为多项货物。',
+    },
+  },
   {
     v: 'v3.3', date: '31 Jul 2026',
     what: {
