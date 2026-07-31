@@ -6,7 +6,7 @@ import { suratJalanPaper } from '../ui/documents.js';
 import { romanMonth, nextMonthlySeq, fmtDate, num } from '../core/format.js';
 import { outstandingPOs, closeFullyReceivedPOs, receivedQty, overDeliveredPOs } from '../core/outstanding.js';
 import { wrapPrintable } from './approval.js';
-import { fetchSuratJalan, insertSuratJalan, updateSuratJalan } from '../core/suratJalanApi.js';
+import { fetchSuratJalan, createSuratJalanGuarded, updateSuratJalan } from '../core/suratJalanApi.js';
 import { can } from '../auth/roles.js';
 import { blockWrite } from '../core/guard.js';
 import { isConfigured } from '../core/supabase.js';
@@ -303,10 +303,20 @@ async function doCreateSuratJalan(st, ui, rows, selected) {
   };
   let sj;
   try {
-    sj = await insertSuratJalan(draft);
+    // Goes through create_surat_jalan(), which locks the referenced POs and
+    // recomputes ordered-vs-shipped server-side. The client-side check above is
+    // still there for instant feedback, but it is no longer the only thing
+    // standing between two simultaneous users and an over-delivered PO.
+    sj = await createSuratJalanGuarded(draft);
   } catch (e) {
-    console.error('insertSuratJalan failed', e);
-    toast('Gagal menyimpan surat jalan ke server: ' + (e.message || e));
+    console.error('createSuratJalan failed', e);
+    // The server's over-delivery message names the line, the ordered qty, what
+    // was already shipped, and what this document would add — far more useful
+    // than a generic failure, so it is shown as-is rather than replaced.
+    const msg = String((e && e.message) || e);
+    toast(/over-delivery/i.test(msg)
+      ? 'DITOLAK server — kelebihan kirim: ' + msg.replace(/^.*over-delivery blocked:\s*/i, '')
+      : 'Gagal menyimpan surat jalan ke server: ' + msg);
     return;
   }
   if (!sj.id) sj.id = uid('sj'); // demo-mode fallback (Supabase not configured)

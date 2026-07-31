@@ -66,3 +66,59 @@ export async function updateSuratJalan(id, patch) {
   const { error } = await c.from('surat_jalan').update(row).eq('id', id);
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// GUARDED CREATE — the database decides, not the browser.
+//
+// screens/suratJalan.js already refuses to ship more than a PO's outstanding
+// quantity, but that check reads state this session fetched at login. Two people
+// on the Surat Jalan screen at the same time both read a pre-shipment total,
+// both pass their own check, and both insert — the PO ends up over-delivered
+// with no error anywhere. Goods physically leave the warehouse on that document,
+// so the arbiter cannot be a copy of the data held in a browser tab.
+//
+// create_surat_jalan() (supabase_migration_guards.sql) takes a row lock on every
+// referenced PO, recomputes ordered-vs-shipped inside the transaction, and
+// raises if the new document would exceed it. Concurrent calls serialize on the
+// lock instead of racing.
+//
+// FALLBACK, and why it is narrow. Frontend deploys and SQL migrations are run
+// separately here, so this code can reach production before the function exists.
+// If it does, surat jalan creation must not stop dead — that is a core feature
+// and the standing rule is degrade, never hard-fail. So a MISSING FUNCTION falls
+// back to the plain insert with a loud console warning.
+//
+// Every other error is rethrown, and that distinction is the whole point: an
+// over-delivery rejection, a permission denial, or a bad line id MUST reach the
+// user. Swallowing those would turn the guard into decoration.
+// ---------------------------------------------------------------------------
+const FN_MISSING = /could not find the function|does not exist|schema cache/i;
+
+export async function createSuratJalanGuarded(sj) {
+  if (!isConfigured()) return sj;                 // demo mode: unchanged behaviour
+  const c = await getClient();
+  if (!c) throw new Error('Supabase client unavailable');
+
+  const payload = {
+    docNo: sj.docNo, no: sj.no, supplier: sj.supplier, poNo: sj.poNo,
+    // The function reads poIds from the payload to know which rows to lock.
+    // items alone would work for the arithmetic, but the lock has to be taken
+    // BEFORE the totals are read, so the list is passed explicitly.
+    poIds: sj.poIds || [],
+    items: sj.items || [],
+  };
+
+  const { data, error } = await c.rpc('create_surat_jalan', { p_sj: payload });
+  if (!error) return fromRow(data);
+
+  if (FN_MISSING.test(String(error.message || '')) || error.code === 'PGRST202') {
+    console.warn(
+      '[surat jalan] create_surat_jalan() not found in the database — falling back to a plain INSERT. ' +
+      'Over-delivery is then only checked in the browser, so two concurrent sessions can still exceed a PO. ' +
+      'Run supabase_migration_surat_jalan_rpc.sql to close this.',
+      error,
+    );
+    return insertSuratJalan(sj);
+  }
+  throw error;                                    // over-delivery, RLS, bad line
+}

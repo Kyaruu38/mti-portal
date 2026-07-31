@@ -10,7 +10,7 @@ import { COMPANY } from '../config.js';
 import { LOGO_MTI } from '../assets/images.js';
 import { notificationsFor, unreadCount, notifTargetScreen, notifMessage } from '../core/notifications.js';
 import { fmtDateTime } from '../core/format.js';
-import { globalSearch } from '../core/globalSearch.js';
+import { globalSearch, openTarget, canOpen, searchableTypes } from '../core/globalSearch.js';
 
 const NAV = [
   { label: 'nav_overview', items: [
@@ -114,15 +114,20 @@ function globalSearchBox() {
   const close = () => { clear(dropdown); dropdown.style.display = 'none'; };
 
   const navigateTo = (r) => {
-    // Screen ids per main.js's SCREENS map — 'surat-jalan' (hyphenated), not
-    // camelCase; getting this wrong silently falls back to the dashboard
-    // (main.js: `SCREENS[st.screen] || dashboardScreen`) instead of erroring.
-    if (r.type === 'PO') { setState({ screen: 'approval' }); setUI({ selPO: r.ref.id }); }
-    else if (r.type === 'Invoice') { setState({ screen: 'payment' }); }
-    else if (r.type === 'Surat Jalan') { setState({ screen: 'surat-jalan' }); }
-    else if (r.type === 'PRF') { setState({ screen: 'payment' }); }
+    // Target screen comes from SEARCH_TYPES so visibility and destination can
+    // never drift apart. Screen ids per main.js's SCREENS map — 'surat-jalan'
+    // (hyphenated), not camelCase; getting this wrong silently falls back to
+    // the dashboard instead of erroring.
+    const role = getState().user ? getState().user.role : null;
+    // Belt and braces: "Buka" is not rendered when this is false, so reaching
+    // here means something else called it. Refuse rather than dumping the user
+    // on the "belum punya hak akses" box, which is what used to happen when
+    // sona clicked a PO result.
+    const target = openTarget(role, r.type);
+    if (!target) { close(); return; }
+    setState({ screen: target });
+    if (r.type === 'PO') setUI({ selPO: r.ref.id });
     else if (r.type === 'PPKEK') {
-      setState({ screen: 'ppkek' });
       setUI({ pkExtract: { name: r.ref.name || `PPKEK ${r.ref.nopen}`, files: r.ref.files || [] }, pkParsed: r.ref });
     }
     input.value = '';
@@ -138,7 +143,12 @@ function globalSearchBox() {
       h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, r.sub || '—'),
     ]),
     r.drive ? h('a.link', { href: r.drive, target: '_blank', style: { fontSize: '11px', fontWeight: 600, flexShrink: 0 } }, 'Drive ↗') : h('span'),
-    btn('Buka', { sm: true, onClick: () => navigateTo(r) }),
+    // A role can legitimately SEE a document without holding the screen that
+    // displays it — cania/visca report on POs but have no approval queue. Show
+    // the hit, drop the button, instead of offering a dead end.
+    canOpen((getState().user || {}).role, r.type)
+      ? btn('Buka', { sm: true, onClick: () => navigateTo(r) })
+      : h('span', { style: { fontSize: '10px', color: 'var(--text-3)', flexShrink: 0 } }, 'lihat di Reports'),
   ]);
 
   const renderResults = (q) => {
@@ -178,7 +188,10 @@ function header(st) {
       h('div', { style: { fontSize: '15.5px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 } }, t(TITLES[st.screen] || 's_dashboard')),
       h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, `${COMPANY.name} · ${u.tag}`),
     ]),
-    globalSearchBox(),
+    // Hidden entirely for a role that can search nothing (sona), rather than
+    // offering a field that always answers "Tidak ada hasil". A search box that
+    // is permanently empty reads as broken software, not as a permission.
+    searchableTypes(u.role).length ? globalSearchBox() : h('div.grow'),
     langSwitch(st),
     iconBtn(st.theme === 'light' ? 'moon' : 'sun', { title: 'Theme', onClick: () => setState({ theme: st.theme === 'light' ? 'dark' : 'light' }) }),
     bellMenu(st),
