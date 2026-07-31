@@ -48,9 +48,13 @@ function badges(st) {
 }
 
 function brandMark() {
-  // Real MTI logo on a white chip so it reads on the navy sidebar.
-  return h('div', { style: { display: 'inline-flex', alignItems: 'center', background: '#fff', borderRadius: '8px', padding: '6px 10px' } }, [
-    h('img', { src: LOGO_MTI, style: { height: '26px', display: 'block' } }),
+  // No white chip any more. It existed only because the logo asset had a white
+  // rectangle baked into it — a white block on a navy sidebar looks like a
+  // mistake, so it was dressed up as a deliberate chip. The artwork is now
+  // transparent, so the mark sits straight on the sidebar in both themes and
+  // the workaround can go.
+  return h('div', { style: { display: 'inline-flex', alignItems: 'center' } }, [
+    h('img', { src: LOGO_MTI, style: { height: '30px', display: 'block' } }),
   ]);
 }
 

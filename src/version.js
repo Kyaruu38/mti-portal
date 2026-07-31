@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v10.1';
+export const VERSION = 'v10.2';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v10.2', date: '31 Jul 2026',
+    what: {
+      id: 'Label Request langkah 2 diperbaiki — dulu cuma menampilkan tulisan "[object Object]" dan mentok di situ, jadi upload label mingguan tidak pernah bisa dilanjutkan. Logo diganti versi resolusi tinggi tanpa latar putih, jadi bersih di dark mode.',
+      en: 'Label Request step 2 fixed — it showed only the text "[object Object]" and dead-ended there, so the weekly label upload could never be completed. Logo replaced with a high-resolution version with no white background, so it reads cleanly in dark mode.',
+      zh: '修复标签申请第 2 步 — 此前仅显示"[object Object]"且无法继续，导致每周标签上传始终无法完成。标志更换为无白底高分辨率版本，深色模式下更清晰。',
+    },
+  },
   {
     v: 'v10.1', date: '31 Jul 2026',
     what: {

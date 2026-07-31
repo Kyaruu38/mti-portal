@@ -94,7 +94,16 @@ function pickBest(sheets) {
 function step2() {
   const ui = getState().ui;
   const sheets = ui.labelSheets || [];
-  return card({ }, h('div.card-pad', { style: { maxWidth: '640px' } }, [
+  // card(children, opts) — NOT card(opts, children).
+  //
+  // This read `card({ }, h('div.card-pad', …))`, so the empty object became the
+  // CHILDREN and rendered as the literal string "[object Object]", while the
+  // entire sheet picker was passed as `opts` and destructured for `pad`/`cls`
+  // — both undefined, so it was dropped on the floor. Step 2 of Label Request
+  // has therefore never worked: sona drops her weekly workbook and the screen
+  // shows one line of debug text with no way forward. It is the only call site
+  // in the codebase with the arguments this way round.
+  return card(h('div.card-pad', { style: { maxWidth: '640px' } }, [
     h('div.row.gap12', { style: { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px' } }, [
       h('span', { style: { width: '34px', height: '34px', borderRadius: '8px', background: 'var(--st-green-bg)', color: 'var(--st-green-tx)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '8.5px', fontWeight: 700 } }, 'XLSX'),
       h('div.grow', [h('div', { style: { fontSize: '13px', fontWeight: 700 } }, ui.labelFile), h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, tr({
