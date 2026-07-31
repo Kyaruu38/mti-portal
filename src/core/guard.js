@@ -109,6 +109,7 @@ const ACTIONS = {
   'simpan invoice':                    { en: 'saving the invoice', zh: '保存发票' },
   'serahkan invoice ke Wilbert':       { en: 'handing the invoice to the supervisor', zh: '将发票移交主管' },
   'hapus invoice':                     { en: 'deleting the invoice', zh: '删除发票' },
+  'hapus PRF':                         { en: 'deleting the PRF', zh: '删除付款申请单' },
   'kirim PRF':                         { en: 'submitting the PRF', zh: '提交付款申请单' },
   'terima PRF di Finance':             { en: 'receiving the PRF in Finance', zh: '财务接收付款申请单' },
   'tandai PRF lunas':                  { en: 'marking the PRF paid', zh: '标记付款申请单已付' },

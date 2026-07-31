@@ -12,7 +12,7 @@ import { nextPrfNo } from '../core/docSeqApi.js';
 import { uploadToDrive } from '../core/drive.js';
 import { parseInvoicePdf } from '../parsers/invoicePdf.js';
 import { insertInvoice, updateInvoice, deleteInvoice } from '../core/invoicesApi.js';
-import { insertPrf } from '../core/prfsApi.js';
+import { insertPrf, deletePrf } from '../core/prfsApi.js';
 import { insertDescDict } from '../core/descDictApi.js';
 import { UUID_RE } from '../core/supabase.js';
 
@@ -122,6 +122,83 @@ export function paymentScreen() {
 // to go to Reports. There are deliberately NO action buttons here: moving a PRF
 // to "Diterima Finance" or "Paid" is finance's job, and RLS's prfs_update policy
 // blocks sekar/cania/visca from those stages anyway.
+// A PRF can be withdrawn only before Finance has it. 'Terbentuk' and
+// 'Diproses Wilbert' are still purchasing-side; from 'Diterima Finance' onward
+// the document is in someone else's queue and may already have been acted on.
+// Deleting it there would remove a payment request that finance is holding,
+// with no trace on their screen of what disappeared.
+function canDeletePrf(p) {
+  return p.stage === 'Terbentuk' || p.stage === 'Diproses Wilbert';
+}
+
+// Two clicks, and the second says what it destroys — same shape as the invoice
+// delete, deliberately, because two different confirm dialogs on one screen is
+// how people learn to click through both.
+function prfDeleteBtn(p) {
+  const st = getState();
+  const key = 'prf:' + p.id;
+  const pending = (st.ui.prfDelConfirm || {})[key];
+  const setPending = (v) => setUI({ prfDelConfirm: { ...(st.ui.prfDelConfirm || {}), [key]: v } });
+  if (!pending) return btn(t('delete'), { sm: true, onClick: () => setPending(true) });
+  return h('div.row.gap8', [
+    h('button.btn.btn-sm', {
+      style: { background: 'var(--st-red-tx)', color: '#fff', border: 'none', fontWeight: 700 },
+      onClick: () => removePrf(p),
+    }, tr({ id: 'Batalkan PRF?', en: 'Cancel this PRF?', zh: '确定作废？' })),
+    btn(t('cancel'), { sm: true, onClick: () => setPending(false) }),
+  ]);
+}
+
+async function removePrf(p) {
+  if (blockWrite('hapus PRF')) return;
+  const st = getState();
+
+  // Re-check the stage at click time. The button was rendered from state that
+  // may be seconds old, and in those seconds finance may have received it.
+  if (!canDeletePrf(p)) {
+    toast({
+      id: `${p.no} sudah di tangan Finance — tidak bisa dibatalkan dari sini.`,
+      en: `${p.no} is already with Finance — it cannot be cancelled from here.`,
+      zh: `${p.no} 已在财务手中 — 无法从此处作废。`,
+    });
+    setUI({ prfDelConfirm: {} });
+    return;
+  }
+
+  try {
+    if (p.id && UUID_RE.test(p.id)) await deletePrf(p.id);
+  } catch (e) {
+    // Keep it on screen when the server refused. RLS on prfs is stage-gated, so
+    // a refusal here is information, not noise — and a PRF that vanishes
+    // locally while surviving on the server reappears at the next refresh,
+    // after someone has already raised its replacement.
+    console.error('Supabase PRF delete failed', e);
+    toast({
+      id: 'Gagal hapus di server — PRF tidak jadi dibatalkan: ' + (e.message || e),
+      en: 'Server delete failed — the PRF was not cancelled: ' + (e.message || e),
+      zh: '服务器删除失败 — 付款申请单未被作废：' + (e.message || e),
+    });
+    setUI({ prfDelConfirm: {} });
+    return;
+  }
+
+  st.prfs = st.prfs.filter(x => x !== p);
+  // The invoices come back on their own: prfBuilder derives "already on a PRF"
+  // from st.prfs, so removing the PRF releases them with nothing to reset. That
+  // is why the invoice rows carry no "used" flag — a flag would now be stale.
+  logAudit({
+    entity: 'prf', target: p.no, action: 'delete',
+    detail: `${p.supplier} · ${money(p.amount, p.currency)} · invoice ${(p.invoices || []).join(', ') || '—'}`,
+  });
+  setUI({ prfDelConfirm: {} });
+  setState({ prfs: st.prfs });
+  toast({
+    id: `${p.no} dibatalkan — invoicenya bisa dipakai lagi. Nomor ${p.no} TIDAK dipakai ulang.`,
+    en: `${p.no} cancelled — its invoices are available again. The number ${p.no} will NOT be reused.`,
+    zh: `${p.no} 已作废 — 其发票可再次使用。编号 ${p.no} 不会被重复使用。`,
+  });
+}
+
 function prfTrackingCard(st, readonly) {
   const list = st.prfs.slice(0, 25);
   const tone = s => ({ 'Terbentuk': 'gray', 'Diproses Wilbert': 'amber', 'Diterima Finance': 'blue', 'Paid': 'green' }[s] || 'gray');
@@ -159,6 +236,11 @@ function prfTrackingCard(st, readonly) {
           // ONLY from the preview modal, so once a PRF was submitted there was
           // no way back to it.
           btn('PDF', { sm: true, iconName: 'download', onClick: () => printPrf(p) }),
+          // Cancelling a PRF you raised is not the same as advancing one, which
+          // is why it can live on a card labelled read-only: read-only here
+          // means "finance owns the stage transitions", and this is not one.
+          // Once Finance HAS it, it stops being ours to withdraw.
+          (!readonly && canDeletePrf(p)) ? prfDeleteBtn(p) : null,
         ])),
       ]))),
     ])) : h('div', { style: { padding: '16px', fontSize: '12px', color: 'var(--text-3)' } }, tr({ id: 'Belum ada PRF dibuat.', en: 'No PRF has been created yet.', zh: '尚未创建任何付款申请单。' })),

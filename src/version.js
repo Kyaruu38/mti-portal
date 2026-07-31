@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v8.1';
+export const VERSION = 'v9.0';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v9.0', date: '31 Jul 2026',
+    what: {
+      id: 'PRF bisa dibatalkan selama belum sampai Finance — dan invoicenya langsung bisa dipakai lagi. Nomor PRF yang dibatalkan TIDAK dipakai ulang.',
+      en: 'A PRF can be cancelled while Finance has not received it — and its invoices become available again immediately. A cancelled PRF number is never reused.',
+      zh: '付款申请单在财务接收前可作废 — 其发票立即恢复可用。已作废的编号不会被重复使用。',
+    },
+  },
   {
     v: 'v8.1', date: '31 Jul 2026',
     what: {

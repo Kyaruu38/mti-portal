@@ -2,7 +2,7 @@
 // supabase_schema.sql prfs_update) — this module doesn't change or work
 // around that, it just calls plain insert/update and lets Postgres accept or
 // reject based on the caller's role + the stage transition, same as every
-// other module here. No delete — no delete UI exists for PRFs.
+// other module here.
 import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
 
 function fromRow(row) {
@@ -53,5 +53,20 @@ export async function updatePrfStage(id, patch) {
   if ('receivedAt' in patch) row.received_at = patch.receivedAt;
   if ('receiveChecklist' in patch) row.receive_checklist = patch.receiveChecklist;
   const { error } = await c.from('prfs').update(row).eq('id', id);
+  if (error) throw error;
+}
+
+// Delete a PRF. Only reachable before Finance has it — see payment.js.
+//
+// The NUMBER is not reclaimed, and that is deliberate. PRF numbers come from a
+// sequence and end up on paper that leaves this building; reusing one means two
+// different documents answer to the same reference, and no amount of tidiness
+// is worth that. A gap in the sequence is a normal thing for a document series
+// to have, and it is visible, which is the point.
+export async function deletePrf(id) {
+  if (!isConfigured()) return;
+  const c = await getClient();
+  if (!c) throw new Error('Supabase client unavailable');
+  const { error } = await c.from('prfs').delete().eq('id', id);
   if (error) throw error;
 }
