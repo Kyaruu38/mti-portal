@@ -99,9 +99,9 @@ export function paymentScreen() {
       i < 3 ? icon('arrowR', 13, { stroke: 'var(--text-3)' }) : null,
     ])),
     h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', marginTop: '10px' } }, tr({
-      id: 'Invoice masuk PRF hanya setelah min. "Diproses Wilbert" · PRF USD & IDR terpisah per currency',
-      en: 'An invoice joins a PRF only from "Processed by Wilbert" onwards · USD and IDR PRFs are separate per currency',
-      zh: '发票须至少达到“Wilbert 处理中”才能进入付款申请单 · 美元与印尼盾付款申请单按币种分开',
+      id: 'Invoice masuk PRF hanya setelah min. "Diproses Supervisor" · PRF USD & IDR terpisah per currency',
+      en: 'An invoice joins a PRF only from "Processed by Supervisor" onwards · USD and IDR PRFs are separate per currency',
+      zh: '发票须至少达到“主管处理中”才能进入付款申请单 · 美元与印尼盾付款申请单按币种分开',
     })),
   ])]);
 
@@ -747,9 +747,9 @@ function prfOnlyNote() {
     ]),
     h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '8px', lineHeight: 1.5 } },
       tr({
-        id: 'Invoice masuk & tracking status dipegang sekar/finance. Di sini cuma bikin PRF: yang muncul adalah invoice yang statusnya minimal "Diproses Wilbert" dan belum pernah masuk PRF. Satu PRF = satu currency. Detail rekening diambil otomatis dari master supplier.',
-        en: 'Invoice intake & status tracking belong to sekar/finance. This screen only builds PRFs: it lists invoices that are at least "Processed by Wilbert" and have never been on a PRF. One PRF = one currency. Bank details are pulled automatically from the supplier master.',
-        zh: '发票录入与状态跟踪由 sekar/财务负责。此处仅生成付款申请单：列出状态至少为“Wilbert 处理中”且从未进入付款申请单的发票。一张付款申请单只对应一种币种。账户信息自动取自供应商主数据。',
+        id: 'Invoice masuk & tracking status dipegang sekar/finance. Di sini cuma bikin PRF: yang muncul adalah invoice yang statusnya minimal "Diproses Supervisor" dan belum pernah masuk PRF. Satu PRF = satu currency. Detail rekening diambil otomatis dari master supplier.',
+        en: 'Invoice intake & status tracking belong to sekar/finance. This screen only builds PRFs: it lists invoices that are at least "Processed by Supervisor" and have never been on a PRF. One PRF = one currency. Bank details are pulled automatically from the supplier master.',
+        zh: '发票录入与状态跟踪由 sekar/财务负责。此处仅生成付款申请单：列出状态至少为“主管处理中”且从未进入付款申请单的发票。一张付款申请单只对应一种币种。账户信息自动取自供应商主数据。',
       })),
   ])]);
 }
@@ -914,9 +914,9 @@ function prfModal() {
       btn(t('close'), { onClick: () => setUI({ prfModal: false }) }),
       btn('PDF', { iconName: 'download', onClick: () => {
         if (!d.no) { toast({
-          id: 'Nomor PRF baru terbit setelah dikirim ke Wilbert — kirim dulu, lalu unduh dari daftar PRF',
-          en: 'The PRF number is issued only after it is sent to Wilbert — send it first, then download from the PRF list',
-          zh: '付款申请单编号在发送给 Wilbert 之后才生成 — 请先发送，再从付款申请单列表下载',
+          id: 'Nomor PRF baru terbit setelah dikirim ke supervisor — kirim dulu, lalu unduh dari daftar PRF',
+          en: 'The PRF number is issued only after it is sent to the supervisor — send it first, then download from the PRF list',
+          zh: '付款申请单编号在发送主管之后才生成 — 请先发送，再从付款申请单列表下载',
         }); return; }
         const html = wrapPrintable(prfPaper(d, d.supplier, d.lines).outerHTML, d.no, 'landscape');
         const w = window.open('', '_blank');
@@ -992,8 +992,8 @@ async function submitPrf() {
   // document can be produced right after submission.
   setUI({ prfSel: {}, prfDraft: { ...d, no: prf.no, id: prf.id, stage: prf.stage, submitted: true } });
   toast({
-    id: `${prf.no} dibuat & dikirim ke Wilbert — silakan unduh PDF-nya`,
-    en: `${prf.no} created & sent to Wilbert — you can download the PDF now`,
-    zh: `${prf.no} 已创建并发送给 Wilbert — 现在可以下载 PDF`,
+    id: `${prf.no} dibuat & dikirim ke supervisor — silakan unduh PDF-nya`,
+    en: `${prf.no} created & sent to the supervisor — you can download the PDF now`,
+    zh: `${prf.no} 已创建并发送主管 — 现在可以下载 PDF`,
   });
 }

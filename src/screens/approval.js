@@ -114,9 +114,9 @@ export function approvalScreen() {
       po.deleteRequested = true; po.deleteReason = reason;
       logAudit({ entity: 'po', target: po.no, action: 'request_delete', detail: reason });
       toast({
-        id: `Request hapus PO ${po.no} diajukan — menunggu approval Wilbert`,
-        en: `Delete request for PO ${po.no} submitted — awaiting Wilbert approval`,
-        zh: `采购单 ${po.no} 删除申请已提交 — 等待 Wilbert 审批`,
+        id: `Request hapus PO ${po.no} diajukan — menunggu approval supervisor`,
+        en: `Delete request for PO ${po.no} submitted — awaiting supervisor approval`,
+        zh: `采购单 ${po.no} 删除申请已提交 — 等待主管审批`,
       });
       setState({});
     } catch (e) { console.error(e); toast({ id: 'Gagal ajukan request hapus: ' + (e.message || e), en: 'Failed to submit delete request: ' + (e.message || e), zh: '提交删除申请失败：' + (e.message || e) }); }
@@ -414,13 +414,13 @@ async function savePoEdit() {
   });
   toast({
     id: commercialChange
-      ? 'PO diperbarui — nilai berubah, approval direset & masuk antrean Wilbert lagi'
+      ? 'PO diperbarui — nilai berubah, approval direset & masuk antrean supervisor lagi'
       : 'PO diperbarui',
     en: commercialChange
-      ? 'PO updated — value changed, approval reset & re-queued for Wilbert'
+      ? 'PO updated — value changed, approval reset & re-queued for the supervisor'
       : 'PO updated',
     zh: commercialChange
-      ? '采购单已更新 — 金额变动，审批已重置并重新进入 Wilbert 的队列'
+      ? '采购单已更新 — 金额变动，审批已重置并重新进入主管队列'
       : '采购单已更新',
   });
   setUI({ poEdit: null });

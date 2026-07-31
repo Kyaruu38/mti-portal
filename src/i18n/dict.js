@@ -229,19 +229,21 @@ export const DICT = {
   prf_prepared: { id: 'Dibuat · Prepared', en: 'Prepared', zh: '制单' },
   prf_approved: { id: 'Disetujui · Approved', en: 'Approved', zh: '审批' },
   prf_finance: { id: 'Finance', en: 'Finance', zh: '财务' },
-  prf_send_wilbert: { id: 'Kirim ke Wilbert', en: 'Send to Wilbert', zh: '发送给 Wilbert' },
+  prf_send_wilbert: { id: 'Kirim ke Supervisor', en: 'Send to Supervisor', zh: '发送给主管' },
   prf_desc_hint: { id: 'Ketik EN atau ZH sekali — otomatis muncul lagi lain kali', en: 'Type EN or ZH once — auto-fills next time', zh: '输入一次中/英文 — 下次自动填充' },
   prf_bank_from_master: { id: 'Rekening SELALU dari master supplier (anti-fraud)', en: 'Bank ALWAYS from supplier master (anti-fraud)', zh: '账户信息始终取自供应商主数据（防欺诈）' },
 
   // --- state machine ---
   st_terbentuk: { id: 'Terbentuk', en: 'Created', zh: '已创建' },
-  st_diproses_wilbert: { id: 'Diproses Wilbert', en: 'Processed by Wilbert', zh: 'Wilbert 处理中' },
+  // Stage 2 is named after the ROLE, not the person. The stored value is still
+  // 'Diproses Wilbert' — see statusText.js for why that must not be rewritten.
+  st_diproses_wilbert: { id: 'Diproses Supervisor', en: 'Processed by Supervisor', zh: '主管处理中' },
   st_diterima_finance: { id: 'Diterima Finance', en: 'Received by Finance', zh: '财务已接收' },
   st_paid: { id: 'Paid', en: 'Paid', zh: '已付款' },
   st_diterima_purchasing: { id: 'Diterima Purchasing', en: 'Received by Purchasing', zh: '采购已接收' },
   // Kept for the AUDIT TRAIL: 'handed_wilbert' is the stored action name on
   // every history row already written, so this label still has to exist.
-  handed_wilbert: { id: 'Sudah diserahkan ke Wilbert', en: 'Handed to Wilbert', zh: '已转交 Wilbert' },
+  handed_wilbert: { id: 'Diserahkan ke Supervisor', en: 'Handed to Supervisor', zh: '已转交主管' },
   // The BUTTON, named for what it gets you rather than for the stage it moves.
   pay_create_prf: { id: 'Buat PRF', en: 'Create PRF', zh: '开具付款申请单' },
 

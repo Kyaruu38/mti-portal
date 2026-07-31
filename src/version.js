@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v8.0';
+export const VERSION = 'v8.1';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v8.1', date: '31 Jul 2026',
+    what: {
+      id: 'Semua tulisan "Wilbert" di layar diganti "Supervisor" — nama jabatan, bukan nama orang. Nilai yang tersimpan di database tidak diubah sama sekali, jadi History lama tetap nyambung.',
+      en: 'Every on-screen "Wilbert" now reads "Supervisor" — the role, not the person. Nothing stored in the database changed, so old History still lines up.',
+      zh: '界面上的“Wilbert”全部改为“主管” — 用职位而非人名。数据库中存储的值未做任何更改，历史记录仍然对得上。',
+    },
+  },
   {
     v: 'v8.0', date: '31 Jul 2026',
     what: {

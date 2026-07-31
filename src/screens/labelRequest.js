@@ -347,9 +347,9 @@ async function genPO() {
     en: `PO ${po.no} created & approved (queue skipped)`,
     zh: `采购单 ${po.no} 已创建并批准（跳过审批队列）`,
   } : {
-    id: `PO ${po.no} dibuat & dikirim untuk approval Wilbert`,
-    en: `PO ${po.no} created & sent to Wilbert for approval`,
-    zh: `采购单 ${po.no} 已创建并提交给 Wilbert 审批`,
+    id: `PO ${po.no} dibuat & dikirim untuk approval supervisor`,
+    en: `PO ${po.no} created & sent to the supervisor for approval`,
+    zh: `采购单 ${po.no} 已创建并提交主管审批`,
   });
   setState({ screen: isWilbert ? 'approval' : 'label-request' });
 }

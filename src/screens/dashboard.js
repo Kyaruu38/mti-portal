@@ -132,9 +132,9 @@ function labelPoBody(st, u) {
   return [
     h('div.grid.g4', [
       stat(t('dash_my_po_pending'), String(myPending.length), tr({
-        id: `${myPending.length} menunggu approval Wilbert`,
-        en: `${myPending.length} awaiting Wilbert's approval`,
-        zh: `${myPending.length} 份等待 Wilbert 审批`,
+        id: `${myPending.length} menunggu approval supervisor`,
+        en: `${myPending.length} awaiting the supervisor's approval`,
+        zh: `${myPending.length} 份等待主管审批`,
       }), true),
       stat(t('dash_new_labels'), String(myBatches.length), tr({
         id: 'upload label request saya', en: 'my label request uploads', zh: '我上传的标签申请',
@@ -249,7 +249,7 @@ function observerBody(st) {
   const empty = tr({ id: 'kosong', en: 'empty', zh: '无' });
   const stuck = [
     {
-      label: tr({ id: 'PO menunggu approval Wilbert', en: 'POs awaiting Wilbert\'s approval', zh: '等待 Wilbert 审批的采购单' }),
+      label: tr({ id: 'PO menunggu approval supervisor', en: "POs awaiting the supervisor's approval", zh: '等待主管审批的采购单' }),
       n: pending.length,
       sub: pending.length ? tr({ id: `paling lama ${oldestPending} hari`, en: `oldest ${oldestPending} days`, zh: `最久已等待 ${oldestPending} 天` }) : empty,
       screen: 'approval',

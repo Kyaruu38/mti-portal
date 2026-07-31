@@ -361,7 +361,7 @@ function actLabel(a) {
 function audStatusLabel(s) {
   const m = {
     'menunggu review': tr({ id: 'menunggu review', en: 'awaiting review', zh: '待审核' }),
-    'disetujui wilbert': tr({ id: 'disetujui wilbert', en: 'approved by Wilbert', zh: 'Wilbert 已批准' }),
+    'disetujui wilbert': tr({ id: 'disetujui supervisor', en: 'approved by the supervisor', zh: '主管已批准' }),
   };
   return m[s] || s;
 }

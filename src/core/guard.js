@@ -107,7 +107,7 @@ const ACTIONS = {
   'simpan upload stok label':          { en: 'saving the label stock upload', zh: '保存标签库存上传' },
   'upload faktur pajak':               { en: 'uploading the tax invoice', zh: '上传税务发票' },
   'simpan invoice':                    { en: 'saving the invoice', zh: '保存发票' },
-  'serahkan invoice ke Wilbert':       { en: 'handing the invoice to Wilbert', zh: '将发票移交 Wilbert' },
+  'serahkan invoice ke Wilbert':       { en: 'handing the invoice to the supervisor', zh: '将发票移交主管' },
   'hapus invoice':                     { en: 'deleting the invoice', zh: '删除发票' },
   'kirim PRF':                         { en: 'submitting the PRF', zh: '提交付款申请单' },
   'terima PRF di Finance':             { en: 'receiving the PRF in Finance', zh: '财务接收付款申请单' },

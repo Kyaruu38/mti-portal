@@ -181,9 +181,9 @@ function popup() {
   const st = getState(); const f = st.ui.cvForm;
   return modal({
     title: t('cv_send_appr'), subtitle: tr({
-      id: 'PO Converter → Approval Wilbert',
-      en: 'PO Converter → Wilbert approval',
-      zh: 'PO Converter → Wilbert 审批',
+      id: 'PO Converter → Approval Supervisor',
+      en: 'PO Converter → supervisor approval',
+      zh: 'PO Converter → 主管审批',
     }), width: 480, onClose: () => setUI({ cvPopup: false }),
     body: [
       field(t('po_contract_no') + ' *', poNoField(f)),
@@ -271,6 +271,6 @@ async function genConverterPO() {
   setUI({ cvPopup: false, cvResult: null });
   toast(isWilbert
     ? { id: `PO ${no} dibuat & di-approve`, en: `PO ${no} created & approved`, zh: `采购单 ${no} 已创建并批准` }
-    : { id: `PO ${no} dikirim ke approval queue Wilbert`, en: `PO ${no} sent to Wilbert's approval queue`, zh: `采购单 ${no} 已提交至 Wilbert 的审批队列` });
+    : { id: `PO ${no} dikirim ke approval queue supervisor`, en: `PO ${no} sent to the supervisor's approval queue`, zh: `采购单 ${no} 已提交至主管审批队列` });
   setState({ screen: 'approval' });
 }

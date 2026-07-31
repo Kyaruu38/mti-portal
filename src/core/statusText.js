@@ -23,7 +23,12 @@ const TEXT = {
   'Rejected':            { en: 'Rejected',            zh: '已拒绝' },
   // PRF / payment stages
   'Terbentuk':           { en: 'Created',             zh: '已创建' },
-  'Diproses Wilbert':    { en: 'With Wilbert',        zh: 'Wilbert 处理中' },
+  // Stored as 'Diproses Wilbert' since day one; SHOWN as Supervisor. The `id`
+  // override exists for exactly this: a stage named after a person outlives the
+  // person holding the job, and renaming the stored value would mean rewriting
+  // every invoice row, every PRF row and every audit line that mentions it —
+  // history included. So the database keeps its word and the screen uses ours.
+  'Diproses Wilbert':    { id: 'Diproses Supervisor', en: 'With Supervisor', zh: '主管处理中' },
   'Diterima Purchasing': { en: 'Received by Purchasing', zh: '采购已接收' },
   'Diterima Finance':    { en: 'Received by Finance', zh: '财务已接收' },
   'Paid':                { en: 'Paid',                zh: '已付款' },
@@ -38,13 +43,16 @@ const TEXT = {
   'DO NOT BUY':          { en: 'DO NOT BUY',          zh: '暂不采购' },
   // supplier bank-account review
   'menunggu review':     { en: 'awaiting review',     zh: '待审核' },
-  'disetujui wilbert':   { en: 'approved by Wilbert', zh: 'Wilbert 已批准' },
+  'disetujui wilbert':   { id: 'disetujui supervisor', en: 'approved by the supervisor', zh: '主管已批准' },
 };
 
 export function statusText(value) {
   const v = String(value == null ? '' : value);
   const e = TEXT[v];
-  return e ? tr({ id: v, en: e.en, zh: e.zh }) : v;
+  // `e.id` overrides the Indonesian display. Without it the stored string shows
+  // through untouched, which is right for almost every status here and wrong
+  // for the one named after a person.
+  return e ? tr({ id: e.id || v, en: e.en, zh: e.zh }) : v;
 }
 
 // Payment terms are master data on the supplier row ('30 hari', 'Bayar di
