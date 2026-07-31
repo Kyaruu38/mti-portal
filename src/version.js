@@ -24,12 +24,28 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v3.7';
+export const VERSION = 'v3.9';
 export const VERSION_DATE = '31 Jul 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v3.9', date: '31 Jul 2026',
+    what: {
+      id: 'Supplier import punya tombolnya sendiri — pertanyaan PKP dilewati, dan portal berhenti menagih faktur pajak yang memang tidak akan pernah ada. TOP 90 hari ditambahkan.',
+      en: 'Overseas suppliers get their own switch — the PKP question is skipped, and the portal stops chasing a tax invoice that will never exist. 90-day terms added.',
+      zh: '境外供应商有了独立开关 — 跳过 PKP 问题，门户不再追讨永远不会存在的税票。新增 90 天账期。',
+    },
+  },
+  {
+    v: 'v3.8', date: '31 Jul 2026',
+    what: {
+      id: 'PDF invoice hasil scan diberitahu langsung lewat notifikasi, plus ringkasan "2 dari 3 file hasil scan" di akhir antrian.',
+      en: 'A scanned invoice PDF now says so in a notification, plus a "2 of 3 files are scans" summary when the queue ends.',
+      zh: '扫描件发票 PDF 会通过通知直接说明，队列结束时另有“3 个文件中 2 个为扫描件”的汇总。',
+    },
+  },
   {
     v: 'v3.7', date: '31 Jul 2026',
     what: {

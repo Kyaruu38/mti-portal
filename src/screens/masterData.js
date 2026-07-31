@@ -101,8 +101,8 @@ function openSup(existing) {
       // supplier mid-review doesn't silently revert someone's pending proposal.
       ? { editingId: existing.id, name: existing.name, address: existing.address || '', contact: existing.contact || '', phone: existing.phone || '',
           bank: existing.pendingBank || existing.bank || '', acct: existing.pendingAcct || existing.acct || '', bankAddress: existing.pendingBankAddress || existing.bankAddress || '',
-          pkp: !!existing.pkp, top: existing.top || '30 hari' }
-      : { name: '', address: '', contact: '', phone: '', bank: '', acct: '', bankAddress: '', pkp: true, top: '30 hari' },
+          pkp: !!existing.pkp, overseas: !!existing.overseas, top: existing.top || '30 hari' }
+      : { name: '', address: '', contact: '', phone: '', bank: '', acct: '', bankAddress: '', pkp: true, overseas: false, top: '30 hari' },
   });
 }
 
@@ -118,10 +118,38 @@ function supModal() {
       h('div.divider'),
       h('div.grid.g2', [field(t('md_bank'), inputEl({ placeholder: 'BCA / Mandiri…', value: f.bank, onInput: v => (f.bank = v) })), field(t('md_acct'), inputEl({ mono: true, value: f.acct, onInput: v => (f.acct = v) }))]),
       field(tr({ id: 'Alamat Bank', en: 'Bank Address', zh: '开户行地址' }), inputEl({ value: f.bankAddress, onInput: v => (f.bankAddress = v) })),
+      // IMPORT / OVERSEAS.
+      //
+      // The database and the supplier list have carried `overseas` all along —
+      // the list even renders an "Overseas" badge in place of PKP/Non-PKP — but
+      // no form ever set it, so it could only ever be false.
+      //
+      // PKP is an INDONESIAN tax status. A supplier in Hangzhou or Ho Chi Minh
+      // cannot be PKP and cannot be Non-PKP either; the question does not apply
+      // to them. They issue no faktur pajak at all — import VAT is paid at
+      // customs and evidenced by the PPKEK/PIB. So switching this on does not
+      // just default PKP to off, it takes the question away.
       h('div.row.gap14', { style: { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px' } }, [
-        h('div.grow', [h('div', { style: { fontSize: '12px', fontWeight: 700 } }, t('md_pkp')), h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, t('md_pkp_d'))]),
-        toggle(f.pkp, v => { f.pkp = v; setState({}); }),
+        h('div.grow', [
+          h('div', { style: { fontSize: '12px', fontWeight: 700 } }, tr({ id: 'Supplier Import / Luar Negeri', en: 'Import / Overseas supplier', zh: '进口 / 境外供应商' })),
+          h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, tr({
+            id: 'Tidak menerbitkan faktur pajak — PPN dibayar di bea cukai (PPKEK/PIB)',
+            en: 'Issues no Indonesian tax invoice — VAT is paid at customs (PPKEK/PIB)',
+            zh: '不开具印尼税票 — 增值税在海关缴纳（PPKEK/PIB）',
+          })),
+        ]),
+        toggle(f.overseas, v => { f.overseas = v; if (v) f.pkp = false; setState({}); }),
       ]),
+      f.overseas
+        ? h('div', { style: { background: 'var(--navy-soft)', color: 'var(--navy-soft-tx)', borderRadius: '10px', padding: '10px 14px', fontSize: '11px', fontWeight: 600 } }, tr({
+            id: 'Status PKP tidak berlaku untuk supplier luar negeri — pertanyaannya dilewati, bukan dijawab "Non-PKP".',
+            en: 'PKP status does not apply to an overseas supplier — the question is skipped, not answered "Non-PKP".',
+            zh: '境外供应商不适用 PKP 状态 — 该问题被跳过，而非填为“非 PKP”。',
+          }))
+        : h('div.row.gap14', { style: { background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '12px 14px' } }, [
+            h('div.grow', [h('div', { style: { fontSize: '12px', fontWeight: 700 } }, t('md_pkp')), h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, t('md_pkp_d'))]),
+            toggle(f.pkp, v => { f.pkp = v; setState({}); }),
+          ]),
       field(t('md_top'), selectEl(TOP_OPTIONS, { value: f.top, onChange: v => (f.top = v) })),
       h('div.cfg-banner', [icon('warn', 14), t('md_bank_review_note')]),
     ],
@@ -162,7 +190,7 @@ async function saveSup() {
     // "Reject" button only fired a toast.
     const patch = {
       name: f.name, address: f.address, contact: f.contact, phone: f.phone,
-      pkp: f.pkp, top: f.top, city: (f.address || '').split(',').pop().trim(),
+      pkp: f.pkp, overseas: !!f.overseas, top: f.top, city: (f.address || '').split(',').pop().trim(),
     };
     if (withdraw) {
       patch.pendingBank = ''; patch.pendingAcct = ''; patch.pendingBankAddress = '';
@@ -233,7 +261,7 @@ async function saveSup() {
   // at all and block a legitimate first PRF). It's still flagged
   // bankChangePending so the review queue picks it up and the PRF preview warns
   // — see prfModal() in screens/payment.js.
-  const localSup = { id: uid('sup'), name: f.name, address: f.address, contact: f.contact, phone: f.phone, bank: f.bank, acct: f.acct, bankAddress: f.bankAddress, pkp: f.pkp, top: f.top, city: (f.address || '').split(',').pop().trim(), bankChangePending: true, pendingBank: '', pendingAcct: '', pendingBankAddress: '' };
+  const localSup = { id: uid('sup'), name: f.name, address: f.address, contact: f.contact, phone: f.phone, bank: f.bank, acct: f.acct, bankAddress: f.bankAddress, pkp: f.pkp, overseas: !!f.overseas, top: f.top, city: (f.address || '').split(',').pop().trim(), bankChangePending: true, pendingBank: '', pendingAcct: '', pendingBankAddress: '' };
   try {
     const saved = await insertSupplier(localSup);
     localSup.id = saved.id;

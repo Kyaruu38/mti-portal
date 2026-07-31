@@ -59,7 +59,12 @@ export function paymentScreen() {
   }
 
   // Faktur reminder ONLY when linked PO has PPN=Dibayar (paid) and faktur missing.
-  const needFaktur = st.invoices.filter(i => !i.faktur && poPpnPaid(i) && i.status !== 'Paid');
+  // An OVERSEAS supplier never issues a faktur pajak — import VAT is paid at
+  // customs and evidenced by the PPKEK/PIB, not by a tax invoice. Nagging for
+  // one on an import is asking for a document that will never exist, and a
+  // reminder that can never be satisfied is a reminder people learn to ignore.
+  const overseas = new Set(st.suppliers.filter(s => s.overseas).map(s => s.name));
+  const needFaktur = st.invoices.filter(i => !i.faktur && poPpnPaid(i) && i.status !== 'Paid' && !overseas.has(i.supplier));
   const banner = (ui.pfBannerClosed ? [] : needFaktur.slice(0, 1)).map(inv => h('div.cfg-banner', { style: { justifyContent: 'flex-start' } }, [
     icon('warn', 17), h('div.grow', [h('b', t('pay_faktur_warn'))]),
     btn(t('pay_upload_faktur'), { sm: true, onClick: () => uploadFaktur(inv) }),
@@ -348,6 +353,20 @@ async function openInvoiceModal(file) {
     if (r.amount && !form.amount) form.amount = r.amount;
     if (r.supplierId) form.supplierId = r.supplierId;
     setUI({ invoiceRead: r });
+    // Say it out loud, not just in a panel. On a queue the modal is replaced
+    // every few seconds, and a grey box inside it is easy to walk straight past
+    // — then the invoice gets saved with a blank number and nobody knows why.
+    const q = getState().ui;
+    if (r.scanned) {
+      setUI({ invoiceScans: (q.invoiceScans || 0) + 1 });
+      toast({
+        id: `${file.name} — PDF hasil scan, tidak ada teks yang bisa dibaca. Isi manual.`,
+        en: `${file.name} — scanned PDF, no readable text inside. Fill it in by hand.`,
+        zh: `${file.name} — 扫描件 PDF，内部没有可读文字，请手动填写。`,
+      });
+    } else if (r.found.length) {
+      setUI({ invoiceRead2: (q.invoiceRead2 || 0) + 1 });
+    }
   } catch (e) {
     console.warn('invoice prefill skipped', e);
   }
@@ -362,7 +381,7 @@ function startInvoiceQueue(files) {
     toast({ id: 'Tidak ada file invoice yang bisa dibaca di antara yang di-drop', en: 'No usable invoice files among those dropped', zh: '拖入的文件中没有可用的发票文件' });
     return;
   }
-  setUI({ invoiceQueue: pdfs.slice(1), invoiceQueueTotal: pdfs.length });
+  setUI({ invoiceQueue: pdfs.slice(1), invoiceQueueTotal: pdfs.length, invoiceScans: 0, invoiceRead2: 0 });
   openInvoiceModal(pdfs[0]);
   if (pdfs.length > 1 || skipped) {
     toast({
@@ -376,8 +395,23 @@ function startInvoiceQueue(files) {
 // Move to the next file in the queue, or close. Used by Save and by Skip, so
 // there is exactly one place that decides what "next" means.
 function nextInvoiceInQueue() {
-  const q = getState().ui.invoiceQueue || [];
-  if (!q.length) { setUI({ invoiceModal: false, invoiceQueue: null, invoiceQueueTotal: 0 }); return false; }
+  const ui = getState().ui;
+  const q = ui.invoiceQueue || [];
+  if (!q.length) {
+    // End of the stack: say how many of them could not be read at all. One
+    // scan is a nuisance; five out of seven is worth knowing about the batch
+    // before wondering why so little filled itself in.
+    const scans = ui.invoiceScans || 0, total = ui.invoiceQueueTotal || 0;
+    setUI({ invoiceModal: false, invoiceQueue: null, invoiceQueueTotal: 0, invoiceScans: 0, invoiceRead2: 0 });
+    if (total > 1 && scans) {
+      toast({
+        id: `${scans} dari ${total} file hasil scan — yang itu tidak bisa diisi otomatis`,
+        en: `${scans} of ${total} files are scans — those cannot be filled automatically`,
+        zh: `${total} 个文件中有 ${scans} 个为扫描件 — 这些无法自动填写`,
+      });
+    }
+    return false;
+  }
   setUI({ invoiceQueue: q.slice(1) });
   openInvoiceModal(q[0]);
   return true;
@@ -425,7 +459,10 @@ function invoiceModal() {
       // Skip exists because a dropped stack will contain the odd file that is
       // not an invoice, and without it the only way past that file is to
       // abandon the remaining six.
-      left ? btn(tr({ id: 'Lewati', en: 'Skip', zh: '跳过' }), { onClick: () => nextInvoiceInQueue() }) : null,
+      // Shown for the whole queue, including the LAST file. Without it the only
+      // way past an unusable final scan was Cancel — which abandons rather than
+      // finishes, so the run never got its closing summary.
+      total > 1 ? btn(tr({ id: 'Lewati', en: 'Skip', zh: '跳过' }), { onClick: () => nextInvoiceInQueue() }) : null,
       btn(left ? tr({ id: 'Simpan & lanjut', en: 'Save & next', zh: '保存并继续' }) : t('save'), { variant: 'primary', onClick: () => saveInvoiceModal() }),
     ],
   });
@@ -451,7 +488,7 @@ function prefillNote(r) {
   };
   const box = (bg, fg, text) => h('div', { style: { background: bg, color: fg, border: `1px solid ${fg}`, borderRadius: '8px', padding: '8px 11px', fontSize: '11px', fontWeight: 600, lineHeight: 1.5 } }, text);
   if (r.scanned) {
-    return box('var(--surface2)', 'var(--text-3)', tr({
+    return box('var(--navy-soft)', 'var(--navy-soft-tx)', tr({
       id: 'PDF ini hasil scan — tidak ada teks di dalamnya, jadi tidak ada yang bisa diisi otomatis. Isi manual seperti biasa.',
       en: 'This PDF is a scan — there is no text inside it, so nothing could be filled in. Type the details as usual.',
       zh: '此 PDF 为扫描件 — 内部没有文字，无法自动填写，请照常手动输入。',

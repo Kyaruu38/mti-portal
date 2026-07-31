@@ -111,13 +111,23 @@ export function addDays(d, days) {
 // Supplier default-TOP options — single source of truth (Master Data's
 // supplier form is the only place this list is used; keep it that way rather
 // than retyping it anywhere else that might need a TOP value).
-export const TOP_OPTIONS = ['Bayar di muka', '3 hari', '14 hari', '30 hari', '45 hari', '60 hari', 'T/T 45 days B/L'];
+// 90 days was missing, and it is the term most of Kyaru's overseas suppliers
+// actually use — "PAYMENT TERMS: T/T 90 DAYS AFTER INVOICE DATE" appears on
+// five of the eight readable invoices. Without it the closest choice was 60,
+// which puts every one of those invoices a month early in the due-date column.
+export const TOP_OPTIONS = ['Bayar di muka', '3 hari', '14 hari', '30 hari', '45 hari', '60 hari', '90 hari', 'T/T 45 days B/L'];
 
 // Parse a TOP string ("30 hari", "45 days", "T/T 45 days B/L", "60") -> integer days.
 // Only used for the SUPPLIER master's `top` field, whose values all come from
 // TOP_OPTIONS above, so the loose "first number anywhere" match is safe here.
 export function topDays(top) {
   if (top == null) return 30;
+  // "Bayar di muka" is paid BEFORE the goods move, so it is zero days — not the
+  // 30-day default it used to fall through to, which dated every advance-payment
+  // invoice a month late and put it in the wrong week of the due-date report.
+  // poTermDays() below already treats the same phrase as "not a day count";
+  // this is the supplier-master half of the same fact.
+  if (/bayar\s*di\s*muka|in\s*advance|prepaid|cash\s*in\s*advance|^cia$/i.test(String(top).trim())) return 0;
   const m = String(top).match(/(\d+)/);
   return m ? parseInt(m[1], 10) : 30;
 }
