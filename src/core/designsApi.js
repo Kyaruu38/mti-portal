@@ -41,3 +41,32 @@ export async function insertDesign(d) {
   if (error) throw error;
   return fromRow(data);
 }
+
+// Partial edit of the four typed fields. Deliberately CANNOT touch `thumb` or
+// `drive_url`: both are produced by an upload, and letting a text form rewrite
+// them would leave a card naming a file nobody can open.
+export async function updateDesign(id, patch) {
+  if (!isConfigured()) return;
+  const c = await getClient();
+  if (!c) throw new Error('Supabase client unavailable');
+  const row = {};
+  if ('erp' in patch) row.erp = patch.erp;
+  if ('spec' in patch) row.spec = patch.spec;
+  if ('brand' in patch) row.brand = patch.brand;
+  if ('market' in patch) row.market = patch.market;
+  if ('ver' in patch) row.ver = patch.ver;
+  if (!Object.keys(row).length) return;
+  const { error } = await c.from('designs').update(row).eq('id', id);
+  if (error) throw error;
+}
+
+// Deleting the ROW does not delete the file in Drive — the artwork stays where
+// it was uploaded. Intentional: this library is an INDEX, and losing an index
+// entry should never destroy the original.
+export async function deleteDesign(id) {
+  if (!isConfigured()) return;
+  const c = await getClient();
+  if (!c) throw new Error('Supabase client unavailable');
+  const { error } = await c.from('designs').delete().eq('id', id);
+  if (error) throw error;
+}

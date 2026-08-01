@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v12.0';
+export const VERSION = 'v12.1';
 export const VERSION_DATE = '1 Agu 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v12.1', date: '1 Agu 2026',
+    what: {
+      id: 'Design Library: gambar desain akhirnya kelihatan oleh semua orang, bukan cuma yang mengupload \u2014 kartunya dulu menampilkan link sementara yang mati begitu pindah browser, padahal gambarnya tersimpan di database sejak awal. Klik kartunya untuk preview besar, dan cania/visca/Supervisor sekarang bisa edit dan hapus.',
+      en: 'Design Library: artwork is finally visible to everyone, not only the person who uploaded it \u2014 the card rendered a temporary link that died outside that browser, while the real image had been in the database all along. Click a card for a full preview; cania/visca/Supervisor can now edit and delete.',
+      zh: '设计库：图稿终于对所有人可见，而不再只有上传者能看到 \u2014 此前卡片渲染的是临时链接，换个浏览器即失效，而真正的图片一直存在数据库中。点击卡片可放大预览；cania/visca/主管现在可编辑与删除。',
+    },
+  },
   {
     v: 'v12.0', date: '1 Agu 2026',
     what: {
