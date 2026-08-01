@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v12.1';
+export const VERSION = 'v12.2';
 export const VERSION_DATE = '1 Agu 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v12.2', date: '1 Agu 2026',
+    what: {
+      id: 'Faktur pajak bisa ditambahkan belakangan \u2014 klik tanda "Belum upload" di baris invoicenya, isi nomornya, lampirkan PDF-nya. Dan kolomnya berhenti menagih supplier luar negeri, yang memang tidak akan pernah menerbitkan faktur pajak Indonesia. Sebelumnya satu klik MENGARANG nomor faktur acak dan menampilkannya sebagai centang hijau.',
+      en: 'A tax invoice can now be added after the fact \u2014 click the "Not uploaded" flag on the invoice row, enter the number, attach the PDF. And the column stops chasing overseas suppliers, who will never issue an Indonesian tax invoice. Previously one click INVENTED a random number and showed it as a green tick.',
+      zh: '税票现在可后补 \u2014 点击发票行的"未上传"标记，录入编号并附上 PDF。该列不再向境外供应商催要税票 \u2014 他们本就不会开具印尼税票。此前点击一次会随机生成编号并显示为绿色对勾。',
+    },
+  },
   {
     v: 'v12.1', date: '1 Agu 2026',
     what: {

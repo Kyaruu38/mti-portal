@@ -77,7 +77,7 @@ export function paymentScreen() {
   const needFaktur = st.invoices.filter(i => !i.faktur && poPpnPaid(i) && i.status !== 'Paid' && !overseas.has(i.supplier));
   const banner = (ui.pfBannerClosed ? [] : needFaktur.slice(0, 1)).map(inv => h('div.cfg-banner', { style: { justifyContent: 'flex-start' } }, [
     icon('warn', 17), h('div.grow', [h('b', t('pay_faktur_warn'))]),
-    btn(t('pay_upload_faktur'), { sm: true, onClick: () => uploadFaktur(inv) }),
+    btn(t('pay_upload_faktur'), { sm: true, onClick: () => setUI({ fakturFor: inv.id }) }),
     btn(t('pay_continue_anyway'), { sm: true, variant: 'primary', onClick: () => { setUI({ pfBannerClosed: true }); toast({ id: 'Diproses tanpa faktur pajak — ditandai follow-up', en: 'Processed without a tax invoice — flagged for follow-up', zh: '未附税票继续处理 — 已标记跟进' }); } }),
   ]));
 
@@ -122,6 +122,7 @@ export function paymentScreen() {
     prfTrackingCard(st, readonly),
     ui.prfModal ? prfModal() : null,
     ui.invoiceModal ? invoiceModal() : null,
+    ui.fakturFor ? fakturModal(st) : null,
   ]);
 }
 
@@ -406,6 +407,92 @@ async function downloadAllPrf(list) {
 // A missing PO Ref simply means the invoice can't be matched to a PO, so fall
 // back to the invoice's own ppnPaid flag — exactly what happens when the lookup
 // finds nothing.
+// FAKTUR PAJAK — four states, not two.
+//
+// The column used to answer one question: "is inv.faktur filled?" Everything
+// else got a red "Belum upload". So an OVERSEAS supplier — who will never issue
+// an Indonesian tax invoice, because import VAT is paid at customs and evidenced
+// by the PPKEK/PIB — was nagged forever about a document that does not exist.
+// HAICHAO sat there flagged next to two domestic suppliers who genuinely owed
+// one, and once a warning is wrong a third of the time it stops being read.
+//
+// The banner above the table already knew this rule (it filters out overseas and
+// PPN-not-paid). The column never learnt it. Now they share one function.
+//
+//   'ada'        the number is on file
+//   'nonpkp'     overseas supplier — no faktur will ever exist. NOT a warning
+//   'belum-ppn'  PPN on the linked PO is not settled yet, so no faktur is due
+//   'missing'    genuinely owed and genuinely absent
+export function fakturState(inv) {
+  if (inv && inv.faktur) return 'ada';
+  const overseas = new Set(getState().suppliers.filter(s => s.overseas).map(s => s.name));
+  if (overseas.has(inv && inv.supplier)) return 'nonpkp';
+  if (!poPpnPaid(inv)) return 'belum-ppn';
+  return 'missing';
+}
+
+// The invoice's OWN file, never the faktur attached later. Both live in the same
+// `files` array, and picking files[0] blindly would make the File column point
+// at the tax invoice once one was added — the wrong document under the right
+// heading, which is worse than an empty cell.
+export function invoiceFileUrl(inv) {
+  const files = (inv && inv.files) || [];
+  const own = files.find(f => f && f.kind !== 'faktur');
+  return (own && own.url) || '';
+}
+export function fakturFileUrl(inv) {
+  const f = ((inv && inv.files) || []).find(x => x && x.kind === 'faktur');
+  return (f && f.url) || '';
+}
+
+function fakturCell(inv, readonly) {
+  const state = fakturState(inv);
+  const url = fakturFileUrl(inv);
+
+  if (state === 'ada') {
+    return h('div.row.gap8', [
+      h('span', { style: { fontSize: '11px', fontWeight: 600, color: 'var(--st-green-tx)' } },
+        [icon('check', 11, { strokeWidth: 2.5 }), ' ', inv.faktur]),
+      url ? driveLink(url) : null,
+      // Wrong number typed in is at least as likely as none at all, and until
+      // now there was no way back — the field could only ever be filled once.
+      readonly ? null : h('a.link', { style: { fontSize: '10.5px' }, onClick: () => setUI({ fakturFor: inv.id }) },
+        tr({ id: 'ubah', en: 'change', zh: '修改' })),
+    ]);
+  }
+
+  if (state === 'nonpkp') {
+    return h('span', {
+      style: { fontSize: '10.5px', color: 'var(--text-3)' },
+      title: tr({
+        id: 'Supplier luar negeri — PPN impor dibayar di bea cukai, buktinya PPKEK/PIB, bukan faktur pajak.',
+        en: 'Overseas supplier — import VAT is paid at customs and evidenced by the PPKEK/PIB, not by a tax invoice.',
+        zh: '境外供应商 — 进口增值税在海关缴纳，凭证为报关单，而非税票。',
+      }),
+    }, tr({ id: 'tidak perlu', en: 'not required', zh: '无需' }));
+  }
+
+  if (state === 'belum-ppn') {
+    return h('span', {
+      style: { fontSize: '10.5px', color: 'var(--text-3)' },
+      title: tr({
+        id: 'PPN di PO ini belum dibayar, jadi fakturnya memang belum terbit.',
+        en: 'VAT on this PO has not been settled, so no tax invoice is due yet.',
+        zh: '此采购单的增值税尚未结算，税票尚未开具。',
+      }),
+    }, tr({ id: 'belum jatuh tempo', en: 'not due yet', zh: '尚未到期' }));
+  }
+
+  if (readonly) return badge(t('pay_faktur_missing'), 'amber', { iconName: 'warn' });
+  // The badge IS the button. A separate "add" control in a table this wide is
+  // one more thing to find; the thing complaining should be the thing you press.
+  return h('a', {
+    style: { cursor: 'pointer' },
+    title: tr({ id: 'Klik untuk menambahkan faktur pajak', en: 'Click to add the tax invoice', zh: '点击添加税票' }),
+    onClick: () => setUI({ fakturFor: inv.id }),
+  }, badge(t('pay_faktur_missing'), 'amber', { iconName: 'warn' }));
+}
+
 function poPpnPaid(inv) {
   const ref = inv && inv.poRef ? String(inv.poRef) : '';
   if (!ref) return !!(inv && inv.ppnPaid);
@@ -426,14 +513,14 @@ function invoiceTable(st, opts) {
     // Advancing an invoice is purchasing-side work (sekar's job), not a
     // finance-stage mutation — not gated by the finance "readonly" cap.
     const canAdvance = !readonly && inv.status === 'Diterima Purchasing';
-    return h('tr', { style: inv.status === 'Diterima Purchasing' && !inv.faktur && poPpnPaid(inv) ? { background: 'var(--st-amber-bg)' } : {} }, [
+    return h('tr', { style: fakturState(inv) === 'missing' && inv.status !== 'Paid' ? { background: 'var(--st-amber-bg)' } : {} }, [
       h('td.mono.cell-strong', inv.no),
       h('td', inv.supplier),
       h('td.mono', { style: { color: 'var(--text-3)' } }, inv.poRef),
       h('td.mono.r', money(inv.amount, inv.currency)),
       h('td.mono', { style: dueTone ? { color: `var(--st-${dueTone}-tx)`, fontWeight: 700 } : {} }, inv.status === 'Paid' ? tr({ id: 'paid', en: 'paid', zh: '已付款' }) : fmtDate(inv.due) + (d < 0 ? tr({ id: ` · overdue ${-d}h`, en: ` · overdue ${-d}d`, zh: ` · 逾期 ${-d} 天` }) : '')),
-      h('td', inv.faktur ? h('span', { style: { fontSize: '11px', fontWeight: 600, color: 'var(--st-green-tx)' } }, [icon('check', 11, { strokeWidth: 2.5 }), ' ', inv.faktur]) : badge(t('pay_faktur_missing'), 'amber', { iconName: 'warn' })),
-      h('td', driveLink((inv.files && inv.files[0] && inv.files[0].url) || '')),
+      h('td', fakturCell(inv, readonly)),
+      h('td', driveLink(invoiceFileUrl(inv))),
       h('td', h('div.row.gap8', [
         badge(trStage(inv.status), statusTone(inv.status)),
         // Named for what it GETS YOU, not for the internal step it performs.
@@ -476,24 +563,121 @@ function invoiceTable(st, opts) {
   ]);
 }
 
-async function uploadFaktur(inv) {
-  if (blockWrite('upload faktur pajak')) return;
-  // Faktur number is still simulated (no real OCR/upload pipeline) — this
-  // fix is scoped to persistence, not to building real faktur-pajak intake.
-  inv.faktur = '010.005-26.' + Math.floor(Math.random() * 1e8);
-  try {
-    await updateInvoice(inv.id, { faktur: inv.faktur });
-  } catch (e) {
-    console.error('Supabase invoice faktur sync failed', e);
+// ADD A TAX INVOICE, AFTER THE FACT.
+//
+// WHAT THIS REPLACES, AND WHY IT MATTERED
+// -----------------------------------------------------------------------------
+// The old uploadFaktur() did this:
+//
+//     inv.faktur = '010.005-26.' + Math.floor(Math.random() * 1e8);
+//
+// It uploaded nothing and asked for nothing. One click INVENTED a tax invoice
+// number and wrote it to the database, and the column then showed a green tick
+// next to a number that corresponds to no document in existence. A fabricated
+// faktur number is worse than a missing one: missing is a task, fabricated is a
+// finding — it looks settled to everyone downstream, including an auditor.
+//
+// Now it asks for the number and the file, and refuses to save a number that
+// cannot be one.
+function fakturModal(st) {
+  const inv = st.invoices.find(i => i.id === st.ui.fakturFor);
+  if (!inv) return null;
+  const draft = { no: inv.faktur || '', file: null };
+  const close = () => setUI({ fakturFor: null });
+
+  const numInput = inputEl({
+    value: draft.no, mono: true, placeholder: '010.005-26.12345678',
+    onInput: v => { draft.no = v; },
+  });
+
+  const drop = dropzone({
+    title: tr({ id: 'Drop PDF faktur pajak', en: 'Drop the tax invoice PDF', zh: '拖入税票 PDF' }),
+    sub: tr({ id: 'Opsional — nomornya yang wajib', en: 'Optional — the number is what matters', zh: '可选 — 编号才是必填项' }),
+    accept: '.pdf,.jpg,.jpeg,.png', iconName: 'upload', compact: true,
+    onFiles: files => { draft.file = files[0]; setUI({}); },
+  });
+
+  return modal({
+    title: tr({ id: 'Faktur Pajak', en: 'Tax Invoice', zh: '税票' }),
+    subtitle: `${inv.no} · ${inv.supplier}`, width: 520, onClose: close,
+    body: h('div.stack', { style: { gap: '12px' } }, [
+      field(tr({ id: 'Nomor faktur pajak', en: 'Tax invoice number', zh: '税票编号' }), numInput),
+      draft.file
+        ? h('div.row.gap8', { style: { fontSize: '11.5px', color: 'var(--st-green-tx)' } },
+            [icon('check', 13, { strokeWidth: 2.5 }), draft.file.name])
+        : drop,
+      h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', lineHeight: 1.5 } }, tr({
+        id: 'Nomornya diketik dari faktur aslinya, bukan dibuatkan sistem. Portal tidak akan pernah mengarang nomor faktur.',
+        en: 'The number is typed from the actual document — the portal never generates one.',
+        zh: '编号须照实录入，系统绝不自动生成税票编号。',
+      })),
+    ]),
+    footer: h('div.row.gap8', { style: { justifyContent: 'flex-end', width: '100%' } }, [
+      btn(t('cancel'), { onClick: close }),
+      btn(t('save'), { variant: 'primary', onClick: () => saveFaktur(inv, draft) }),
+    ]),
+  });
+}
+
+// An Indonesian faktur pajak number is 16 digits, usually written with a dot and
+// a dash. Checked on DIGIT COUNT, not on the punctuation, because the same
+// number is legitimately written 010.005-26.12345678 and 0100052612345678.
+// Deliberately loose: this rejects obvious nonsense, it does not pretend to
+// validate against Coretax.
+export function fakturNoLooksReal(s) {
+  return String(s || '').replace(/\D/g, '').length >= 12;
+}
+
+async function saveFaktur(inv, draft) {
+  if (blockWrite('simpan faktur pajak')) return;
+  const no = (draft.no || '').trim();
+  if (!fakturNoLooksReal(no)) {
     toast({
-      id: 'Faktur tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e),
-      en: 'Tax invoice saved locally, but sync to server failed: ' + (e.message || e),
-      zh: '税票已本地保存，但同步到服务器失败：' + (e.message || e),
+      id: 'Nomor faktur pajak minimal 12 digit angka — ketik apa adanya dari fakturnya.',
+      en: 'A tax invoice number needs at least 12 digits — type it exactly as printed.',
+      zh: '税票编号至少需 12 位数字 — 请照实录入。',
     });
-    setState({});
     return;
   }
-  toast({ id: 'Faktur pajak terupload', en: 'Tax invoice uploaded', zh: '税票已上传' });
+
+  // The file is uploaded FIRST. If Drive refuses, the number is still saved —
+  // the number is the part Finance needs, and losing it because an unrelated
+  // upload failed would be the tail wagging the dog.
+  let files = (inv.files || []).filter(f => f && f.kind !== 'faktur');
+  if (draft.file) {
+    const up = await uploadToDrive(draft.file, 'Invoice/Faktur/', draft.file.name, 'Invoice');
+    files = files.concat([{ name: draft.file.name, url: up.url, placeholder: !!up.placeholder, kind: 'faktur' }]);
+    if (up.placeholder) {
+      toast({
+        id: 'Nomor faktur tersimpan, tapi filenya GAGAL naik ke Drive — simpan filenya sendiri dulu.',
+        en: 'The number was saved, but the file did NOT reach Drive — keep your own copy for now.',
+        zh: '编号已保存，但文件未能上传至 Drive — 请自行保留副本。',
+      });
+    }
+  }
+
+  const before = inv.faktur || '';
+  try {
+    await updateInvoice(inv.id, { faktur: no, files });
+  } catch (e) {
+    console.error('faktur save failed', e);
+    toast({
+      id: 'Gagal simpan ke server: ' + (e.message || e),
+      en: 'Failed to save to the server: ' + (e.message || e),
+      zh: '保存到服务器失败：' + (e.message || e),
+    });
+    return;   // modal stays open, nothing typed is lost
+  }
+  inv.faktur = no;
+  inv.files = files;
+  logAudit({
+    entity: 'invoice', target: inv.no, action: before ? 'ubah faktur' : 'tambah faktur',
+    detail: before ? `${before} → ${no}` : `${no}${draft.file ? ` · ${draft.file.name}` : ' · tanpa file'}`,
+  });
+  setUI({ fakturFor: null });
+  toast({
+    id: `Faktur pajak ${no} tersimpan`, en: `Tax invoice ${no} saved`, zh: `税票 ${no} 已保存`,
+  });
   setState({});
 }
 
