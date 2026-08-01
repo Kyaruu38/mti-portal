@@ -1,10 +1,12 @@
 import { h } from '../core/dom.js';
-import { getState, setState } from '../core/store.js';
+import { getState, setState, toast } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { card, sectionHead, badge, btn } from '../ui/components.js';
+import { card, sectionHead, badge, btn, icon } from '../ui/components.js';
 import { money, fmtDate, daysUntil, sumByCurrency, moneyMulti } from '../core/format.js';
 import { outstandingPOs } from '../core/outstanding.js';
 import { statusText } from '../core/statusText.js';
+import { poDocument } from '../ui/documents.js';
+import { wrapPrintable } from './approval.js';
 
 function stat(label, value, sub, accent) {
   return card([
@@ -40,7 +42,118 @@ export function dashboardScreen() {
   // any screen for a role missing from ACCESS, so this is the second net.
   else body = [];
 
-  return h('div.stack', [header, ...body]);
+  return h('div.stack', [header, driveQueueBanner(st), ...body]);
+}
+
+// "THE FILE IS SAFE, IT JUST IS NOT ON DRIVE YET."
+//
+// This banner is the whole lesson of 27 July - 1 August written as a control.
+// For five days every upload was refused by Google and the portal said "saved"
+// each time, because the failure was flattened to a NULL nobody rendered. It
+// cost five days of files and an hour with curl to find out.
+//
+// So a queue that is not empty is now impossible to miss, and the wording says
+// the two things a person actually needs: the file is not lost, and Drive is
+// the part that is broken. Shown to everyone who can upload — not only to the
+// person who happened to be uploading when it broke, because that person may
+// not sign in again this week.
+function driveQueueBanner(st) {
+  const q = st.driveQueue || [];
+  if (!q.length) return null;
+  const sebab = (q.find(r => r.last_error) || {}).last_error || '';
+  return h('div.cfg-banner', {
+    style: { display: 'block', background: 'var(--st-amber-bg)', color: 'var(--st-amber-tx)', borderColor: 'var(--st-amber-tx)' },
+  }, [
+    h('div', { style: { fontWeight: 700 } }, [icon('warn', 14), ' ', tr({
+      id: `${q.length} file belum sampai Google Drive — filenya AMAN, tersimpan di server dan akan dikirim otomatis begitu Drive bisa diakses lagi.`,
+      en: `${q.length} file(s) have not reached Google Drive — they are SAFE on the server and will be sent automatically once Drive is reachable.`,
+      zh: `${q.length} 个文件尚未送达 Google Drive — 文件已安全保存在服务器，Drive 恢复后将自动上传。`,
+    })]),
+    // The reason, verbatim. Not decoration: "invalid_grant" is the difference
+    // between an expired token and a full disk, and guessing between them is
+    // exactly what took an hour.
+    sebab ? h('div.mono', { style: { fontSize: '10.5px', marginTop: '5px', opacity: 0.85 } },
+      tr({ id: `Alasan terakhir: ${sebab}`, en: `Last error: ${sebab}`, zh: `最近错误：${sebab}` })) : null,
+    h('div', { style: { fontSize: '10.5px', marginTop: '4px' } }, tr({
+      id: 'Tidak perlu upload ulang. Portal mencoba lagi sendiri setiap kali ada yang login.',
+      en: 'No need to re-upload. The portal retries by itself on every login.',
+      zh: '无需重新上传。每次有人登录时门户都会自动重试。',
+    })),
+  ]);
+}
+
+
+// EVERY PO THIS PERSON RAISED — and its PDF, approved or not.
+//
+// The Approval Queue belongs to the Supervisor and must keep belonging to him:
+// nobody approves their own purchase order. But the side effect was that a PO
+// LEFT cania's screen the moment she pressed Generate. She could see a count on
+// a tile and nothing else — no document, no way to answer a supplier ringing up
+// about it, no way to tell an approved PO from a rejected one. The number just
+// went from 1 to 0.
+//
+// So the list stays with her, and the PDF opens from here.
+//
+// Handing out the document before approval is safe by construction, not by
+// convention: poDocument() prints the company chop ONLY when
+// po.status === 'Approved' (ui/documents.js). An unapproved PO downloads as a
+// plain unsigned sheet — which is exactly the thing worth having early, to
+// check the figures with the supplier before it is sealed.
+//
+// Still no approve button here. That separation is the point.
+function myPoCard(st, u) {
+  const mine = st.pos.filter(p => p.by === u.username)
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+    .slice(0, 12);
+  const pending = mine.filter(p => p.status === 'Menunggu Approval').length;
+
+  const openPdf = (po) => {
+    const html = wrapPrintable(poDocument(po).outerHTML, `PO ${po.no}`);
+    const w = window.open('', '_blank');
+    if (!w) {
+      toast({
+        id: 'Popup diblokir — izinkan popup dulu buat buka PDF-nya',
+        en: 'Popup blocked — allow popups to open the PDF',
+        zh: '弹窗被拦截 — 请允许弹窗以打开 PDF',
+      });
+      return;
+    }
+    w.document.write(html); w.document.close();
+    w.onload = () => { w.focus(); w.onafterprint = () => w.close(); setTimeout(() => w.print(), 300); };
+  };
+
+  const tone = s => s === 'Approved' ? 'green' : s === 'Rejected' ? 'red' : 'amber';
+
+  return card([
+    sectionHead(h('div.row.gap8', [
+      tr({ id: 'PO Saya', en: 'My POs', zh: '我的采购单' }),
+      badge(String(pending), pending ? 'accent' : 'gray'),
+    ]), null),
+    ...mine.map(p => h('div.row.gap14', { style: { padding: '12px 18px', borderBottom: '1px solid var(--border)' } }, [
+      h('div.grow', [
+        h('div.mono', { style: { fontSize: '12px', fontWeight: 600, color: 'var(--text)' } }, p.no),
+        h('div', { style: { fontSize: '11.5px', color: 'var(--text-3)', marginTop: '2px' } }, p.supplier),
+      ]),
+      h('div.mono', { style: { fontSize: '12.5px', fontWeight: 600 } }, money(p.total, p.currency)),
+      badge(statusText(p.status), tone(p.status)),
+      // Says plainly what you are about to get, so an unstamped sheet handed to
+      // a supplier is a choice rather than a surprise.
+      btn(p.status === 'Approved'
+        ? tr({ id: 'PDF', en: 'PDF', zh: 'PDF' })
+        : tr({ id: 'PDF draft', en: 'Draft PDF', zh: '草稿 PDF' }),
+        { sm: true, iconName: 'download', onClick: () => openPdf(p) }),
+    ])),
+    mine.length ? null : h('div', { style: { padding: '18px', color: 'var(--text-3)', fontSize: '12px' } }, tr({
+      id: 'Anda belum membuat PO.',
+      en: 'You have not raised any PO yet.',
+      zh: '您尚未创建采购单。',
+    })),
+    mine.length ? h('div', { style: { padding: '10px 18px', fontSize: '10.5px', color: 'var(--text-3)', lineHeight: 1.5 } }, tr({
+      id: 'PDF sebelum di-approve belum ada tanda tangan dan cap — aman dipakai untuk konfirmasi angka ke supplier, bukan sebagai PO resmi.',
+      en: 'A PDF pulled before approval carries no signature or chop — fine for checking figures with the supplier, not as the official PO.',
+      zh: '审批前导出的 PDF 无签章 — 可用于与供应商核对数据，但不能作为正式采购单。',
+    })) : null,
+  ]);
 }
 
 function quickActions(st, u) {
@@ -176,22 +289,7 @@ function labelPoBody(st, u) {
       })),
     ]),
     h('div.grid', { style: { gridTemplateColumns: '1.55fr 1fr', alignItems: 'start' } }, [
-      card([
-        sectionHead(h('div.row.gap8', [t('dash_my_pending_list'), badge(String(myPending.length), 'accent')]), null),
-        ...myPending.map(p => h('div.row.gap14', { style: { padding: '12px 18px', borderBottom: '1px solid var(--border)' } }, [
-          h('div.grow', [
-            h('div.mono', { style: { fontSize: '12px', fontWeight: 600, color: 'var(--text)' } }, p.no),
-            h('div', { style: { fontSize: '11.5px', color: 'var(--text-3)', marginTop: '2px' } }, p.supplier),
-          ]),
-          h('div.mono', { style: { fontSize: '12.5px', fontWeight: 600 } }, money(p.total, p.currency)),
-          badge(t('ap_awaiting'), 'amber'),
-        ])),
-        myPending.length ? null : h('div', { style: { padding: '18px', color: 'var(--text-3)', fontSize: '12px' } }, tr({
-          id: 'Tidak ada PO Anda yang menunggu approval.',
-          en: 'None of your POs are awaiting approval.',
-          zh: '您没有待审批的采购单。',
-        })),
-      ]),
+      myPoCard(st, u),
       activityCard(st.audit.filter(a => a.user === u.username).slice(0, 6)),
     ]),
   ];

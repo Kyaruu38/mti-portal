@@ -32,6 +32,7 @@ const state = {
   labelUploads: [],    // upload history (who/when/counts/quarantined rows)
   labelSettings: null, // { moq, leadNormal, leadUrgent, leadSuper, overstockMultiple }
   labelTrend: [],      // total stock per upload day, for the dashboard chart
+  driveQueue: [],      // files stashed but not yet accepted by Drive (core/driveOutbox)
 
   // transient module state
   ui: {},              // per-screen scratch space

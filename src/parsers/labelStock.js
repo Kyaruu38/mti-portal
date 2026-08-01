@@ -110,8 +110,28 @@ export const STATUSES = ['BUY NOW', 'SUFFICIENT', 'OVERSTOCK', 'IDLE STOCK'];
 
 // Normalised join key. Trailing spaces and full-width/half-width differences in
 // a pasted Market Code must not create a phantom "new" SKU every week.
+//
+// EVERY space is removed, not merely collapsed. The old rule squeezed runs of
+// whitespace down to one and stopped there, so these two rows lived side by
+// side in the tracker as separate SKUs for months:
+//
+//     ID10.00R20-18PR(149/146F)[CB332]  朝阳     (two spaces)
+//     ID10.00R20-18PR(149/146F)[CB332]朝阳       (none)
+//
+// One physical label, entered twice. Both looked reasonable on their own, so
+// nobody questioned either — and it only surfaced when both matched the SAME
+// ERP code (010504214ID) during the bulk match, because THAT comparison dropped
+// spaces entirely.
+//
+// The damage was quiet and arithmetical: stock split across two rows,
+// requirement split with it, so BUY NOW and OVERSTOCK for that label were being
+// decided on roughly half the real numbers.
+//
+// Spaces carry no meaning anywhere in these names — they are ERP export
+// artefacts and typing accidents. Two label names that differ only in spacing
+// are the same label, every time.
 export function skuKey(spec, market) {
-  const n = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().toUpperCase();
+  const n = s => String(s == null ? '' : s).replace(/\s+/g, '').toUpperCase();
   return `${n(spec)}||${n(market)}`;
 }
 

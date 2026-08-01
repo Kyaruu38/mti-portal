@@ -6,6 +6,7 @@ import { money, num, fmtDate, fmtDateTime, daysUntil, similarity, normalize, sum
 import { parsePaymentProof } from '../parsers/bankProof.js';
 import { parseNumber } from '../parsers/numbers.js';
 import { uploadToDrive } from '../core/drive.js';
+import { linkOutbox } from '../core/driveOutbox.js';
 import { can, isReadOnly } from '../auth/roles.js';
 import { updatePrfStage } from '../core/prfsApi.js';
 import { blockWrite } from '../core/guard.js';
@@ -337,6 +338,9 @@ async function confirmPaid(m) {
   if (isConfigured()) {
     try {
       paymentId = await confirmPrfPaid(prf.id, method, driveUrl);
+      // The payment row is created by the RPC, so this is the first moment its
+      // id exists. A transfer proof that missed Drive now finds its way back.
+      await linkOutbox(m.outboxId, 'payments', paymentId, 'url');
     } catch (e) {
       console.error('confirm_prf_paid RPC failed — nothing changed (transaction rolled back)', e);
       toast({

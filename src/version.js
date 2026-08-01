@@ -24,12 +24,44 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v12.2';
+export const VERSION = 'v13.3';
 export const VERSION_DATE = '1 Agu 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v13.3', date: '1 Agu 2026',
+    what: {
+      id: 'cania & visca sekarang punya daftar PO mereka sendiri di Dashboard, dan bisa menarik PDF-nya kapan saja \u2014 termasuk sebelum di-approve, saat dokumennya memang belum bertanda tangan dan bercap. Dulu PO hilang dari layar mereka begitu tombol Generate ditekan, karena Approval Queue milik Supervisor.',
+      en: 'cania and visca now have their own PO list on the Dashboard and can pull the PDF at any time \u2014 including before approval, when the document legitimately carries no signature or chop. A PO used to vanish from their screen the moment they pressed Generate, because the Approval Queue belongs to the Supervisor.',
+      zh: 'cania 与 visca 现在在看板上有各自的采购单列表，随时可导出 PDF \u2014 包括审批前（此时文件本就无签章）。此前按下生成后采购单便从其界面消失，因为审批队列属于主管。',
+    },
+  },
+  {
+    v: 'v13.2', date: '1 Agu 2026',
+    what: {
+      id: 'Kalau ada file yang belum sampai Google Drive, portal SEKARANG BILANG \u2014 spanduk di Dashboard, lengkap dengan alasan aslinya dari Google. Selama lima hari bulan lalu setiap upload ditolak dan portal tetap menulis "tersimpan"; itu yang tidak boleh terulang.',
+      en: 'If a file has not reached Google Drive the portal now SAYS SO \u2014 a Dashboard banner carrying Google\'s own error text. For five days last month every upload was refused while the portal kept saying "saved"; that is what this prevents.',
+      zh: '若文件尚未送达 Google Drive，门户现在会明确提示 \u2014 看板横幅并附上 Google 返回的原始错误。上月连续五天所有上传均被拒绝，门户却始终显示"已保存"；此改动正为杜绝此事。',
+    },
+  },
+  {
+    v: 'v13.1', date: '1 Agu 2026',
+    what: {
+      id: 'Faktur pajak bisa diisi langsung di form Add Invoice, jadi invoice dan fakturnya yang datang sebarengan tidak perlu dipisah \u2014 dulu file kedua terbuang diam-diam. Pesan setelah PRF dibuat sekarang menyebut orang yang benar: cania/visca menyerahkan ke sekar, sekar meneruskan ke Supervisor. Dan dua nama label yang cuma beda spasi kini dikenali sebagai SATU barang.',
+      en: 'The tax invoice can be entered straight from Add Invoice, so an invoice and its faktur arriving together no longer have to be split \u2014 the second file used to be discarded silently. The message after a PRF is raised now names the right person: cania/visca hand to sekar, sekar passes to the Supervisor. And two label names differing only in spacing are now recognised as ONE item.',
+      zh: '税票可直接在"新增发票"中录入，同时送达的发票与税票无需分开处理 \u2014 此前第二个文件会被静默丢弃。生成付款申请单后的提示现指向正确的人：cania/visca 交给 sekar，再由 sekar 转交主管。仅空格不同的两个标签名称现在视为同一物料。',
+    },
+  },
+  {
+    v: 'v13.0', date: '1 Agu 2026',
+    what: {
+      id: 'File yang mau naik ke Drive sekarang disimpan dulu di server, dan baru dihapus setelah Drive mengkonfirmasi. Kalau Drive sedang mati, filenya TIDAK hilang \u2014 dia mengantre dan terkirim sendiri begitu Drive hidup lagi, tanpa siapa pun mengupload ulang. Kegagalan juga menyimpan alasannya, bukan menyimpan kosong.',
+      en: 'A file bound for Drive is now stored on the server first and deleted only after Drive confirms. If Drive is down the file is NOT lost \u2014 it queues and goes up by itself once Drive returns, with nobody re-uploading anything. Failures now record their reason instead of recording nothing.',
+      zh: '上传 Drive 的文件现先保存在服务器，待 Drive 确认后才删除。若 Drive 故障，文件不会丢失 \u2014 会自动排队，待恢复后自行上传，无需任何人重新上传。失败也会记录原因，而非留空。',
+    },
+  },
   {
     v: 'v12.2', date: '1 Agu 2026',
     what: {

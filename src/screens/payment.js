@@ -10,6 +10,7 @@ import { can } from '../auth/roles.js';
 import { wrapPrintable } from './approval.js';
 import { nextPrfNo } from '../core/docSeqApi.js';
 import { uploadToDrive } from '../core/drive.js';
+import { linkOutbox } from '../core/driveOutbox.js';
 import { parseInvoicePdf } from '../parsers/invoicePdf.js';
 import { insertInvoice, updateInvoice, deleteInvoice } from '../core/invoicesApi.js';
 import { insertPrf, deletePrf, updatePrfStage } from '../core/prfsApi.js';
@@ -647,6 +648,7 @@ async function saveFaktur(inv, draft) {
   if (draft.file) {
     const up = await uploadToDrive(draft.file, 'Invoice/Faktur/', draft.file.name, 'Invoice');
     files = files.concat([{ name: draft.file.name, url: up.url, placeholder: !!up.placeholder, kind: 'faktur' }]);
+    await linkOutbox(up.outboxId, 'invoices', inv.id, 'files');
     if (up.placeholder) {
       toast({
         id: 'Nomor faktur tersimpan, tapi filenya GAGAL naik ke Drive — simpan filenya sendiri dulu.',
@@ -963,6 +965,30 @@ function invoiceModal() {
         btn(tr({ id: 'Hapus', en: 'Remove', zh: '移除' }), { sm: true, onClick: () => { f.file = null; setUI({}); } }),
       ])
     : dropzone({ title: tr({ id: 'Upload file invoice (opsional)', en: 'Upload invoice file (optional)', zh: '上传发票文件（可选）' }), sub: tr({ id: 'PDF/gambar scan invoice supplier', en: 'PDF or scanned image of the supplier invoice', zh: '供应商发票的 PDF 或扫描件' }), accept: '.pdf,.jpg,.jpeg,.png', iconName: 'upload', compact: true, onFiles: files => { f.file = files[0]; setUI({}); } });
+
+  // FAKTUR PAJAK, RIGHT HERE — because that is how it usually arrives.
+  //
+  // This form took ONE file and had no faktur field at all (`faktur: ''` was
+  // hardcoded on save). A supplier who sends the invoice and the tax invoice in
+  // the same envelope — which is most of them — left cania holding a second PDF
+  // with nowhere to put it. Dropping both meant the second one was silently
+  // discarded: the dropzone keeps files[0] and says nothing about the rest.
+  //
+  // The stage-2 route added in v12.2 stays, because the other case is just as
+  // real: the faktur turns up a week later. Both paths exist because both
+  // things happen; neither replaces the other.
+  const fakturAtt = f.fakturFile
+    ? h('div.row.gap8', [
+        icon('check', 13, { strokeWidth: 2.5, stroke: 'var(--st-green-tx)' }),
+        h('span.mono', { style: { fontSize: '12px' } }, f.fakturFile.name),
+        btn(tr({ id: 'Hapus', en: 'Remove', zh: '移除' }), { sm: true, onClick: () => { f.fakturFile = null; setUI({}); } }),
+      ])
+    : dropzone({
+        title: tr({ id: 'Upload faktur pajak (opsional)', en: 'Upload the tax invoice (optional)', zh: '上传税票（可选）' }),
+        sub: tr({ id: 'Kalau fakturnya datang bareng invoicenya', en: 'If the tax invoice arrived with the invoice', zh: '若税票与发票一同送达' }),
+        accept: '.pdf,.jpg,.jpeg,.png', iconName: 'upload', compact: true,
+        onFiles: files => { f.fakturFile = files[0]; setUI({}); },
+      });
   // Position in the dropped stack. Without it there is no way to tell a queue
   // of seven from a single file, and no way to know how many are still coming.
   const total = st.ui.invoiceQueueTotal || 0;
@@ -988,7 +1014,10 @@ function invoiceModal() {
         field(t('col_amount'), inputEl({ mono: true, value: f.amount || '', onInput: v => (f.amount = Number(String(v).replace(/[,\s]/g, '')) || 0) })),
       ]),
       field(t('col_due'), h('input.input', { type: 'date', value: f.due, onInput: e => (f.due = e.target.value) })),
-      field(tr({ id: 'Lampiran', en: 'Attachment', zh: '附件' }), attachment),
+      field(tr({ id: 'Lampiran invoice', en: 'Invoice attachment', zh: '发票附件' }), attachment),
+      field(tr({ id: 'No. Faktur Pajak (opsional)', en: 'Tax invoice number (optional)', zh: '税票编号（可选）' }),
+        inputEl({ value: f.faktur || '', mono: true, placeholder: '010.005-26.12345678', onInput: v => (f.faktur = v) })),
+      field(tr({ id: 'Lampiran faktur pajak', en: 'Tax invoice attachment', zh: '税票附件' }), fakturAtt),
       prefillNote(st.ui.invoiceRead),
     ],
     footer: [
@@ -1109,14 +1138,38 @@ async function saveInvoiceModal() {
   // internally on failure, same graceful-degradation contract as every other
   // upload site (ppkek.js, finance.js).
   let files = [];
+  let uploaded = null;
+  let fakturUp = null;
   if (f.file) {
-    const up = await uploadToDrive(f.file, '', f.file.name, 'Invoice');
-    files = [{ name: f.file.name, url: up.url, placeholder: !!up.placeholder }];
+    uploaded = await uploadToDrive(f.file, '', f.file.name, 'Invoice');
+    files = [{ name: f.file.name, url: uploaded.url, placeholder: !!uploaded.placeholder }];
   }
-  const local = { no: f.no, supplier: supplier.name, poRef: f.poRef, currency: f.currency, amount: f.amount, due: f.due, faktur: '', ppnPaid: f.ppnPaid, status: 'Diterima Purchasing', files };
+  // Tagged kind:'faktur' so the File column keeps pointing at the invoice and
+  // the Faktur column at the tax invoice — same array, two documents.
+  if (f.fakturFile) {
+    fakturUp = await uploadToDrive(f.fakturFile, 'Invoice/Faktur/', f.fakturFile.name, 'Invoice');
+    files = files.concat([{ name: f.fakturFile.name, url: fakturUp.url, placeholder: !!fakturUp.placeholder, kind: 'faktur' }]);
+  }
+
+  // A number that cannot be one is refused rather than stored. Same rule as the
+  // stage-2 route — there is no reason for it to be laxer just because it was
+  // typed earlier.
+  const fakturNo = (f.faktur || '').trim();
+  if (fakturNo && !fakturNoLooksReal(fakturNo)) {
+    toast({
+      id: 'Nomor faktur pajak minimal 12 digit angka — kosongkan saja kalau belum ada.',
+      en: 'A tax invoice number needs at least 12 digits — leave it empty if you do not have it yet.',
+      zh: '税票编号至少需 12 位数字 — 若尚无，请留空。',
+    });
+    return;
+  }
+
+  const local = { no: f.no, supplier: supplier.name, poRef: f.poRef, currency: f.currency, amount: f.amount, due: f.due, faktur: fakturNo, ppnPaid: f.ppnPaid, status: 'Diterima Purchasing', files };
   try {
     const saved = await insertInvoice(local);
     local.id = saved.id;
+    if (uploaded) await linkOutbox(uploaded.outboxId, 'invoices', saved.id, 'files');
+    if (fakturUp) await linkOutbox(fakturUp.outboxId, 'invoices', saved.id, 'files');
   } catch (e) {
     console.error('Supabase invoice insert failed', e);
     toast({
@@ -1449,9 +1502,26 @@ async function submitPrf() {
   const freed = { ...(getState().ui.prfReserved || {}) };
   delete freed[getState().ui.prfSig];
   setUI({ prfSel: {}, prfReserved: freed, prfDraft: { ...d, no: prf.no, id: prf.id, stage: prf.stage, submitted: true } });
-  toast({
-    id: `${prf.no} tersimpan — cetak PDF-nya, kumpulkan, lalu serahkan ke supervisor. Dia yang centang "sudah diterima".`,
-    en: `${prf.no} saved — print the PDF, collect them, then hand them to the supervisor. He ticks them off as received.`,
+  // WHO YOU HAND IT TO DEPENDS ON WHO YOU ARE.
+  //
+  // The paper does not go straight to the Supervisor from everyone. cania and
+  // visca raise the PRF and hand the printout to sekar; sekar walks the stack to
+  // the Supervisor and afterwards chases Finance. This message used to tell all
+  // three of them "hand them to the supervisor", which sent two of them to the
+  // wrong desk — and an instruction that is wrong for two people out of three
+  // teaches everyone to stop reading it.
+  //
+  // The Supervisor is still the one who ticks "received": the chain ends at his
+  // desk regardless of how many hands it passed through.
+  const role = getState().user.role;
+  const kePurchasing = role === 'cania' || role === 'visca';
+  toast(kePurchasing ? {
+    id: `${prf.no} tersimpan — cetak PDF-nya, kumpulkan, lalu serahkan ke sekar. Sekar yang meneruskan ke Supervisor.`,
+    en: `${prf.no} saved — print the PDF, collect them, then hand them to sekar. She passes them to the Supervisor.`,
+    zh: `${prf.no} 已保存 — 请打印 PDF，集齐后交给 sekar，由她转交主管。`,
+  } : {
+    id: `${prf.no} tersimpan — cetak PDF-nya, kumpulkan, lalu serahkan ke Supervisor. Dia yang centang "sudah diterima".`,
+    en: `${prf.no} saved — print the PDF, collect them, then hand them to the Supervisor. He ticks them off as received.`,
     zh: `${prf.no} 已保存 — 请打印 PDF，集齐后交给主管，由其勾选"已收到"。`,
   });
 }

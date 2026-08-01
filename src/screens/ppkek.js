@@ -5,6 +5,7 @@ import { card, badge, btn, icon, dropzone, modal } from '../ui/components.js';
 import { extractArchive } from '../parsers/archive.js';
 import { parsePpkekPdf, parseSppbPdf } from '../parsers/ppkekPdf.js';
 import { uploadToDrive, ppkekFolder } from '../core/drive.js';
+import { linkOutbox } from '../core/driveOutbox.js';
 import { readWorkbook, writeWorkbook, colLetter } from '../core/xlsx.js';
 import { num, fmtDate } from '../core/format.js';
 import { insertPpkek, updatePpkek, duplicateNopen, toIsoDate } from '../core/ppkekApi.js';
@@ -546,7 +547,10 @@ async function processArchive(file, onDoc) {
   for (const f of files) {
     const up = await uploadToDrive(f, folder, f.name, 'PPKEK');
     f.url = up.url;
-    fileRecords.push({ name: f.name, url: up.url, placeholder: !!up.placeholder });
+    // outboxId rides along on the record because the ppkek row does not exist
+    // until every file in this bundle has been through here — and it is stripped
+    // again before the array is written to the database (see addRegisterRow).
+    fileRecords.push({ name: f.name, url: up.url, placeholder: !!up.placeholder, outboxId: up.outboxId || null });
     if (onDoc) onDoc(fileRecords.length, files.length);
   }
   // Parse the PPKEK PDF if present.
@@ -599,6 +603,11 @@ async function processArchive(file, onDoc) {
 // Costing, PO ERP INA, Status) are left completely alone — those are sekar's
 // work and a re-import must never wipe them.
 async function addRegisterRow(p, folder, files) {
+  // The queue ids travel on the file records; the database gets the array
+  // without them. Persisting a transient id would leave a pointer to a queue
+  // entry that is deleted the moment the upload succeeds.
+  const outboxIds = (files || []).map(f => f && f.outboxId).filter(Boolean);
+  const cleanFiles = (files || []).map(f => ({ name: f.name, url: f.url, placeholder: !!f.placeholder }));
   if (blockWrite('tambah baris register PPKEK')) return;
   const st0 = getState();
   const norm = v => String(v == null ? '' : v).trim();
@@ -622,11 +631,13 @@ async function addRegisterRow(p, folder, files) {
     // workbook is ONE ROW PER ITEM, so without them the export can never match.
     items: p.items || [],
     so: '', jo: '', costing: '', poErpIna: '', status: 'Open',
-    driveFolder: folder, files: files || [],
+    driveFolder: folder, files: cleanFiles,
   };
   try {
     const saved = await insertPpkek(local);
     Object.assign(local, saved);
+    // Every file of this bundle points home to the same row.
+    for (const oid of outboxIds) await linkOutbox(oid, 'ppkek', saved.id, 'files');
   } catch (e) {
     console.error('Supabase ppkek insert failed', e);
     // Lost the race: another session inserted this same nopen between our check

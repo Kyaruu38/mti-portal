@@ -12,6 +12,7 @@ import { blockWrite } from '../core/guard.js';
 import { isConfigured } from '../core/supabase.js';
 import { nextSjNo } from '../core/docSeqApi.js';
 import { uploadToDrive } from '../core/drive.js';
+import { linkOutbox } from '../core/driveOutbox.js';
 
 function rowKey(poId, lineId) { return `${poId}::${lineId}`; }
 
@@ -408,6 +409,7 @@ async function archiveSuratJalanToDrive(sj, { announce = false } = {}) {
     const blob = new Blob([html], { type: 'text/html' });
     const up = await uploadToDrive(blob, '', `${sj.no.replace(/\//g, '-')}.html`, 'Surat Jalan');
     sj.driveUrl = up.url;
+    if (sj.id) await linkOutbox(up.outboxId, 'surat_jalan', sj.id, 'url');
     if (up.placeholder) {
       if (announce) toast({ id: 'Drive belum aktif — link masih placeholder', en: 'Drive is not active yet — the link is still a placeholder', zh: 'Drive 尚未启用 — 链接仍为占位符' });
       return;

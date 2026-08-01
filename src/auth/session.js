@@ -4,6 +4,8 @@ import { isConfigured, signIn, signOut, fetchMustChangePassword, currentSession 
 import { seedIfEmpty } from '../core/seed.js';
 import { getPref, adoptServerPrefs } from '../core/prefs.js';
 import { fetchProfilePrefs } from '../core/profilePrefsApi.js';
+import { retryPending, pendingOutbox } from '../core/driveOutbox.js';
+import { pushToDrive } from '../core/drive.js';
 import { DEMO_PASSWORD } from '../config.js';
 import { t } from '../i18n/index.js';
 import { fetchSuratJalan } from '../core/suratJalanApi.js';
@@ -195,6 +197,26 @@ async function hydrate(user, username, preferScreen, preferLang) {
   // the chart draws its empty state and nothing else notices.
   const labelTrendFromServer = await fetchLabelStockTrend();
   if (labelTrendFromServer) getState().labelTrend = labelTrendFromServer;
+
+  // DRAIN THE DRIVE QUEUE. Anything that failed to reach Drive while it was
+  // down goes up now, without anyone re-picking a file.
+  //
+  // Deliberately NOT awaited: this can be dozens of megabytes over a bad
+  // connection, and nobody should stare at a login screen while last week's
+  // backlog uploads. It reports itself when it finishes.
+  pendingOutbox().then(q => { getState().driveQueue = q; if (q.length) setState({}); })
+    .catch(() => {});
+  retryPending(pushToDrive).then(async r => {
+    getState().driveQueue = await pendingOutbox().catch(() => []);
+    if (r.sent) {
+      toast({
+        id: `${r.sent} file yang tertunda berhasil dikirim ke Drive`,
+        en: `${r.sent} queued file(s) reached Drive`,
+        zh: `${r.sent} 个待传文件已送达 Drive`,
+      });
+      setState({});
+    }
+  }).catch(e => console.warn('drive outbox: retry gagal —', e));
 
   // Force-change-password gate: checked on every login, not cached anywhere
   // client-side — main.js's router reads user.mustChangePassword before

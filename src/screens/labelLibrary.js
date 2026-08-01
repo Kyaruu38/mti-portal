@@ -4,6 +4,7 @@ import { t, tr } from '../i18n/index.js';
 import { badge, btn, icon, driveLink, selectEl, inputEl, searchInput, modal, field } from '../ui/components.js';
 import { uploadToDrive } from '../core/drive.js';
 import { insertDesign, updateDesign, deleteDesign } from '../core/designsApi.js';
+import { linkOutbox } from '../core/driveOutbox.js';
 import { can } from '../auth/roles.js';
 import { blockWrite } from '../core/guard.js';
 import { renderThumb } from '../parsers/pdf.js';
@@ -285,6 +286,9 @@ async function uploadDesign() {
   try {
     const saved = await insertDesign(design);
     design.id = saved.id;
+    // Tell the queue where this file's link belongs. Only possible here: the
+    // row id does not exist while the file is being uploaded.
+    await linkOutbox(up.outboxId, 'designs', saved.id, 'url');
   } catch (e) {
     console.error('Supabase design insert failed', e);
     toast({
