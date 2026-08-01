@@ -115,8 +115,14 @@ const grant = (...names) => Object.fromEntries(names.join(' ').split(/\s+/).filt
 
 export const CAPS = {
   wilbert:    grant('approve editMaster labelStockWrite paymentWrite prfCreate prfReceive markPaid sjWrite ppkekWrite designWrite poCreate labelParse labelRequestFill'),
-  cania:      grant('editMaster labelStockWrite prfCreate sjWrite designWrite poCreate labelParse labelRequestFill'),
-  visca:      grant('editMaster labelStockWrite prfCreate sjWrite designWrite poCreate labelParse labelRequestFill'),
+  // cania/visca RECEIVE the invoices and raise the PRF from them. Until v12.0
+  // they held prfCreate WITHOUT paymentWrite, which read as a sensible split and
+  // was not: an invoice only reaches the PRF builder once it has left stage 1,
+  // and the control that moves it lives on the intake half of the screen. So
+  // their builder was permanently empty — not because no invoice existed, but
+  // because they could never enter one in the first place.
+  cania:      grant('editMaster labelStockWrite paymentWrite prfCreate sjWrite designWrite poCreate labelParse labelRequestFill'),
+  visca:      grant('editMaster labelStockWrite paymentWrite prfCreate sjWrite designWrite poCreate labelParse labelRequestFill'),
   // sekar: purchasing-side payment + PPKEK; payment STATUS is read-only for sekar.
   sekar:      grant('paymentWrite prfCreate paymentReadonly ppkekWrite markPaid'),
   // finance: receive + mark paid; cannot approve POs or raise a PRF. Keeps

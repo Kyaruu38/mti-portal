@@ -29,11 +29,20 @@ export function paymentScreen() {
 
   // Two independent halves of this screen:
   //   paymentWrite -> INTAKE   (drop-zone, invoice table, faktur, hand-off)
-  //   prfCreate    -> PRF      (builder + preview + send to Wilbert)
-  // cania/visca have prfCreate WITHOUT paymentWrite: they raise a PRF against
-  // invoices sekar already pushed to "Diproses Wilbert", but they don't own
-  // invoice intake and they don't track payment stages. Hiding the intake half
-  // here is UX only — RLS on invoices/prfs is the actual boundary.
+  //   prfCreate    -> PRF      (builder + preview + send to Supervisor)
+  //
+  // As of v12.0 nobody holds one without the other, and the reason is worth
+  // keeping: they are not really independent. An invoice does not appear in the
+  // PRF builder until it has left stage 1, and the only control that moves it
+  // sits in the INTAKE half. Handing someone prfCreate alone therefore gives
+  // them a builder that can never fill — which is exactly what cania and visca
+  // had. The split branch below survives for a role that genuinely only reviews,
+  // but it is no longer how the real workflow is divided.
+  //
+  // The real division is by STEP, not by half of this screen: cania/visca
+  // receive the invoice and raise the PRF, sekar prints it and walks it to the
+  // supervisor, the supervisor signs, sekar chases finance. Hiding a half here
+  // is UX only — RLS on invoices/prfs is the actual boundary.
   const canIntake = can(st.user.role, 'paymentWrite');
   const canPrf = can(st.user.role, 'prfCreate');
 

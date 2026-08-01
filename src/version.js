@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v11.1';
+export const VERSION = 'v12.0';
 export const VERSION_DATE = '1 Agu 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v12.0', date: '1 Agu 2026',
+    what: {
+      id: 'cania & visca sekarang menginput invoice sendiri, bukan cuma membuat PRF. Dulu PRF Builder mereka selalu kosong: invoice baru muncul setelah lepas tahap 1, dan tombol yang memindahkannya ada di layar yang tidak mereka punya. Alurnya sekarang mengikuti kenyataannya — mereka menerima dan mengajukan, sekar mencetak dan mengejar, Supervisor menandatangani.',
+      en: 'cania and visca now enter invoices themselves, not just build PRFs. Their PRF builder used to be permanently empty: an invoice only appears once it leaves stage 1, and the control that moves it sat on a screen they did not have. The flow now matches reality \u2014 they receive and raise, sekar prints and chases, the Supervisor signs.',
+      zh: 'cania 与 visca 现在可自行录入发票，而非仅生成付款申请单。此前其付款申请单构建器始终为空：发票须先离开第 1 阶段才会出现，而推进阶段的按钮位于他们无权访问的界面。现在流程贴合实际 \u2014 由他们接收并提交，sekar 打印并跟进，主管签核。',
+    },
+  },
   {
     v: 'v11.1', date: '1 Agu 2026',
     what: {
