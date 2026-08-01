@@ -105,13 +105,29 @@ function sidebar(st) {
   ]);
 }
 
-function langSwitch(st) {
+export function langSwitch(st) {
   return h('div.lang-switch', LANGS.map(l => h('button', {
     class: st.lang === l.code ? 'on' : '', title: l.name,
     // Remembered across a reload — see core/prefs.js. Picking English and then
     // refreshing used to hand the app back in Indonesian.
     onClick: () => { setPref('lang', l.code); setState({ lang: l.code }); },
   }, l.label)));
+}
+
+// Two labelled buttons, not the old single moon/sun toggle. A toggle only tells
+// you what it will do next, never which mode you are in — and read wrong, one
+// click puts you in the mode you were trying to leave. Here the current one is
+// simply lit.
+export function themeSwitch(st) {
+  const opts = [
+    ['light', 'sun', tr({ id: 'Terang', en: 'Light', zh: '浅色' })],
+    ['dark', 'moon', tr({ id: 'Gelap', en: 'Dark', zh: '深色' })],
+  ];
+  return h('div.lang-switch', opts.map(([code, ic, label]) => h('button', {
+    class: st.theme === code ? 'on' : '', title: label,
+    style: { display: 'inline-flex', alignItems: 'center', gap: '5px' },
+    onClick: () => { setPref('theme', code); setState({ theme: code }); },
+  }, [icon(ic, 12), label])));
 }
 
 // Reload the DATA without reloading the PAGE.
@@ -240,12 +256,12 @@ function header(st) {
     // offering a field that always answers "Tidak ada hasil". A search box that
     // is permanently empty reads as broken software, not as a permission.
     searchableTypes(u.role).length ? globalSearchBox() : h('div.grow'),
-    langSwitch(st),
+    // Language and theme USED to sit here as well as in the account menu — the
+    // same two controls twice on one bar. They are settings you touch once and
+    // then never again, so they now live in one place only: the account menu,
+    // next to the name they belong to. What stays on the bar is what you press
+    // repeatedly: refresh and notifications.
     refreshBtn(st),
-    iconBtn(st.theme === 'light' ? 'moon' : 'sun', {
-      title: tr({ id: 'Theme', en: 'Theme', zh: '主题' }),
-      onClick: () => { const next = st.theme === 'light' ? 'dark' : 'light'; setPref('theme', next); setState({ theme: next }); },
-    }),
     bellMenu(st),
     h('div', { style: { width: '1px', height: '24px', background: 'var(--border)', flexShrink: 0 } }),
     userMenu(st),
@@ -302,6 +318,9 @@ function userMenu(st) {
     }, [
       h('div', { style: { fontSize: '9.5px', fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-3)', padding: '8px 10px 4px' } }, t('language')),
       h('div', { style: { padding: '2px 8px 8px' } }, langSwitch(st)),
+      h('div', { style: { fontSize: '9.5px', fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-3)', padding: '2px 10px 4px' } }, t('theme')),
+      h('div', { style: { padding: '2px 8px 8px' } }, themeSwitch(st)),
+      h('div', { style: { fontSize: '10px', color: 'var(--text-3)', padding: '0 10px 8px', lineHeight: 1.45 } }, t('pref_note')),
       h('div.divider', { style: { margin: '6px 4px' } }),
       h('div', {
         style: { display: 'flex', alignItems: 'center', gap: '9px', padding: '8px 10px', borderRadius: '8px', cursor: 'pointer', color: 'var(--st-red-tx)' },

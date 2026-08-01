@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v11.0';
-export const VERSION_DATE = '31 Jul 2026';
+export const VERSION = 'v11.1';
+export const VERSION_DATE = '1 Agu 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v11.1', date: '1 Agu 2026',
+    what: {
+      id: 'Bahasa dan tampilan pindah ke menu akun, dan sekarang tersimpan di akun — bukan di tab. Pilih sekali, ikut ke komputer mana pun. Halaman login juga bisa ganti bahasa sebelum masuk. Dashboard sona yang selama ini kosong sekarang berisi, dan angka cania/visca jadi milik masing-masing.',
+      en: 'Language and theme moved into the account menu and are now stored on the account, not the tab. Choose once and it follows you to any computer. The login page can switch language before you sign in. sona\'s dashboard, empty until now, has content, and cania/visca each see their own figures.',
+      zh: '语言与外观移入账户菜单，并保存至账户而非标签页 — 设置一次，在任何电脑上都生效。登录页也可在登录前切换语言。sona 此前空白的看板现已填充内容，cania 与 visca 各自查看本人的数据。',
+    },
+  },
   {
     v: 'v11.0', date: '31 Jul 2026',
     what: {

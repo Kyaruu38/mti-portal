@@ -1,8 +1,9 @@
 import { h } from '../core/dom.js';
-import { getState, setState } from '../core/store.js';
+import { getState } from '../core/store.js';
 import { login } from '../auth/session.js';
 import { t } from '../i18n/index.js';
 import { icon } from '../ui/components.js';
+import { langSwitch, themeSwitch } from '../ui/layout.js';
 import { isConfigured } from '../core/supabase.js';
 import { COMPANY } from '../config.js';
 import { VERSION, VERSION_DATE } from '../version.js';
@@ -29,7 +30,17 @@ export function loginScreen() {
   const pWrap = h('div', { style: { position: 'relative' } }, [pInput, pwToggle]);
 
   return h('div', { style: { minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', padding: '40px 20px' } }, [
-    h('button.icon-btn', { style: { position: 'absolute', top: '20px', right: '24px' }, onClick: () => setState({ theme: st.theme === 'light' ? 'dark' : 'light' }) }, icon(st.theme === 'light' ? 'moon' : 'sun', 15)),
+    // Language BEFORE sign-in, not just after. Someone who reads Chinese should
+    // not have to work out which box is the username in a language they do not
+    // read, in order to reach the switch that would have told them.
+    //
+    // These write to localStorage (core/prefs.js) rather than to the account:
+    // there is no account yet. Once signed in, the profile's own setting takes
+    // over — see auth/session.js.
+    h('div', { style: { position: 'absolute', top: '20px', right: '24px', display: 'flex', alignItems: 'center', gap: '8px' } }, [
+      langSwitch(st),
+      themeSwitch(st),
+    ]),
     h('div', { style: { width: '400px', maxWidth: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', boxShadow: 'var(--paper-shadow)', padding: '36px 36px 30px', animation: 'mtiPop .3s ease' } }, [
       h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', marginBottom: '26px' } }, [
         h('img', { src: LOGO_MTI, style: { height: '54px' } }),

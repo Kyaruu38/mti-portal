@@ -26,6 +26,15 @@ export const DICT = {
   print: { id: 'Print', en: 'Print', zh: '打印' },
   generate: { id: 'Generate', en: 'Generate', zh: '生成' },
   language: { id: 'Bahasa', en: 'Language', zh: '语言' },
+  theme: { id: 'Tampilan', en: 'Theme', zh: '外观' },
+  // Says the quiet part out loud: this is not a per-tab toggle, it is attached
+  // to the account. Without this line, "why is my laptop in Chinese too?" is a
+  // support question instead of the expected behaviour.
+  pref_note: {
+    id: 'Tersimpan di akun Anda — ikut ke komputer mana pun.',
+    en: 'Saved to your account — follows you to any computer.',
+    zh: '已保存至您的账户 — 在任何电脑上都生效。',
+  },
   drive_unconfigured: { id: 'Drive belum dikonfigurasi — link disimpan sebagai placeholder', en: 'Drive not configured — link stored as placeholder', zh: 'Drive 未配置 — 链接保存为占位符' },
   notif_title: { id: 'Notifikasi', en: 'Notifications', zh: '通知' },
   notif_empty: { id: 'Belum ada notifikasi', en: 'No notifications yet', zh: '暂无通知' },

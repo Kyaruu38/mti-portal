@@ -2,7 +2,8 @@ import { setState, getState, toast } from '../core/store.js';
 import { makeUser, usernameToEmail, allowedScreens } from './roles.js';
 import { isConfigured, signIn, signOut, fetchMustChangePassword, currentSession } from '../core/supabase.js';
 import { seedIfEmpty } from '../core/seed.js';
-import { getPref } from '../core/prefs.js';
+import { getPref, adoptServerPrefs } from '../core/prefs.js';
+import { fetchProfilePrefs } from '../core/profilePrefsApi.js';
 import { DEMO_PASSWORD } from '../config.js';
 import { t } from '../i18n/index.js';
 import { fetchSuratJalan } from '../core/suratJalanApi.js';
@@ -19,7 +20,7 @@ import { fetchInvoices } from '../core/invoicesApi.js';
 import { fetchPrfs } from '../core/prfsApi.js';
 import { fetchPayments } from '../core/paymentsApi.js';
 import { fetchPpkek } from '../core/ppkekApi.js';
-import { fetchLabelStock, fetchLabelUploads, fetchLabelSettings } from '../core/labelStockApi.js';
+import { fetchLabelStock, fetchLabelUploads, fetchLabelSettings, fetchLabelStockTrend } from '../core/labelStockApi.js';
 
 // Log in by username. Uses Supabase Auth when configured; otherwise a demo check.
 export async function login(username, password) {
@@ -190,6 +191,10 @@ async function hydrate(user, username, preferScreen, preferLang) {
   if (labelUploadsFromServer) getState().labelUploads = labelUploadsFromServer;
   const labelSettingsFromServer = await fetchLabelSettings();
   if (labelSettingsFromServer) getState().labelSettings = labelSettingsFromServer;
+  // Aggregate for the stock chart. Null while the view has not been created —
+  // the chart draws its empty state and nothing else notices.
+  const labelTrendFromServer = await fetchLabelStockTrend();
+  if (labelTrendFromServer) getState().labelTrend = labelTrendFromServer;
 
   // Force-change-password gate: checked on every login, not cached anywhere
   // client-side — main.js's router reads user.mustChangePassword before
@@ -201,7 +206,21 @@ async function hydrate(user, username, preferScreen, preferLang) {
   // A screen asked for by the URL only wins if this role is actually allowed
   // it — the hash is user-editable, so it is a request, never a grant.
   const screen = (preferScreen && allowed.includes(preferScreen)) ? preferScreen : first;
-  setState({ user, screen, lang: preferLang || user.lang || 'id', menuOpen: false });
+
+  // The ACCOUNT's stored language and theme win here, over whatever this
+  // browser last cached. That is the whole point of moving them to profiles:
+  // the preference belongs to the person, so signing in on a colleague's PC —
+  // or a fresh incognito window — still lands in the language they chose.
+  //
+  // Deliberately last, and deliberately tolerant: a null means the column does
+  // not exist yet or could not be read, and then nothing changes. This must
+  // never be a reason a login fails.
+  const serverPrefs = await fetchProfilePrefs();
+  adoptServerPrefs(serverPrefs);
+  const lang = (serverPrefs && serverPrefs.lang) || preferLang || user.lang || 'id';
+  const theme = (serverPrefs && serverPrefs.theme) || getPref('theme', getState().theme);
+
+  setState({ user, screen, lang, theme, menuOpen: false });
   return true;
 }
 

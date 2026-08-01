@@ -31,6 +31,7 @@ const state = {
   labelStock: [],      // Label Inventory Tracker: current stock per SKU
   labelUploads: [],    // upload history (who/when/counts/quarantined rows)
   labelSettings: null, // { moq, leadNormal, leadUrgent, leadSuper, overstockMultiple }
+  labelTrend: [],      // total stock per upload day, for the dashboard chart
 
   // transient module state
   ui: {},              // per-screen scratch space

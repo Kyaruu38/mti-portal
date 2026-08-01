@@ -4,6 +4,7 @@ import { t, tr } from '../i18n/index.js';
 import { card, sectionHead, badge, btn } from '../ui/components.js';
 import { money, fmtDate, daysUntil, sumByCurrency, moneyMulti } from '../core/format.js';
 import { outstandingPOs } from '../core/outstanding.js';
+import { statusText } from '../core/statusText.js';
 
 function stat(label, value, sub, accent) {
   return card([
@@ -33,6 +34,7 @@ export function dashboardScreen() {
   else if (u.role === 'sekar') body = sekarBody(st);
   else if (u.role === 'financemti') body = financeBody(st);
   else if (u.role === 'cenjc') body = observerBody(st);
+  else if (u.role === 'sona') body = sonaBody(st, u);
   // Still a real fallback: an unknown role reaching here gets the header and
   // nothing else rather than a thrown error. main.js already refuses to render
   // any screen for a role missing from ACCESS, so this is the second net.
@@ -64,6 +66,12 @@ function quickActions(st, u) {
   }
   if (u.role === 'financemti') {
     return [btn(t('s_finance'), { iconName: 'dollar', variant: 'primary', onClick: () => setState({ screen: 'finance' }) })];
+  }
+  if (u.role === 'sona') {
+    return [
+      btn(tr({ id: 'Upload Stok', en: 'Upload Stock', zh: '上传库存' }), { iconName: 'upload', onClick: () => setState({ screen: 'label-stock' }) }),
+      btn(tr({ id: 'Minta Label', en: 'Request Labels', zh: '申请标签' }), { iconName: 'tag', variant: 'primary', onClick: () => setState({ screen: 'label-request' }) }),
+    ];
   }
   if (u.role === 'cenjc') {
     // Navigation only — every destination is read-only for this account.
@@ -124,20 +132,44 @@ function wilbertBody(st) {
   ];
 }
 
+// cania and visca do the same JOB but not the same WORK, and this screen now
+// says so. Every count below is scoped to the signed-in username, so the number
+// on the tile is that person's own backlog rather than the pair's combined
+// total — a shared figure tells neither of them whether they are behind.
+//
+// The one deliberate exception is the incoming label-request queue: it is a
+// queue, not an assignment. Whoever picks it up owns it, so it is shown to both
+// and labelled as the team's, not "yours".
 function labelPoBody(st, u) {
-  const myPending = st.pos.filter(p => p.by === u.username && p.status === 'Menunggu Approval');
-  const myBatches = st.labelBatches.filter(b => b.by === u.username);
+  const mine = x => x === u.username;
+  const myPending = st.pos.filter(p => mine(p.by) && p.status === 'Menunggu Approval');
+  const mySj = (st.suratJalan || []).filter(s => mine(s.by));
+  const myHandled = (st.labelRequests || []).filter(r => mine(r.handledBy) && r.status === 'PO Terbit');
+  const queue = (st.labelRequests || []).filter(r => r.status === 'Diminta');
   const missingDesign = st.items.filter(i => !st.designs.some(d => d.erp === i.erp));
 
   return [
+    // Sits above the personal tiles on purpose: an unclaimed request is the one
+    // thing here that is nobody's yet, and therefore the easiest to leave.
+    queue.length ? h('div.cfg-banner', {
+      style: { background: 'var(--st-amber-bg)', color: 'var(--st-amber-tx)', borderColor: 'var(--st-amber-tx)', cursor: 'pointer' },
+      onClick: () => setState({ screen: 'label-request' }),
+    }, tr({
+      id: `${queue.length} request label menunggu diproses — belum ada yang ambil.`,
+      en: `${queue.length} label requests waiting — nobody has picked them up.`,
+      zh: `${queue.length} 份标签申请待处理 — 尚无人认领。`,
+    })) : null,
     h('div.grid.g4', [
       stat(t('dash_my_po_pending'), String(myPending.length), tr({
         id: `${myPending.length} menunggu approval supervisor`,
         en: `${myPending.length} awaiting the supervisor's approval`,
         zh: `${myPending.length} 份等待主管审批`,
       }), true),
-      stat(t('dash_new_labels'), String(myBatches.length), tr({
-        id: 'upload label request saya', en: 'my label request uploads', zh: '我上传的标签申请',
+      stat(tr({ id: 'Request Saya Proses', en: 'Requests I Handled', zh: '我处理的申请' }), String(myHandled.length), tr({
+        id: 'sudah jadi PO oleh saya', en: 'turned into a PO by me', zh: '由我开具采购单',
+      })),
+      stat(tr({ id: 'Surat Jalan Saya', en: 'My Delivery Notes', zh: '我的送货单' }), String(mySj.length), tr({
+        id: 'dibuat oleh saya', en: 'created by me', zh: '由我创建',
       })),
       stat(t('dash_missing_design'), String(missingDesign.length), tr({
         id: 'item tanpa desain di library', en: 'items with no design in the library', zh: '设计库中无设计稿的物料',
@@ -163,6 +195,129 @@ function labelPoBody(st, u) {
       activityCard(st.audit.filter(a => a.user === u.username).slice(0, 6)),
     ]),
   ];
+}
+
+// LABEL VIEW — the account that owns the weekly workbook and asks for reprints.
+//
+// Everything here answers one of two questions, because those are the only two
+// this job has: "what am I short of" and "did purchasing act on what I asked
+// for". Deliberately no supplier, no price, no PO value — sona does not choose
+// suppliers and showing her figures she cannot act on is noise, not access.
+function sonaBody(st, u) {
+  const rows = st.labelStock || [];
+  const buyNow = rows.filter(r => r.status === 'BUY NOW');
+  const dontBuy = rows.filter(r => r.status === 'OVERSTOCK' || r.status === 'IDLE STOCK');
+  const mine = (st.labelRequests || []).filter(r => r.by === u.username);
+  const openReq = mine.filter(r => r.status === 'Diminta');
+  const uploads = st.labelUploads || [];
+  const last = uploads[0] || null;   // fetchLabelUploads orders newest first
+  const sinceUpload = last ? -daysUntil(last.at) : null;
+
+  // The reminder is the only thing on this screen that asks for an action, so
+  // it goes first and it only appears when it is actually true. A banner that
+  // is always there stops being read within a week.
+  const stale = sinceUpload == null || sinceUpload >= 7;
+  const reminder = stale ? h('div.cfg-banner', {
+    style: { background: 'var(--st-amber-bg)', color: 'var(--st-amber-tx)', borderColor: 'var(--st-amber-tx)', cursor: 'pointer' },
+    onClick: () => setState({ screen: 'label-stock' }),
+  }, sinceUpload == null
+    ? tr({
+        id: 'Belum pernah upload Label Inventory Tracker. Angka di bawah masih kosong sampai file pertama masuk.',
+        en: 'The Label Inventory Tracker has never been uploaded. The figures below stay empty until the first file arrives.',
+        zh: '尚未上传标签库存跟踪表。在首次上传前，下方数据将保持为空。',
+      })
+    : tr({
+        id: `Upload terakhir ${sinceUpload} hari lalu (${fmtDate(last.at)}). Stok di bawah ini seumur itu juga.`,
+        en: `Last upload was ${sinceUpload} days ago (${fmtDate(last.at)}). The stock below is exactly that old.`,
+        zh: `上次上传在 ${sinceUpload} 天前（${fmtDate(last.at)}）。下方库存数据即为当时的数据。`,
+      })) : null;
+
+  return [
+    reminder,
+    h('div.grid.g4', [
+      stat(tr({ id: 'SKU Label', en: 'Label SKUs', zh: '标签 SKU' }), String(rows.length),
+        last ? tr({
+          id: `terakhir diperbarui ${fmtDate(last.at)}`,
+          en: `last updated ${fmtDate(last.at)}`,
+          zh: `最后更新 ${fmtDate(last.at)}`,
+        }) : tr({ id: 'belum ada data', en: 'no data yet', zh: '暂无数据' })),
+      stat(tr({ id: 'Harus Dicetak', en: 'Must Reprint', zh: '需补印' }), String(buyNow.length),
+        tr({ id: 'stok di bawah kebutuhan', en: 'stock below requirement', zh: '库存低于需求量' }), true),
+      stat(tr({ id: 'Jangan Pesan', en: 'Do Not Order', zh: '暂勿下单' }), String(dontBuy.length),
+        tr({ id: 'berlebih atau tidak terpakai', en: 'overstocked or unused', zh: '库存过剩或未使用' })),
+      stat(tr({ id: 'Request Berjalan', en: 'Open Requests', zh: '进行中的申请' }), String(openReq.length),
+        tr({
+          id: `${mine.length} total dikirim`, en: `${mine.length} sent in total`, zh: `累计发送 ${mine.length} 份`,
+        })),
+    ]),
+    h('div.grid', { style: { gridTemplateColumns: '1.55fr 1fr', alignItems: 'start' } }, [
+      stockTrendCard(st),
+      myRequestsCard(st, mine),
+    ]),
+  ];
+}
+
+// Total label stock per upload day. Reads st.labelTrend, which is null/empty
+// until supabase_label_trend_view.sql is created — and then simply says so,
+// rather than drawing a chart out of nothing.
+function stockTrendCard(st) {
+  const pts = (st.labelTrend || []).slice(-8);
+  const max = Math.max(...pts.map(p => p.stock), 0);
+
+  return card([
+    h('div.card-pad', [
+      h('div.row', { style: { justifyContent: 'space-between', alignItems: 'baseline' } }, [
+        h('div.card-title', tr({ id: 'Pergerakan Stok Label', en: 'Label Stock Movement', zh: '标签库存走势' })),
+        h('div.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } },
+          tr({ id: 'ribu lembar', en: 'thousand pcs', zh: '千张' })),
+      ]),
+      pts.length >= 2
+        ? h('div.row', { style: { alignItems: 'flex-end', gap: '18px', height: '150px', marginTop: '16px', padding: '0 8px' } }, pts.map((p, i) => {
+            const barPx = max > 0 ? Math.max(4, Math.round((p.stock / max) * 120)) : 4;
+            const isLast = i === pts.length - 1;
+            return h('div', { style: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' } }, [
+              h('span.mono', { style: { fontSize: '10px', color: isLast ? 'var(--accent-tx)' : 'var(--text-3)' } }, (p.stock / 1000).toFixed(0)),
+              h('div', {
+                style: { width: '100%', maxWidth: '46px', height: barPx + 'px', background: isLast ? 'var(--accent)' : 'var(--bar)', opacity: isLast ? 1 : 0.55, borderRadius: '5px 5px 2px 2px' },
+                title: `${p.sku} SKU · ${p.buyNow} BUY NOW`,
+              }),
+              h('span', { style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-3)' } }, fmtDate(p.day)),
+            ]);
+          }))
+        : h('div', { style: { padding: '44px 12px', textAlign: 'center', fontSize: '12px', color: 'var(--text-3)', lineHeight: 1.6 } },
+            tr({
+              id: 'Grafik muncul setelah dua kali upload atau lebih — satu titik bukan pergerakan.',
+              en: 'The chart appears after two or more uploads — a single point is not a trend.',
+              zh: '至少上传两次后才会显示图表 — 单个数据点不构成走势。',
+            })),
+    ]),
+  ]);
+}
+
+const LR_TONE = { 'Diminta': 'amber', 'PO Terbit': 'green', 'Ditolak': 'red' };
+
+function myRequestsCard(st, mine) {
+  const items = mine.slice(0, 5);
+  return card([
+    sectionHead(tr({ id: 'Request Saya', en: 'My Requests', zh: '我的申请' }),
+      h('a.link', { onClick: () => setState({ screen: 'label-request' }) },
+        tr({ id: 'Label Request →', en: 'Label Request →', zh: '标签申请 →' }))),
+    h('div', { style: { padding: '4px 18px 12px' } }, items.map(r => h('div.row.gap8', { style: { padding: '10px 0', borderBottom: '1px solid var(--border)' } }, [
+      h('div.grow', [
+        h('div', { style: { fontSize: '12px', fontWeight: 600, color: 'var(--text)' } }, `${r.rows.length} baris · ${r.sheet || '—'}`),
+        h('div.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } },
+          // The PO number is the answer to the only question this table is asked.
+          r.poNo ? `PO ${r.poNo}` : fmtDate(r.at)),
+      ]),
+      badge(statusText(r.status), LR_TONE[r.status] || 'gray'),
+    ]))),
+    items.length ? null : h('div', { style: { padding: '16px 18px', fontSize: '12px', color: 'var(--text-3)' } },
+      tr({
+        id: 'Belum ada request. Buka Label Request untuk mengirim yang pertama.',
+        en: 'No requests yet. Open Label Request to send the first one.',
+        zh: '暂无申请。打开“标签申请”以发送第一份。',
+      })),
+  ]);
 }
 
 function sekarBody(st) {

@@ -92,6 +92,36 @@ export async function fetchLabelUploads(limit = 20) {
   }));
 }
 
+// Total stock per upload day, for the dashboard chart.
+//
+// This is an aggregate, and PostgREST cannot GROUP BY — so it reads a view
+// (supabase_label_trend_view.sql) rather than pulling 974 rows x every week
+// into the browser to sum them there.
+//
+// Returns null when the view does not exist yet, exactly like every other
+// "couldn't read" here: the chart then says "no data" instead of the screen
+// breaking. A dashboard tile is never a reason to take a dashboard down.
+export async function fetchLabelStockTrend(limit = 12) {
+  if (!isConfigured()) return null;
+  try {
+    const c = await getClient();
+    if (!c) return null;
+    const { data, error } = await c.from('label_stock_trend')
+      .select('*').order('hari', { ascending: false }).limit(limit);
+    if (error) { console.warn('fetchLabelStockTrend unavailable:', error.message || error); return null; }
+    return (data || []).map(r => ({
+      day: r.hari,
+      sku: Number(r.sku) || 0,
+      stock: Number(r.total_stok) || 0,
+      requirement: Number(r.total_kebutuhan) || 0,
+      buyNow: Number(r.buy_now) || 0,
+    })).reverse();   // oldest first, the direction a chart is read
+  } catch (e) {
+    console.warn('fetchLabelStockTrend unavailable:', e);
+    return null;
+  }
+}
+
 // Stock movement for ONE SKU across uploads — the thing the workbook cannot do,
 // because it overwrites itself every week.
 export async function fetchLabelHistory(spec, market, limit = 52) {
