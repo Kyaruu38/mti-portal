@@ -66,3 +66,6 @@ HANDOVER-*.md
 PANDUAN*.md
 PPKEK-ANALISA.md
 PESAN-COMMIT-*.txt
+
+# Cadangan .gitignore dari sesi agent.
+.gitignore.bak
