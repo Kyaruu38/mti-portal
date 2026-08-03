@@ -451,6 +451,21 @@ export function wrapPrintable(inner, title, orientation = 'portrait') {
 <style>
 @page{size:A4 ${orientation};margin:10mm}
 body{font-family:'Plus Jakarta Sans',sans-serif;background:#fff;display:flex;justify-content:center;padding:20px}
+/* Pengaman terakhir: apa pun lebar .paper yang diminta dokumennya, saat
+   DICETAK dia tidak boleh melebihi area cetak. Tanpa ini, satu dokumen yang
+   lebarnya kelewat sedikit kehilangan kolom paling kanannya di setiap halaman
+   dan tidak ada apa pun di layar yang memberi tahu. */
+@media print{
+  body{padding:0;display:block}
+  .paper{max-width:100%!important;width:100%!important;box-sizing:border-box}
+  /* Padding atas/bawah kertas DIHAPUS saat mencetak: margin halaman sudah
+     disediakan @page. Dibiarkan, keduanya bertumpuk — dokumen PO ini lebih
+     tinggi 21px dari satu halaman A4, dan 21px itu cukup untuk melahirkan
+     halaman kedua berisi satu baris syarat yang terpotong. Padding kiri/kanan
+     TETAP, karena lebar kolom tabel dihitung terhadapnya. */
+  .paper{padding-top:0!important;padding-bottom:0!important}
+  table{table-layout:fixed}
+}
 .mono{font-family:'IBM Plex Mono',monospace}
 table{border-collapse:collapse;width:100%}
 /* Keep MTI navy/orange rules + table header shading even with Chrome's

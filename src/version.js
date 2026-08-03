@@ -24,12 +24,28 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v13.3';
-export const VERSION_DATE = '1 Agu 2026';
+export const VERSION = 'v13.5';
+export const VERSION_DATE = '3 Agu 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v13.5', date: '3 Agu 2026',
+    what: {
+      id: 'Portal SEKARANG BILANG kalau ada spec yang diproduksi tapi tidak punya baris di tracker sama sekali. Pada rencana Agustus itu 140 spec, 345.400 pcs \u2014 40% dari rencana produksi \u2014 barang yang tidak akan pernah muncul di BUY NOW karena tidak ada yang menghitung labelnya. Spanduk merah di pratinjau unggah, lengkap dengan tombol export daftarnya. Juga: 8 SKU yang namanya di tracker punya imbuhan kode E-mark sekarang tercocokkan otomatis lewat awalan nama \u2014 hanya kalau kandidatnya cuma satu, dan selalu ditampilkan.',
+      en: 'The portal now SAYS SO when a spec is in production but has no row in the tracker at all. On the August plan that is 140 specs, 345,400 pcs \u2014 40% of planned production \u2014 goods that can never reach BUY NOW because nothing counts their labels. A red banner in the upload preview, with a button to export the list. Also: 8 SKU whose tracker name carries an E-mark suffix now match automatically on the name prefix \u2014 only where exactly one candidate exists, and always shown.',
+      zh: '当某规格已投产却在跟踪表中完全没有对应行时，门户现在会明确提示。八月计划中此类规格有 140 个、345,400 条 \u2014 占排产计划的 40% \u2014 这些货品永远无法进入需采购列表，因为没有任何行统计其标签。上传预览中以红色横幅提示，并提供导出列表按钮。此外：8 个跟踪表名称带 E-mark 后缀的 SKU 现可按名称前缀自动匹配 \u2014 仅在唯一候选时生效，且始终显示。',
+    },
+  },
+  {
+    v: 'v13.4', date: '3 Agu 2026',
+    what: {
+      id: 'Stok Label sekarang punya TIGA kotak unggah bernomor \u2014 stok, rencana produksi, rencana penjualan \u2014 dan file yang salah kotak ditolak sambil menyebut kotak yang benar. Angka rencana tidak diketik lagi: portal membacanya dari file 排产计划. Diadu ke data Juli & Agustus, angka yang selama ini diketik tangan meleset di 344 dari 344 SKU; 7 di antaranya seharusnya BUY NOW tapi tidak pernah muncul. Di tab BUY NOW, SKU sekarang bisa dicentang dan langsung dikirim jadi Label Request. PO Converter dapat daftar "PO Jalan". Dan PO cetak: kolom Amount tidak lagi terpotong di tepi kertas \u2014 "3,430,723,399" sempat tercetak "3,430,723,39".',
+      en: 'Label Stock now has THREE numbered upload boxes \u2014 stock, production plan, sales plan \u2014 and a file in the wrong box is refused by name. Plan figures are no longer typed: the portal reads them from the 排产计划 file. Checked against July and August, the hand-typed figure was wrong for 344 of 344 SKU; 7 of them should have been BUY NOW and never showed. On the BUY NOW tab, SKUs can now be ticked and sent straight through as a Label Request. PO Converter gained a "POs in Flight" list. And the printed PO: the Amount column is no longer sliced at the paper edge \u2014 "3,430,723,399" was printing as "3,430,723,39".',
+      zh: '标签库存现有三个编号上传框 \u2014 库存、排产计划、销售需求 \u2014 放错框会被拒绝并提示正确编号。计划数值不再手工录入：门户直接读取排产计划文件。以七月与八月数据核对，手工录入的数值 344 个 SKU 全部有误，其中 7 个本应为需采购却从未显示。在需采购页签可勾选 SKU 并直接发送为标签申请。PO 转换器新增"进行中的采购单"列表。打印版采购单：金额列不再被纸张边缘截断 \u2014 "3,430,723,399" 曾被打印为 "3,430,723,39"。',
+    },
+  },
   {
     v: 'v13.3', date: '1 Agu 2026',
     what: {

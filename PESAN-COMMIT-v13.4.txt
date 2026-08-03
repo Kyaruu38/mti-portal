@@ -1,0 +1,89 @@
+v13.4 — rencana dibaca dari filenya, BUY NOW jadi request, PO cetak berhenti terpotong
+
+TIGA KOTAK UNGGAH, BUKAN SATU KOTAK PINTAR
+Sona menaruh tiga file di tiga kotak bernomor: stok, rencana produksi,
+rencana penjualan. File yang salah kotak ditolak dan portal menyebutkan
+nomor kotak yang benar. Satu kotak yang menebak sendiri lebih ringkas
+kodenya, tapi tidak punya tempat menuliskan apa yang seharusnya masuk —
+dan saat dia salah tebak, tidak ada yang tahu sampai angkanya tersimpan.
+
+detectPlanKind mengembalikan DAFTAR, bukan satu pemenang: file contoh
+berisi rencana produksi dan penjualan di satu workbook, jadi file yang
+sama sah untuk kotak 2 dan 3.
+
+ANGKA RENCANA TIDAK DIKETIK LAGI
+Kolom "Planned Production" di tracker diketik ulang dengan tangan.
+Diadu ke file rencana aslinya:
+
+    Juli    — 372/470 spec ketemu, angka cocok persis: 4
+    Agustus — 346/509 spec ketemu, angka cocok persis: 1
+
+Setelah lewat pipeline yang sama dengan layar (12 baris spec dobel
+dikarantina lebih dulu): 344 dari 344 SKU yang cocok angkanya meleset.
+Tujuh di antaranya seharusnya BUY NOW dan tidak pernah muncul. Contoh:
+
+    ID11R22.5-14PR(144/142M)[I-48T]IRONMAN无内SMARTW
+        tracker 123 · rencana produksi Agustus 2000
+
+Label dihitung dari 123, yang diproduksi 2000. Kekurangan 1877 label itu
+tidak akan ketahuan sampai barangnya berhenti di line.
+
+SKU yang TIDAK ada di rencana sengaja tidak dinolkan. Menggoda: tidak ada
+di rencana berarti tidak diproduksi berarti IDLE STOCK. Tapi pencocokan
+namanya baru 67-75%; 628 SKU tidak ketemu, dan sebagian hampir pasti
+sedang jalan dengan nama beda tipis. Menandai mereka nganggur berarti
+menyuruh orang berhenti pesan label untuk barang yang sedang diproduksi.
+
+BUY NOW -> LABEL REQUEST
+SKU di tab BUY NOW bisa dicentang, jumlahnya boleh diubah, lalu dikirim
+langsung jadi Label Request. Barisnya dibentuk sama persis dengan hasil
+parseLabelSheet dan diperkaya dari master item lewat kode ERP, jadi
+seluruh jalur hilir — antrean cania/visca, modal PO, cek desain — tidak
+berubah sama sekali. Jalur Excel tetap ada: spec baru yang belum masuk
+tracker tidak punya baris untuk dicentang, dan itu justru kejadian yang
+paling butuh jalur manual.
+
+DO NOT BUY sengaja TIDAK dapat centangan. Itu daftar yang justru tidak
+boleh dipesan.
+
+PO CETAK BERHENTI TERPOTONG
+Kertas 760px. A4 dengan margin 10mm cuma menyediakan 190mm ≈ 718px, jadi
+42px paling kanan setiap halaman jatuh di luar area cetak. Yang hilang
+kolom paling kanan: Amount. "3,430,723,399" tercetak "3,430,723,39" —
+angka yang MASIH TERBACA sebagai angka, cuma satu digit lebih kecil, di
+dokumen bersegel yang dikirim ke supplier.
+
+Lebar kertas sekarang 190mm (terikat ke kertasnya, bukan tebakan piksel).
+Kolom dihitung dari isi terpanjang yang mungkin: Amount 20%, Price 15%.
+Padding atas/bawah dihapus saat mencetak — margin sudah dari @page, dan
+21px tumpang tindih itu cukup melahirkan halaman kedua berisi satu baris
+syarat yang terpotong. overflowWrap:anywhere sebagai jaring: kalau suatu
+saat ada isi yang lebih panjang, dia membungkus dan barisnya jadi tinggi
+— kelihatan, dan bisa diperbaiki.
+
+PO JALAN DI PO CONVERTER
+Layar itu dulu hanya menunjukkan PO yang baru saja dibuat, lalu kosong
+lagi setelah reload. Sekarang ada daftar PO yang belum tuntas jalurnya,
+dengan pencarian dan tombol PDF — termasuk sebelum di-approve, karena
+memeriksa apa yang sudah diketik sebelum dikirim itu justru gunanya.
+
+DIUJI
+- parser: dua bulan file asli, header dideteksi lewat teks Tionghoa-nya
+  (bukan nomor kolom) dan cocok di Juli maupun Agustus
+- browser (Chromium, konsol dibaca): tolak-salah-kotak dua arah, tiga
+  kotak terisi, preview, angka koreksi diadu ke pipeline yang sama
+- BUY NOW: pilih/batal, qty custom, DO NOT BUY tanpa centangan, isi
+  request diperiksa sampai ke field
+- PO cetak: diukur terhadap lebar A4 sungguhan, dirender ke PDF, 1
+  halaman, kelima nilai rupiah utuh, kode ERP tidak pecah
+- PO Jalan: hanya status berjalan, pencarian, PDF terbuka
+
+Empat kegagalan uji ternyata ekspektasi saya yang salah, bukan kodenya:
+urutan baris BUY NOW (diurut dari surplus paling minus), th memakai
+text-transform:uppercase, tinggi sel dipakai untuk menebak pembungkusan
+teks, dan angka pembanding yang diketik dari harness yang melewatkan
+karantina spec dobel. Semuanya diganti jadi pengukuran, bukan tebakan.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01W6fmp9G8ZiNwa1VdJh6vBq
+

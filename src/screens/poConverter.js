@@ -2,11 +2,14 @@ import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
 import { can } from '../auth/roles.js';
-import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField } from '../ui/components.js';
+import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField, searchInput } from '../ui/components.js';
 import { parseZcPo } from '../parsers/zcPoPdf.js';
 import { money, num, ppnFor, ppnModeFromForm } from '../core/format.js';
 import { insertPO, newLineId, duplicatePoNumber } from '../core/posApi.js';
 import { blockWrite } from '../core/guard.js';
+import { fmtDate } from '../core/format.js';
+import { poDocument } from '../ui/documents.js';
+import { wrapPrintable } from './approval.js';
 
 export function poConverterScreen() {
   const st = getState(); const ui = st.ui;
@@ -14,7 +17,7 @@ export function poConverterScreen() {
 
   const dz = dropzone({ title: t('cv_drop'), sub: '.pdf — text-based', accept: '.pdf', iconName: 'rep', onFiles: f => handlePdf(f[0]) });
 
-  if (!res) return h('div.stack', [card([h('div.card-pad', dz)])]);
+  if (!res) return h('div.stack', [card([h('div.card-pad', dz)]), runningPoCard(st)]);
   if (res.scanned) {
     return h('div.stack', [
       h('div.cfg-banner', { style: { background: 'var(--st-red-bg)', color: 'var(--st-red-tx)', borderColor: 'var(--st-red-tx)' } }, [icon('warn', 15), t('cv_reject_scan')]),
@@ -117,7 +120,7 @@ export function poConverterScreen() {
       ])
     : null;
 
-  return h('div.stack', [statusBar, skippedBanner, h('div.grid', { style: { gridTemplateColumns: '370px 1fr', alignItems: 'start' } }, [fields, compare]), ui.cvPopup ? popup() : null]);
+  return h('div.stack', [statusBar, skippedBanner, h('div.grid', { style: { gridTemplateColumns: '370px 1fr', alignItems: 'start' } }, [fields, compare]), runningPoCard(st), ui.cvPopup ? popup() : null]);
 }
 
 function genPreview(res) {
@@ -273,4 +276,105 @@ async function genConverterPO() {
     ? { id: `PO ${no} dibuat & di-approve`, en: `PO ${no} created & approved`, zh: `采购单 ${no} 已创建并批准` }
     : { id: `PO ${no} dikirim ke approval queue supervisor`, en: `PO ${no} sent to the supervisor's approval queue`, zh: `采购单 ${no} 已提交至主管审批队列` });
   setState({ screen: 'approval' });
+}
+
+
+// ---------------------------------------------------------------------------
+// PO YANG SEDANG JALAN
+//
+// Layar ini dulu hanya menunjukkan PO yang BARU SAJA dibuat, lalu kosong lagi
+// begitu halamannya dimuat ulang. Orang yang mengubah PDF menjadi PO adalah
+// orang yang paling butuh tahu PO mana yang masih menggantung — dan satu-satunya
+// tempat daftar itu ada adalah Approval Queue, yang tidak semua akun bisa buka.
+//
+// "Jalan" = belum selesai jalurnya: menunggu approval, atau sudah disetujui tapi
+// barangnya belum diterima. PO yang ditolak dan yang sudah tuntas sengaja tidak
+// masuk — daftar yang berisi hal yang tidak perlu dikerjakan berhenti dibaca.
+// ---------------------------------------------------------------------------
+const RUNNING = ['Menunggu Approval', 'Approved', 'Diproses Wilbert', 'Diterima Purchasing', 'Open'];
+const DONE_TONE = { 'Approved': 'green', 'Rejected': 'red', 'Menunggu Approval': 'amber' };
+
+function openPoPdf(po) {
+  const html = wrapPrintable(poDocument(po).outerHTML, `PO ${po.no}`);
+  const w = window.open('', '_blank');
+  if (!w) {
+    toast({
+      id: 'Popup diblokir — izinkan popup dulu buat buka PDF-nya',
+      en: 'Popup blocked — allow popups to open the PDF',
+      zh: '弹窗被拦截 — 请允许弹窗以打开 PDF',
+    });
+    return;
+  }
+  w.document.write(html); w.document.close();
+  w.onload = () => { w.focus(); };
+}
+
+function runningPoCard(st) {
+  const q = (st.ui.cvQ || '').toLowerCase();
+  const all = (st.pos || []).filter(p => RUNNING.includes(p.status));
+  const rows = all
+    .filter(p => !q || `${p.no} ${p.contract || ''} ${p.supplier || ''} ${p.by || ''}`.toLowerCase().includes(q))
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+    .slice(0, 60);
+
+  const waiting = all.filter(p => p.status === 'Menunggu Approval').length;
+
+  const head = [
+    tr({ id: 'No. PO', en: 'PO No.', zh: '采购单号' }),
+    tr({ id: 'Supplier', en: 'Supplier', zh: '供应商' }),
+    tr({ id: 'Nilai', en: 'Value', zh: '金额' }),
+    tr({ id: 'Dibuat', en: 'Raised by', zh: '制单人' }),
+    tr({ id: 'Tanggal', en: 'Date', zh: '日期' }),
+    tr({ id: 'Status', en: 'Status', zh: '状态' }),
+    '',
+  ];
+
+  return card([
+    h('div.card-pad', { style: { paddingBottom: '8px' } }, h('div.row.gap12.wrap', { style: { alignItems: 'center' } }, [
+      h('div.card-title', tr({ id: 'PO Jalan', en: 'POs in Flight', zh: '进行中的采购单' })),
+      badge(String(all.length), all.length ? 'blue' : 'gray'),
+      waiting
+        ? badge(tr({
+            id: `${waiting} nunggu approval`,
+            en: `${waiting} awaiting approval`,
+            zh: `${waiting} 个待审批`,
+          }), 'amber', { iconName: 'clock' })
+        : null,
+      h('div.mla', searchInput({
+        id: 'cv-q',
+        placeholder: tr({ id: 'Cari no PO / supplier…', en: 'Search PO no / supplier…', zh: '搜索采购单号 / 供应商…' }),
+        value: st.ui.cvQ || '', onChange: v => setUI({ cvQ: v }),
+      })),
+    ])),
+    rows.length
+      ? h('div.tbl-wrap', h('table.tbl', [
+          h('thead', h('tr', head.map((c, i) => h('th' + (i === 2 ? '.r' : ''), c)))),
+          h('tbody', rows.map(p => h('tr', [
+            h('td.mono.cell-strong', { style: { fontSize: '11.5px' } }, p.no),
+            h('td', { style: { fontSize: '11.5px', maxWidth: '260px' } }, p.supplier || '—'),
+            h('td.mono.r', { style: { fontSize: '11.5px' } }, money(p.subtotal + ppnFor(p.subtotal, p.ppnMode), p.currency)),
+            h('td', { style: { fontSize: '11px', color: 'var(--text-3)' } }, p.by || '—'),
+            h('td.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, fmtDate(p.createdAt)),
+            h('td', badge(p.status, DONE_TONE[p.status] || 'blue')),
+            // Sengaja tidak dibedakan Approved atau belum: cania dan visca harus
+            // bisa melihat PDF-nya sebelum ada tanda tangan dan cap, karena itu
+            // satu-satunya cara memeriksa apa yang mereka ketik sebelum dikirim.
+            h('td.r', btn(p.status === 'Approved'
+              ? tr({ id: 'PDF', en: 'PDF', zh: 'PDF' })
+              : tr({ id: 'PDF draft', en: 'Draft PDF', zh: 'PDF 草稿' }), {
+              sm: true, iconName: 'download', onClick: () => openPoPdf(p),
+            })),
+          ]))),
+        ]))
+      : h('div.card-pad', { style: { fontSize: '12px', color: 'var(--text-3)' } }, tr({
+          id: all.length ? 'Tidak ada yang cocok dengan pencarian.' : 'Tidak ada PO yang sedang jalan.',
+          en: all.length ? 'Nothing matches that search.' : 'No POs in flight.',
+          zh: all.length ? '没有符合搜索条件的结果。' : '没有进行中的采购单。',
+        })),
+    all.length > 60 ? h('div.card-pad', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, tr({
+      id: `Menampilkan 60 dari ${all.length} — pakai pencarian untuk mempersempit.`,
+      en: `Showing 60 of ${all.length} — use the search to narrow it down.`,
+      zh: `显示 ${all.length} 个中的 60 个 — 请使用搜索缩小范围。`,
+    })) : null,
+  ]);
 }

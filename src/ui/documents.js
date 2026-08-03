@@ -65,10 +65,30 @@ export function poDocument(po) {
   ];
 
   const bd = '1px solid #111827';
-  const cell = (extra) => ({ border: bd, padding: '5px 8px', fontSize: '10px', color: '#111827', verticalAlign: 'top', ...extra });
+  // overflowWrap + wordBreak: jaring pengaman. Kalau suatu hari ada mata uang
+  // atau deskripsi yang lebih panjang dari yang diperkirakan, dia MEMBUNGKUS
+  // dan barisnya jadi lebih tinggi — kelihatan, dan bisa diperbaiki. Tanpa ini
+  // dia luber ke luar area cetak dan hilang diam-diam, yang persis kejadian
+  // kemarin. Salah yang kelihatan selalu lebih baik daripada salah yang rapi.
+  const cell = (extra) => ({
+    border: bd, padding: '5px 8px', fontSize: '10px', color: '#111827',
+    verticalAlign: 'top', overflowWrap: 'anywhere', wordBreak: 'break-word',
+    ...extra,
+  });
   const gray = { background: '#F3F4F6', fontWeight: 700 };
 
-  return h('div.paper', { style: { width: '760px', padding: '30px 34px', color: '#111827' } }, [
+  // LEBAR KERTAS DIUKUR DARI KERTASNYA, BUKAN DIKIRA-KIRA
+  // -------------------------------------------------------------------------
+  // Sebelumnya 760px. A4 itu 210mm; dengan @page margin 10mm di dua sisi yang
+  // benar-benar bisa dicetak tinggal 190mm — sekitar 718px. Jadi 42px paling
+  // kanan setiap halaman jatuh di luar area cetak dan dipotong Chrome tanpa
+  // suara. Yang hilang justru kolom paling kanan: Amount. "3,430,723,399"
+  // tercetak "3,430,723,39" — angka yang MASIH TERBACA sebagai angka, cuma
+  // salah satu digit lebih kecil. Dokumen bersegel yang dikirim ke supplier.
+  //
+  // Dinyatakan dalam mm supaya terikat ke ukuran kertasnya, bukan ke tebakan
+  // piksel yang ikut berubah kalau margin @page disetel ulang.
+  return h('div.paper', { style: { width: '190mm', maxWidth: '100%', padding: '30px 34px', color: '#111827', boxSizing: 'border-box' } }, [
     // Letterhead
     h('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'center', marginBottom: '4px' } }, [
       h('img', { src: LOGO_MTI, style: { height: '30px' } }),
@@ -90,7 +110,16 @@ export function poDocument(po) {
     // Goods
     h('div', { style: { fontSize: '10.5px', fontWeight: 700, margin: '10px 0 4px' } }, '货物如下/Goods as follows:'),
     h('table', { style: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' } }, [
-      h('colgroup', [16, 30, 14, 9, 8, 10, 13].map(w => h('col', { style: { width: w + '%' } }))),
+      // Lebar kolom dihitung dari isi TERPANJANG yang mungkin, bukan dari
+      // tampilan yang enak dilihat. Rupiah tanpa desimal itu 13 karakter
+      // ("3,430,723,399"); di IBM Plex Mono 10px kira-kira 78px, ditambah
+      // padding 16px jadi 94px. Dengan 13% dari 650px isi kertas cuma dapat
+      // 84px — kurang 10px, dan tableLayout:fixed tidak mengizinkan selnya
+      // melebar, jadi kelebihannya luber lalu terpotong.
+      //
+      // Amount 18% dan Price 15%; sisanya diambil dari Description yang memang
+      // membungkus dengan sendirinya.
+      h('colgroup', [15, 22, 11, 9, 8, 15, 20].map(w => h('col', { style: { width: w + '%' } }))),
       h('thead', h('tr', [
         th('ERP Code'), th('Description'), th('Dimension'), th('Quantity', 'right'), th('Unit'), th('Price', 'right'), th('Amount', 'right'),
       ])),
@@ -130,7 +159,10 @@ export function poDocument(po) {
     h('div', { style: { fontSize: '8.5px', color: '#6B7280', marginTop: '8px', textAlign: 'right' } }, h('span.mono', po.no)),
   ]);
 
-  function th(label, align) { return h('th', { style: cell({ ...gray, textAlign: align === 'right' ? 'right' : 'left' }) }, label); }
+  // Judul kolom 9px, isinya tetap 10px. "Quantity" di 10px butuh ~45px
+  // sementara kolomnya 42px, jadi dia pecah jadi "Quanti/ty" — judul kolom
+  // yang terbelah di tengah kata pada dokumen resmi.
+  function th(label, align) { return h('th', { style: cell({ ...gray, fontSize: '9px', textAlign: align === 'right' ? 'right' : 'left' }) }, label); }
   function td(v, extra, mono) { return h('td', { style: cell({ ...(extra || {}), fontFamily: mono ? "'IBM Plex Mono',monospace" : 'inherit' }) }, v); }
   function totalRow(label, val) {
     return h('tr', [

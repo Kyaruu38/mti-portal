@@ -1,0 +1,59 @@
+v13.5 — portal bilang kalau ada barang yang labelnya tidak pernah dihitung
+
+ARAH YANG SELAMA INI DIAM
+Pratinjau unggah sudah melaporkan SKU tracker yang tidak muncul di rencana
+bulan ini. Itu arah yang tidak berbahaya: labelnya cuma menganggur sebulan.
+
+Kebalikannya tidak pernah dilaporkan sama sekali, dan justru itu yang
+berbahaya: spec yang DIPASTIKAN diproduksi tapi tidak punya satu baris pun
+di tracker. Tidak akan pernah masuk BUY NOW, karena tidak ada yang
+mewakilinya. Bukan salah hitung — memang tidak ikut dihitung.
+
+Diukur pada rencana asli:
+
+    Juli     73 spec ·  254.020 pcs · 32% dari rencana produksi
+    Agustus 140 spec ·  345.400 pcs · 40%
+    gabungan 171 spec · 559.750 pcs · 48% dari seluruh volume
+
+Item terbesar di seluruh plan Agustus (28.000 pcs, ban motor GOLDEN CROWN)
+ada di kelompok ini. Pemilik menyatakan proses labelnya sama, jadi ini
+bukan pengecualian kategori — ini yang kelewat.
+
+Spanduknya merah, tidak bisa ditutup, dan TIDAK memblokir simpan.
+Menutupnya berarti mengizinkan orang melupakannya; memblokir berarti
+rutinitas mingguan sona berhenti karena masalah yang bukan dia yang bisa
+menyelesaikannya. Ada tombol export daftarnya ke Excel.
+
+PENCOCOKAN LEWAT AWALAN NAMA
+Tracker menyimpan nomor homologasi di ujung nama spec; file rencana tidak:
+
+    rencana : ID(G105003)80/90-14-4P[H-577]40P GOODRIDE 纳米高抓 TL
+    tracker : ID(G105003)80/90-14-4P[H-577]40P GOODRIDE 纳米高抓 TL E4-75R-0018686
+
+Delapan spec seperti ini, 87.200 pcs. Tanpa penanganan semuanya masuk
+daftar "tidak ada di tracker" dan orang diminta membuat baris baru untuk
+barang yang barisnya sudah ada — persis cara melahirkan SKU kembar, yang
+sudah pernah memecah stok satu label jadi dua dan bertahan berbulan-bulan.
+
+Syaratnya ketat: diterima hanya kalau PERSIS SATU baris tracker cocok.
+Diukur pada Juli + Agustus: 8 pasangan, semuanya 1:1, nol yang ambigu.
+Hasilnya tidak pernah diam-diam — setiap pasangan ditampilkan di pratinjau
+sebelum apa pun disimpan.
+
+Efeknya: SKU yang jadi BUY NOW naik dari 7 ke 8, dan 87.200 pcs berhenti
+salah dilaporkan sebagai "tidak ada di tracker".
+
+KOTAK UNGGAH
+Keterangan di bawah tiap nama file dibuang (lihat commit sebelumnya).
+
+DIUJI
+- pipeline: dua bulan file asli, angka spanduk dan jumlah pencocokan
+  awalan diadu ke perhitungan ulang lewat modul yang sama
+- browser: spanduk muncul, angkanya cocok, tombol export ada, pencocokan
+  awalan dilaporkan dengan contoh pasangannya
+- enam suite lama (parser, kotak unggah, BUY NOW, PO cetak, PO Jalan)
+  dijalankan ulang, semuanya lulus
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01W6fmp9G8ZiNwa1VdJh6vBq
+
