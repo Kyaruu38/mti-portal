@@ -41,7 +41,8 @@ export const DICT = {
 
   // --- nav groups & items ---
   nav_overview: { id: 'Ringkasan', en: 'Overview', zh: '概览' },
-  nav_labelpo: { id: 'Label & PO', en: 'Label & PO', zh: '标签与采购单' },
+  nav_labelpo: { id: 'Label', en: 'Label', zh: '标签' },
+  nav_po: { id: 'Purchase Order', en: 'Purchase Order', zh: '采购单' },
   nav_compliance: { id: 'Kepabeanan', en: 'Compliance', zh: '合规报关' },
   nav_finance: { id: 'Keuangan', en: 'Finance', zh: '财务' },
   nav_system: { id: 'Sistem', en: 'System', zh: '系统' },
@@ -50,7 +51,11 @@ export const DICT = {
   s_label: { id: 'Label Request', en: 'Label Request', zh: '标签申请' },
   s_library: { id: 'Design Library', en: 'Design Library', zh: '设计库' },
   s_labelstock: { id: 'Stok Label', en: 'Label Stock', zh: '标签库存' },
-  s_surat: { id: 'Surat Jalan', en: 'Delivery Note', zh: '送货单' },
+  // Namanya menyebut dirinya sendiri. "Delivery Note" saja membuat orang
+  // mengira ini dokumen yang menyertai barang keluar — dan sempat dipakai
+  // begitu. Ini lembar internal gudang MTI untuk memeriksa label yang datang.
+  s_surat: { id: 'Surat Jalan Internal (Label)', en: 'Internal Delivery Note (Label)', zh: '内部送货核对单（标签）' },
+  s_outstanding: { id: 'PO Outstanding', en: 'Outstanding PO', zh: '未交采购单' },
   s_converter: { id: 'PO Converter', en: 'PO Converter', zh: '采购单转换' },
   s_ppkek: { id: 'PPKEK', en: 'PPKEK', zh: '报关 PPKEK' },
   s_payment: { id: 'Payment', en: 'Payment', zh: '付款' },

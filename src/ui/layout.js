@@ -19,12 +19,25 @@ const NAV = [
     { id: 'dashboard', t: 's_dashboard', ic: 'grid' },
     { id: 'approval', t: 's_approval', ic: 'clip', badgeKey: 'pendingApproval' },
   ] },
+  // LABEL DAN PO BIASA DIPISAH.
+  // ---------------------------------------------------------------------------
+  // Dulu keduanya satu grup "Label & PO", dan Surat Jalan duduk di tengahnya
+  // dengan nama "Delivery Note". Dari menu, tidak ada apa pun yang memberi tahu
+  // bahwa layar itu cuma berlaku untuk PO label — jadi wajar kalau orang
+  // membukanya untuk PO pelumas dan menganggap dokumennya kurang cocok saja.
+  //
+  // Sekarang namanya menyebut dirinya sendiri dan dia duduk di grup Label,
+  // sementara PO biasa punya grupnya sendiri. Yang membedakan bukan lagi
+  // pengetahuan orangnya, tapi tempat tombolnya.
   { label: 'nav_labelpo', items: [
     { id: 'label-request', t: 's_label', ic: 'tag' },
     { id: 'label-library', t: 's_library', ic: 'layers' },
     { id: 'label-stock', t: 's_labelstock', ic: 'box' },
     { id: 'surat-jalan', t: 's_surat', ic: 'file' },
+  ] },
+  { label: 'nav_po', items: [
     { id: 'po-converter', t: 's_converter', ic: 'rep' },
+    { id: 'outstanding-po', t: 's_outstanding', ic: 'box' },
   ] },
   { label: 'nav_compliance', items: [{ id: 'ppkek', t: 's_ppkek', ic: 'box' }] },
   { label: 'nav_finance', items: [
@@ -39,7 +52,7 @@ const NAV = [
 
 const TITLES = {
   dashboard: 's_dashboard', approval: 's_approval', 'label-request': 's_label',
-  'label-library': 's_library', 'label-stock': 's_labelstock', 'surat-jalan': 's_surat', 'po-converter': 's_converter',
+  'label-library': 's_library', 'label-stock': 's_labelstock', 'surat-jalan': 's_surat', 'po-converter': 's_converter', 'outstanding-po': 's_outstanding',
   ppkek: 's_ppkek', payment: 's_payment', finance: 's_finance', 'master-data': 's_master', reports: 's_reports',
 };
 

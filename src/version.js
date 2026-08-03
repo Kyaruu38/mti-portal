@@ -24,12 +24,28 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v13.5';
+export const VERSION = 'v13.7';
 export const VERSION_DATE = '3 Agu 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v13.7', date: '3 Agu 2026',
+    what: {
+      id: 'Menu samping sekarang memisahkan Label dari Purchase Order, dan Surat Jalan berganti nama jadi "Surat Jalan Internal (Label)" \u2014 dari menunya sendiri sudah jelas itu lembar internal dan cuma untuk PO label. Dokumen cetaknya TIDAK berubah. Layar baru "PO Outstanding": semua PO yang masih menunggu barang, bisa dicentang per PO atau per baris, lalu ditandai sudah sampai. Stok TIDAK diubah \u2014 layar ini cuma menutup sisa PO.',
+      en: 'The sidebar now separates Label from Purchase Order, and the Surat Jalan is renamed "Internal Delivery Note (Label)" \u2014 the menu itself now says it is an internal sheet for label POs only. The printed document is UNCHANGED. New screen "Outstanding PO": every PO still awaiting goods, tickable per PO or per line, then marked as arrived. Stock is NOT touched \u2014 this only closes the PO balance.',
+      zh: '侧边栏现将标签与采购单分开，送货单更名为"内部送货核对单（标签）" \u2014 菜单本身即表明这是内部表单且仅适用于标签采购单。打印文件保持不变。新增"未交采购单"页面：列出所有待到货采购单，可按采购单或按行勾选并标记为已到货。不会改动库存 \u2014 仅结清采购单余量。',
+    },
+  },
+  {
+    v: 'v13.6', date: '3 Agu 2026',
+    what: {
+      id: 'Surat Jalan sekarang ditandai DOKUMEN INTERNAL \u2014 di dokumennya, di atas judul, merah. Ini bukan surat jalan pengiriman dan tidak untuk diserahkan ke supplier; ini lembar gudang MTI buat mencocokkan label yang datang. Layarnya juga cuma menampilkan PO LABEL sekarang: sebelumnya PO pelumas ikut muncul dan menawarkan pembuatan surat jalan, padahal checklistnya (warna, posisi tulisan, kerekatan) tidak berlaku untuk drum oli. PO non-label yang masih menunggu barang tetap disebut jumlahnya, tidak hilang diam-diam.',
+      en: 'The Surat Jalan is now marked INTERNAL DOCUMENT \u2014 on the document itself, above the title, in red. It is not a shipping note and is not for the supplier; it is the MTI warehouse\u2019s sheet for checking incoming labels. The screen now shows LABEL POs only: a lubricants PO used to appear and offer a Surat Jalan, though the checklist (colour, text position, adhesion) means nothing for a drum of oil. Non-label POs still awaiting goods are still counted on screen, not silently dropped.',
+      zh: '送货单现已标注为内部文件 \u2014 标注位于文件标题上方，红色。这不是发货单，也不提供给供应商；这是 MTI 仓库核对到货标签的表单。页面现在仅显示标签采购单：此前润滑油采购单也会出现并提供开单，但其核对项（颜色、文字位置、黏着力）对油桶毫无意义。仍在等待到货的非标签采购单仍会显示数量，不会被悄悄隐藏。',
+    },
+  },
   {
     v: 'v13.5', date: '3 Agu 2026',
     what: {

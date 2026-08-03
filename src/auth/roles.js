@@ -27,9 +27,9 @@ export const USERS = {
 //  financemti = Finance dashboard only
 //  sona       = Label Request + Label Stock (weekly Excel upload) only
 export const ACCESS = {
-  wilbert: ['dashboard', 'approval', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'ppkek', 'payment', 'finance', 'master-data', 'reports'],
-  cania:   ['dashboard', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'payment', 'master-data', 'reports'],
-  visca:   ['dashboard', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'payment', 'master-data', 'reports'],
+  wilbert: ['dashboard', 'approval', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'finance', 'master-data', 'reports'],
+  cania:   ['dashboard', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'master-data', 'reports'],
+  visca:   ['dashboard', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'master-data', 'reports'],
   // 'finance' added 31 Jul 2026 so sekar can post the transfer proof. Finance
   // shares proofs into a group chat rather than entering them one by one, so
   // the person who actually transcribes them is sekar. She gets the SCREEN, not
@@ -51,7 +51,7 @@ export const ACCESS = {
   // what forced the real gates to exist (sjWrite / ppkekWrite / poCreate /
   // designWrite / labelParse below), and those gates now protect every role,
   // not just this one.
-  cenjc:   ['dashboard', 'approval', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'ppkek', 'payment', 'finance', 'master-data', 'reports'],
+  cenjc:   ['dashboard', 'approval', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'finance', 'master-data', 'reports'],
 };
 
 // Fine-grained capabilities (used to hide buttons + enforced by RLS).
@@ -91,6 +91,10 @@ export const ACCESS = {
 //  ppkekWrite      PPKEK register: dropzone, inline cell edit, import-apply. ppkek_rw
 //  designWrite     upload to the design library.                        designs_write
 //  poCreate        generate a PO (PO Converter + Label Request).         pos_insert
+//  poReceive       tandai baris PO sudah sampai di layar PO Outstanding.   pos_update
+//                  Menutup sisa PO dan TIDAK menyentuh stok apa pun. Sengaja
+//                  TIDAK diberikan ke sona (dia meminta label, bukan menerima
+//                  barang) maupun cenjc (mengamati, tidak mengubah).
 //  labelRequestAsk submit a parsed label sheet as a REQUEST, for purchasing to
 //                  turn into a PO. sona's half of the split: she owns the
 //                  weekly workbook and knows what needs printing; cania and
@@ -114,15 +118,15 @@ export const ACCESS = {
 const grant = (...names) => Object.fromEntries(names.join(' ').split(/\s+/).filter(Boolean).map(n => [n, true]));
 
 export const CAPS = {
-  wilbert:    grant('approve editMaster labelStockWrite paymentWrite prfCreate prfReceive markPaid sjWrite ppkekWrite designWrite poCreate labelParse labelRequestFill'),
+  wilbert:    grant('approve editMaster labelStockWrite paymentWrite prfCreate prfReceive markPaid sjWrite ppkekWrite designWrite poCreate poReceive labelParse labelRequestFill'),
   // cania/visca RECEIVE the invoices and raise the PRF from them. Until v12.0
   // they held prfCreate WITHOUT paymentWrite, which read as a sensible split and
   // was not: an invoice only reaches the PRF builder once it has left stage 1,
   // and the control that moves it lives on the intake half of the screen. So
   // their builder was permanently empty — not because no invoice existed, but
   // because they could never enter one in the first place.
-  cania:      grant('editMaster labelStockWrite paymentWrite prfCreate sjWrite designWrite poCreate labelParse labelRequestFill'),
-  visca:      grant('editMaster labelStockWrite paymentWrite prfCreate sjWrite designWrite poCreate labelParse labelRequestFill'),
+  cania:      grant('editMaster labelStockWrite paymentWrite prfCreate sjWrite designWrite poCreate poReceive labelParse labelRequestFill'),
+  visca:      grant('editMaster labelStockWrite paymentWrite prfCreate sjWrite designWrite poCreate poReceive labelParse labelRequestFill'),
   // sekar: purchasing-side payment + PPKEK; payment STATUS is read-only for sekar.
   sekar:      grant('paymentWrite prfCreate paymentReadonly ppkekWrite markPaid'),
   // finance: receive + mark paid; cannot approve POs or raise a PRF. Keeps

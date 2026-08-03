@@ -208,6 +208,11 @@ export function suratJalanPaper(sj) {
     paperHeader(),
     h('div', { style: { height: '2.5px', background: '#1B3A6B', marginTop: '12px' } }),
     h('div', { style: { height: '2px', background: '#F26722', marginTop: '2px', width: '180px' } }),
+    // Dokumennya sengaja DIBIARKAN seperti semula. Penanda "internal" hidup di
+    // menu samping, bukan di kertasnya — yang perlu tahu ini dokumen internal
+    // adalah orang yang MEMBUKA layarnya, bukan gudang yang sudah memegang
+    // lembarannya. Judul dokumen sudah menyebut "VERIFIKASI LABEL", dan
+    // menambah blok merah di atasnya cuma memakan ruang halaman yang sudah pas.
     h('div', { style: { textAlign: 'center', marginTop: '20px' } }, [
       h('div', { style: { fontSize: '14.5px', fontWeight: 800, letterSpacing: '.08em', color: '#111827' } }, 'DOKUMEN VERIFIKASI LABEL / PACKAGING（标签到货核对文件）'),
       h('div', { style: { fontSize: '10px', letterSpacing: '.16em', color: '#6B7280', marginTop: '2px' } }, 'LABEL & PACKAGING VERIFICATION DOCUMENT'),

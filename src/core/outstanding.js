@@ -13,13 +13,48 @@
 const EPS = 1e-6;
 const snap = n => (Math.abs(n) < EPS ? 0 : n);
 
-// Sum of qty already shipped against one PO line across every surat jalan ever created.
+// DUA SUMBER PENERIMAAN, DIJUMLAHKAN — BUKAN DIPILIH SALAH SATU
+// ---------------------------------------------------------------------------
+// 1. Surat Jalan Verifikasi — jalur label. Gudang memeriksa desainnya, dan
+//    jumlah yang lolos tercatat di dokumen itu.
+// 2. Penandaan langsung di layar PO Outstanding — untuk PO biasa (pelumas,
+//    bahan kimia) yang tidak punya dan tidak butuh surat jalan verifikasi.
+//
+// Dijumlahkan, dan itu aman dari hitung-ganda karena layar penandaan hanya
+// pernah menawarkan SISA yang belum diterima: sisa itu sendiri sudah dihitung
+// setelah surat jalan. Menandai "sisanya sudah sampai" dua kali tidak menambah
+// apa pun, karena kedua kalinya sisanya nol.
+//
+// Angkanya tetap TIDAK di-cache sebagai total. Yang disimpan di baris PO cuma
+// bagian penerimaan langsungnya; totalnya selalu dihitung ulang di sini.
+export function directReceived(po, lineId) {
+  const it = ((po && po.items) || []).find(x => x.lineId === lineId);
+  return Number(it && it.receivedDirect) || 0;
+}
+
+// Sum of qty already shipped against one PO line across every surat jalan ever
+// created, PLUS anything marked as arrived directly on the Outstanding PO screen.
 export function receivedQty(st, poId, lineId) {
-  return st.suratJalan
+  const viaSj = st.suratJalan
     .filter(sj => (sj.poIds || []).includes(poId))
     .flatMap(sj => sj.items || [])
     .filter(it => it.poId === poId && it.lineId === lineId)
     .reduce((s, it) => s + (it.qtyShipped || 0), 0);
+  const po = (st.pos || []).find(p => p.id === poId);
+  return snap(viaSj + directReceived(po, lineId));
+}
+
+// Dipisah supaya layarnya bisa menampilkan asal-usulnya, bukan cuma totalnya.
+// "Diterima 100" tanpa keterangan dari mana membuat orang tidak bisa menyanggah
+// angkanya; "80 lewat surat jalan, 20 ditandai manual oleh cania" bisa.
+export function receivedBreakdown(st, poId, lineId) {
+  const viaSj = st.suratJalan
+    .filter(sj => (sj.poIds || []).includes(poId))
+    .flatMap(sj => sj.items || [])
+    .filter(it => it.poId === poId && it.lineId === lineId)
+    .reduce((s, it) => s + (it.qtyShipped || 0), 0);
+  const po = (st.pos || []).find(p => p.id === poId);
+  return { viaSj: snap(viaSj), direct: snap(directReceived(po, lineId)) };
 }
 
 export function outstandingForItem(st, po, item) {
@@ -53,20 +88,40 @@ export function poOutstanding(st, po) {
   };
 }
 
+// PO LABEL vs PO LAINNYA
+// ---------------------------------------------------------------------------
+// `source` menyimpan dari mana PO lahir: 'label' berarti dinaikkan dari sebuah
+// Label Request (layar Label Request / tab BUY NOW), 'converter' berarti hasil
+// membaca PDF PO dari supplier — pelumas, bahan kimia, apa saja.
+//
+// Surat Jalan Verifikasi cuma berlaku untuk yang PERTAMA. Dokumennya menyuruh
+// gudang mencocokkan warna, posisi tulisan, ukuran, dan kerekatan terhadap
+// desain yang disetujui. Tidak ada satu pun dari itu yang berarti untuk satu
+// drum oli.
+export function isLabelPO(po) { return po && po.source === 'label'; }
+
 // Every approved, non-closed PO that still has goods outstanding.
-export function outstandingPOs(st) {
+//
+// labelOnly dipakai layar Surat Jalan saja. Dashboard dan Reports SENGAJA
+// memakai daftar penuh: "barang apa yang masih ditunggu" itu pertanyaan tentang
+// seluruh pembelian, bukan cuma label. Menyempitkan fungsi ini secara global
+// akan diam-diam menghapus PO pelumas dari ringkasan outstanding di dua layar
+// yang tidak ada hubungannya dengan permintaan ini.
+export function outstandingPOs(st, { labelOnly = false } = {}) {
   return st.pos
     .filter(p => (p.source === 'label' || p.source === 'converter') && p.status === 'Approved' && !p.closed)
+    .filter(p => !labelOnly || isLabelPO(p))
     .map(p => ({ po: p, ...poOutstanding(st, p) }))
     .filter(x => x.totalOutstanding > 0);
 }
 
 // POs that have been shipped MORE than ordered. Nothing surfaced this before.
-export function overDeliveredPOs(st) {
+export function overDeliveredPOs(st, { labelOnly = false } = {}) {
   return st.pos
     // Same scope as outstandingPOs — without this it surfaced rejected and
     // soft-deleted POs too.
     .filter(p => (p.source === 'label' || p.source === 'converter') && p.status === 'Approved')
+    .filter(p => !labelOnly || isLabelPO(p))
     .map(p => ({ po: p, ...poOutstanding(st, p) }))
     .filter(x => x.hasOverDelivery);
 }

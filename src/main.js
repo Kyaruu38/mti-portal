@@ -16,6 +16,7 @@ import { labelLibraryScreen } from './screens/labelLibrary.js';
 import { labelStockScreen } from './screens/labelStock.js';
 import { suratJalanScreen } from './screens/suratJalan.js';
 import { poConverterScreen } from './screens/poConverter.js';
+import { outstandingPoScreen } from './screens/outstandingPo.js';
 import { approvalScreen } from './screens/approval.js';
 import { ppkekScreen } from './screens/ppkek.js';
 import { paymentScreen } from './screens/payment.js';
@@ -30,6 +31,7 @@ const SCREENS = {
   'label-stock': labelStockScreen,
   'surat-jalan': suratJalanScreen,
   'po-converter': poConverterScreen,
+  'outstanding-po': outstandingPoScreen,
   approval: approvalScreen,
   ppkek: ppkekScreen,
   payment: paymentScreen,

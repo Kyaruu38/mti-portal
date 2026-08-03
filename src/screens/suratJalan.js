@@ -79,14 +79,50 @@ export function suratJalanScreen() {
   // could ship goods against a PO. The outstanding list itself is legitimate
   // reading material for an observer — only the writes are gated.
   const canWrite = can(st.user.role, 'sjWrite');
-  const outstanding = outstandingPOs(st);
+
+  // HANYA PO LABEL.
+  // -------------------------------------------------------------------------
+  // Layar ini sempat menampilkan PO pelumas (PT INCLUSION NEW MATERIALS) dan
+  // menawarkan pembuatan surat jalannya. Dokumen yang keluar menyuruh gudang
+  // mencocokkan warna, posisi tulisan, ukuran, dan kerekatan terhadap desain
+  // yang disetujui — tidak satu pun berlaku untuk drum oli, dan checklist yang
+  // tidak berlaku itu tetap dicentang orang karena formulirnya minta dicentang.
+  const outstanding = outstandingPOs(st, { labelOnly: true });
+
+  // Yang dikeluarkan TIDAK hilang diam-diam. Kalau ada PO non-label yang masih
+  // menunggu barang, jumlahnya tetap disebut di sini, lengkap dengan ke mana
+  // harus melihatnya. Menyempitkan layar tanpa mengatakan apa yang disempitkan
+  // hanya memindahkan kebingungan, tidak menghapusnya.
+  const semua = outstandingPOs(st);
+  const diluar = semua.length - outstanding.length;
+
   const suppliers = [...new Set(outstanding.map(x => x.po.supplier))];
   const supplier = suppliers.includes(ui.sjSupplier) ? ui.sjSupplier : suppliers[0];
   const supplierPOs = outstanding.filter(x => x.po.supplier === supplier);
 
+  const internalBanner = h('div.cfg-banner', {
+    style: { background: 'var(--st-amber-bg)', color: 'var(--st-amber-tx)', borderColor: 'var(--st-amber-tx)', display: 'block' },
+  }, [
+    h('div', { style: { fontWeight: 700 } }, [icon('warn', 14), tr({
+      id: ' DOKUMEN INTERNAL — untuk gudang MTI, bukan untuk supplier',
+      en: ' INTERNAL DOCUMENT — for the MTI warehouse, not for the supplier',
+      zh: ' 内部文件 — 供 MTI 仓库使用，不提供给供应商',
+    })]),
+    h('div', { style: { fontSize: '10.5px', marginTop: '3px' } }, tr({
+      id: 'Ini bukan surat jalan pengiriman. Ini lembar verifikasi label yang datang: gudang mencocokkan warna, posisi tulisan, ukuran, jumlah, dan kerekatan terhadap desain yang disetujui. Cuma berlaku untuk PO label.',
+      en: 'This is not a shipping note. It is a verification sheet for incoming labels: the warehouse checks colour, text position, size, quantity and adhesion against the approved design. Label POs only.',
+      zh: '这不是发货单，而是到货标签的核对表：仓库需对照批准样核对颜色、文字位置、尺寸、数量与黏着力。仅适用于标签采购单。',
+    })),
+    diluar ? h('div', { style: { fontSize: '10.5px', marginTop: '4px' } }, tr({
+      id: `${diluar} PO non-label yang masih menunggu barang tidak ditampilkan di sini — lihat di Dashboard atau Reports.`,
+      en: `${diluar} non-label PO still awaiting goods are not shown here — see the Dashboard or Reports.`,
+      zh: `另有 ${diluar} 张非标签采购单尚未到货，此处不显示 — 请查看看板或报表。`,
+    })) : null,
+  ]);
+
   // Surface over-delivery. poOutstanding() computes it, but nothing rendered it,
   // so a PO shipped beyond its ordered qty stayed invisible on every screen.
-  const over = overDeliveredPOs(st);
+  const over = overDeliveredPOs(st, { labelOnly: true });
   const overBanner = over.length
     ? h('div.cfg-banner', { style: { background: 'var(--st-red-bg)', color: 'var(--st-red-tx)', borderColor: 'var(--st-red-tx)', display: 'block' } }, [
         h('div', { style: { fontWeight: 700, marginBottom: '4px' } }, [icon('warn', 14), tr({
@@ -113,10 +149,10 @@ export function suratJalanScreen() {
   ]);
 
   if (!suppliers.length) {
-    return h('div.stack', [overBanner, summary, card([h('div.card-pad', tr({
-      id: 'Tidak ada PO dengan barang outstanding untuk dibuat surat jalan.',
-      en: 'No PO with outstanding goods to create a Surat Jalan for.',
-      zh: '没有可开具送货单的未交货采购单。',
+    return h('div.stack', [internalBanner, overBanner, summary, card([h('div.card-pad', tr({
+      id: 'Tidak ada PO label dengan barang outstanding untuk dibuat lembar verifikasi.',
+      en: 'No label PO with outstanding goods to raise a verification sheet for.',
+      zh: '没有尚未到货的标签采购单可开具核对表。',
     }))], { pad: false }), historyCard(st, canWrite)]);
   }
 
@@ -183,7 +219,7 @@ export function suratJalanScreen() {
 
   const preview = ui.sjLastId ? previewCard(st, ui.sjLastId) : null;
 
-  return h('div.stack', [overBanner, summary, supplierBar, poChecklist, itemsTable, rows.length ? actionBar : null, preview, historyCard(st, canWrite), ui.sjWarnMissing ? missingDesignModal(ui) : null]);
+  return h('div.stack', [internalBanner, overBanner, summary, supplierBar, poChecklist, itemsTable, rows.length ? actionBar : null, preview, historyCard(st, canWrite), ui.sjWarnMissing ? missingDesignModal(ui) : null]);
 }
 
 // Design master is empty at rollout on purpose (built now, filled in later —
