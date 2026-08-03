@@ -166,6 +166,86 @@ export function labelOrders(st, settings, now = new Date()) {
 // master — which is populated only by manual Master Data entry and may well be
 // near-empty, while historical PO lines and the design library are not.
 // ---------------------------------------------------------------------------
+
+// =============================================================================
+// PESANAN BERULANG — "SKU ini baru saja dipesan"
+// -----------------------------------------------------------------------------
+// Portal menghitung BUY NOW dari stok. Stok baru berubah setelah barangnya
+// datang dan Sona mengunggah Excel-nya lagi. Di antara dua kejadian itu ada
+// jeda berminggu-minggu, dan selama jeda itu SKU yang PO-nya sudah jalan tetap
+// muncul di BUY NOW dengan angka yang sama persis seperti sebelum dipesan.
+//
+// Tidak ada satu pun angka di layar yang terlihat aneh. Yang mencentangnya
+// minggu depan tidak melakukan kesalahan apa pun — dia melihat daftar belanja,
+// dan barangnya memang ada di daftar belanja.
+//
+// Jendelanya 40 hari, dan itu ANGKA BISNIS, bukan hukum alam: lead time normal
+// 14 hari, urgent 7, super urgent 3, ditambah ruang untuk pengiriman yang
+// telat. Diletakkan sebagai satu konstanta di sini supaya bisa diubah di satu
+// tempat kalau ternyata terlalu longgar atau terlalu ketat.
+//
+// PERINGATAN, BUKAN LARANGAN. Pesanan berulang kadang memang benar — produksi
+// naik mendadak, atau kiriman sebelumnya ditolak QC. Yang salah bukan memesan
+// dua kali, yang salah adalah memesan dua kali TANPA TAHU.
+export const REORDER_WINDOW_DAYS = 40;
+
+// Cocokkan lewat ERP kalau ada; kalau kosong, jatuh ke nama spec. SKU tanpa ERP
+// masih ada 8 di tracker, dan justru mereka yang paling mudah terpesan dua kali
+// karena tidak tersambung ke Order Tracking sama sekali.
+function orderMatchKeys(row) {
+  const erp = normErp(row.erp);
+  const spec = String(row.spec || row.name || row.d || row.dimension || '')
+    .replace(/\s+/g, '').toUpperCase();
+  return { erp, spec };
+}
+
+/**
+ * PO label untuk SKU ini yang dibuat dalam REORDER_WINDOW_DAYS terakhir.
+ *
+ * @param  {object} st   state
+ * @param  {object} row  baris label_stock ATAU baris item PO ({erp, spec/name})
+ * @param  {Date}   now
+ * @returns {Array<{poNo, orderDate, qty, umur, outstanding}>} terbaru dulu
+ */
+export function recentOrdersFor(st, row, now = new Date()) {
+  const want = orderMatchKeys(row);
+  if (!want.erp && !want.spec) return [];
+
+  const out = [];
+  for (const po of st.pos || []) {
+    if (po.source !== 'label') continue;
+    // Yang ditolak tidak pernah jadi pesanan. Yang masih menunggu approval
+    // SENGAJA IKUT DIHITUNG — justru itu kasus yang paling berbahaya: PO-nya
+    // belum jalan, jadi tidak ada apa pun di Order Tracking yang menunjukkannya.
+    if (po.status === 'Rejected' || po.deletedAt) continue;
+
+    // daysBetween menerima Date, bukan string — mengirim ISO string ke sini
+    // menghasilkan NaN diam-diam, dan NaN lolos setiap perbandingan `>` jadi
+    // TIDAK ADA satu pun PO yang akan cocok. Peringatannya tidak akan pernah
+    // muncul dan tidak akan ada error apa pun yang menunjukkan kenapa.
+    const dibuat = new Date(po.createdAt);
+    if (isNaN(dibuat)) continue;
+    const umur = daysBetween(dibuat, now);
+    if (!Number.isFinite(umur) || umur < 0 || umur > REORDER_WINDOW_DAYS) continue;
+
+    for (const line of po.items || []) {
+      const got = orderMatchKeys(line);
+      const cocok = (want.erp && got.erp && want.erp === got.erp)
+                 || (!want.erp && want.spec && got.spec && want.spec === got.spec);
+      if (!cocok) continue;
+      out.push({
+        poNo: po.contract || po.no,
+        status: po.status,
+        orderDate: po.createdAt,
+        umur,
+        qty: Number(line.qty) || 0,
+        outstanding: Math.max(0, (Number(line.qty) || 0) - receivedQty(st, po.id, line.lineId)),
+      });
+    }
+  }
+  return out.sort((a, b) => a.umur - b.umur);
+}
+
 export function erpCandidates(st) {
   const out = new Map();   // erp -> { erp, spec, source }
   const add = (erp, spec, source) => {

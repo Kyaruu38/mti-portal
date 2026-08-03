@@ -12,10 +12,13 @@ export const USERS = {
   visca:      { name: 'visca',      tag: 'Purchasing — Label & PO', init: 'VI', color: '#7C5CBF', lang: 'id' },
   sekar:      { name: 'sekar',      tag: 'PPKEK & Payment',         init: 'SE', color: '#1F8A4C', lang: 'id' },
   financemti: { name: 'financemti', tag: 'Finance Department',      init: 'FM', color: '#B48A1F', lang: 'en' },
-  sona:       { name: 'sona',       tag: 'Label Stock & Request',   init: 'SO', color: '#0E7C86', lang: 'id' },
+  sona:       { name: 'sona',       tag: 'Label PIC',               init: 'SO', color: '#0E7C86', lang: 'id' },
   // Slate grey on purpose. The avatar is the one element visible on every
   // screen, so an observer account should not look like an operator account.
-  cenjc:      { name: 'cenjc',      tag: 'Monitoring — Read Only',  init: 'CE', color: '#5C6470', lang: 'id' },
+  // Nama jabatannya ditulis apa adanya dalam bahasa Tionghoa atas permintaan
+  // pemilik. Hak aksesnya TIDAK berubah sedikit pun — tetap 13 layar, nol
+  // kapabilitas tulis. Yang berganti cuma label di layar.
+  cenjc:      { name: 'cenjc',      tag: '经营管理部经理',            init: 'CE', color: '#5C6470', lang: 'id' },
 };
 
 // Screen access per role (menus hidden + RLS enforced).

@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v13.8';
+export const VERSION = 'v13.9';
 export const VERSION_DATE = '3 Agu 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v13.9', date: '3 Agu 2026',
+    what: {
+      id: 'BUY NOW sekarang memperingatkan kalau SKU yang dicentang SUDAH dipesan dalam 40 hari terakhir. Sebelumnya tidak ada: stok baru berubah setelah barangnya datang dan Excel diunggah lagi, jadi SKU yang PO-nya sedang jalan tetap muncul di daftar belanja dengan angka yang sama persis \u2014 dan tidak ada satu pun angka di layar yang terlihat aneh. Peringatan, bukan larangan, dan jejaknya ikut tersimpan ke Label Request supaya cania/visca ikut melihatnya. Nama jabatan: sona jadi "Label PIC", cenjc jadi 经营管理部经理 (hak aksesnya tidak berubah sedikit pun).',
+      en: 'BUY NOW now warns when a ticked SKU was ALREADY ordered within the last 40 days. There was no such check before: stock only changes once the goods arrive and the Excel is re-uploaded, so a SKU with a PO in flight kept appearing in the shopping list with identical figures \u2014 and nothing on screen looked wrong. A warning, not a block, and the trace is carried into the Label Request so cania and visca see it too. Job titles: sona is now "Label PIC", cenjc is 经营管理部经理 (permissions entirely unchanged).',
+      zh: '需采购页签现在会在勾选的 SKU 于过去 40 天内已订购时发出提醒。此前并无此项检查：库存要等货到并重新上传 Excel 后才变化，因此在途采购单对应的 SKU 会以完全相同的数值继续出现在采购清单中 \u2014 而屏幕上没有任何数字显得异常。这是提醒而非阻止，且记录会带入标签申请，供 cania 与 visca 一并查看。职务名称：sona 改为 "Label PIC"，cenjc 改为经营管理部经理（权限完全不变）。',
+    },
+  },
   {
     v: 'v13.8', date: '3 Agu 2026',
     what: {

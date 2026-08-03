@@ -18,7 +18,7 @@ import {
   fileHasKind, describeFile, planSheetName, planMonth,
   parseProductionPlan, parseSalesPlan, applyPlansToStock,
 } from '../parsers/planFiles.js';
-import { labelOrders, erpCandidates } from '../core/labelOrders.js';
+import { labelOrders, erpCandidates, recentOrdersFor, REORDER_WINDOW_DAYS } from '../core/labelOrders.js';
 import { applyLabelStockUpload, fetchLabelStock, fetchLabelUploads, setLabelStockErp } from '../core/labelStockApi.js';
 import { isConfigured } from '../core/supabase.js';
 import { can } from '../auth/roles.js';
@@ -836,6 +836,12 @@ function requestRowsFrom(st, rows) {
       // lagi ada yang bertanya "kenapa pesan 12.500?", jawabannya ada di baris
       // ini, bukan di ingatan orang.
       _from: { stock: r.stock, requirement: r.requirement, surplus: r.surplus, suggested: r.suggestedQty },
+      // Peringatan pesanan berulang IKUT TERSIMPAN, bukan cuma tampil sekilas
+      // di layar Sona. Yang membuat PO-nya cania/visca — merekalah yang punya
+      // daftar PO di depan mata dan bisa memutuskan. Peringatan yang berhenti
+      // di layar orang pertama tidak menolong orang kedua.
+      _recentOrders: (recentOrdersFor(st, r) || []).slice(0, 3)
+        .map(o => ({ poNo: o.poNo, umur: o.umur, qty: o.qty, outstanding: o.outstanding, status: o.status })),
     };
   });
 }
@@ -895,6 +901,12 @@ async function sendBuyNowToRequest() {
 function pickBar(st, rows) {
   const sel = st.ui.lsPick || {};
   const chosen = rows.filter(r => sel[pickKey(r)]);
+  // Dihitung dari yang DICENTANG, bukan dari seluruh daftar: peringatan yang
+  // menghitung baris yang tidak jadi dipesan akan diabaikan orang, dan sekali
+  // diabaikan dia tidak lagi menjadi peringatan.
+  const dobel = chosen
+    .map(r => ({ r, rec: recentOrdersFor(getState(), r) }))
+    .filter(x => x.rec.length);
   const allOn = rows.length > 0 && chosen.length === rows.length;
   const total = chosen.reduce((s, r) => {
     const q = Number((st.ui.lsQty || {})[pickKey(r)]);
@@ -902,7 +914,31 @@ function pickBar(st, rows) {
   }, 0);
   const mayAsk = can(st.user.role, 'labelRequestAsk');
 
-  return h('div.card', { style: { padding: '12px 16px' } }, h('div.row.gap12.wrap', { style: { alignItems: 'center' } }, [
+  const warn = dobel.length ? h('div', {
+    style: {
+      marginBottom: '10px', padding: '9px 12px', borderRadius: '8px',
+      background: 'var(--st-amber-bg)', color: 'var(--st-amber-tx)',
+      border: '1px solid var(--st-amber-tx)',
+    },
+  }, [
+    h('div', { style: { fontWeight: 700, fontSize: '12px' } }, [icon('warn', 13), tr({
+      id: ` ${dobel.length} dari ${chosen.length} SKU yang dicentang SUDAH dipesan dalam ${REORDER_WINDOW_DAYS} hari terakhir`,
+      en: ` ${dobel.length} of the ${chosen.length} ticked SKU were ALREADY ordered within the last ${REORDER_WINDOW_DAYS} days`,
+      zh: ` 已勾选的 ${chosen.length} 个 SKU 中有 ${dobel.length} 个在过去 ${REORDER_WINDOW_DAYS} 天内已订购`,
+    })]),
+    h('div', { style: { fontSize: '10.5px', margin: '3px 0 5px' } }, tr({
+      id: 'Stok baru berubah setelah barangnya datang dan Excel diunggah lagi — jadi SKU yang PO-nya sedang jalan tetap muncul di BUY NOW dengan angka yang sama. Ini peringatan, bukan larangan: kalau memang perlu dipesan lagi, lanjutkan.',
+      en: 'Stock only changes once the goods arrive and the Excel is uploaded again — so a SKU with a PO in flight still shows in BUY NOW with the same figures. This is a warning, not a block: if it genuinely needs reordering, carry on.',
+      zh: '库存要等货到并重新上传 Excel 后才会变化 — 因此在途采购单对应的 SKU 仍会以相同数值出现在需采购列表中。这是提醒而非阻止：若确需再次订购，请继续。',
+    })),
+    ...dobel.slice(0, 5).map(x => h('div.mono', { style: { fontSize: '10px' } },
+      `• ${x.r.spec.slice(0, 38)} — ${x.rec[0].poNo}, ${x.rec[0].umur} hari lalu, ${num(x.rec[0].qty)}${x.rec[0].outstanding ? ` (sisa ${num(x.rec[0].outstanding)})` : ' (sudah diterima penuh)'}`)),
+    dobel.length > 5 ? h('div', { style: { fontSize: '10px' } }, tr({
+      id: `…dan ${dobel.length - 5} lagi`, en: `…and ${dobel.length - 5} more`, zh: `…还有 ${dobel.length - 5} 个`,
+    })) : null,
+  ]) : null;
+
+  return h('div.card', { style: { padding: '12px 16px' } }, [warn, h('div.row.gap12.wrap', { style: { alignItems: 'center' } }, [
     h('label.row.gap8', { style: { alignItems: 'center', cursor: 'pointer', fontSize: '12px' } }, [
       h('input', {
         type: 'checkbox', checked: allOn,
@@ -943,7 +979,7 @@ function pickBar(st, rows) {
           }), { variant: 'primary', sm: true, iconName: 'check', onClick: () => sendBuyNowToRequest() })
         : null,
     ]),
-  ]));
+  ])]);
 }
 
 function listTab(st, pred, title, sub) {
@@ -1013,6 +1049,21 @@ function stockTable(rows, showAll, opts) {
       })) : null,
       h('td.cell-strong', { style: { maxWidth: '300px' } }, [
         r.spec,
+        // Sudah dipesan belakangan ini? Ditempel di NAMANYA, bukan di kolom
+        // terpisah di ujung kanan — tabel ini lebarnya sepuluh kolom dan yang
+        // di ujung kanan tidak terbaca tanpa menggeser layar.
+        (() => {
+          if (!pick) return null;
+          const rec = recentOrdersFor(getState(), r);
+          if (!rec.length) return null;
+          const t = rec[0];
+          return h('span', { style: { marginLeft: '6px' }, title: rec.map(o => `${o.poNo} · ${o.umur} hari lalu · ${num(o.qty)}`).join('\n') },
+            badge(tr({
+              id: `sudah dipesan ${t.umur} hr lalu`,
+              en: `ordered ${t.umur}d ago`,
+              zh: `${t.umur} 天前已订购`,
+            }), 'amber', { iconName: 'warn' }));
+        })(),
         r.hasMismatch ? h('span', { style: { marginLeft: '6px' } }, badge(tr({ id: 'rumus?', en: 'formula?', zh: '公式？' }), 'amber')) : null,
         r.missing ? h('span', { style: { marginLeft: '6px' } }, badge(tr({
           id: 'tidak di upload terakhir', en: 'not in last upload', zh: '不在最近一次上传中',
