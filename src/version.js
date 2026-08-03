@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v13.7';
+export const VERSION = 'v13.8';
 export const VERSION_DATE = '3 Agu 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v13.8', date: '3 Agu 2026',
+    what: {
+      id: 'Menu akun: catatan "tersimpan di akun Anda" dihapus, dan ada Ganti Password sekarang \u2014 semua akun, kapan saja, tidak perlu menunggu dipaksa saat login pertama. Penerimaan barang oleh cania & visca dipersempit ke satu kolom saja: layar PO Outstanding tidak lagi mengirim seluruh baris PO (yang termasuk status) setiap kali menyimpan. Sisi server ditutup trigger \u2014 status PO cuma bisa diubah Supervisor, dari jalur mana pun, bukan cuma dari tombol.',
+      en: 'Account menu: the "saved to your account" note is gone, and Change Password now lives there \u2014 every account, any time, without waiting to be forced at first login. Goods receipt by cania and visca is narrowed to one column: the Outstanding PO screen no longer sends the whole PO row (which included status) on every save. The server side is closed with a trigger \u2014 PO status can only be changed by the Supervisor, through any path, not merely by the button.',
+      zh: '账户菜单：移除"已保存至您的账户"提示，并新增修改密码 \u2014 所有账号随时可用，无需等待首次登录强制修改。cania 与 visca 的收货操作收窄至单一字段：未交采购单页面不再在每次保存时提交整行采购单（其中含状态）。服务端以触发器封堵 \u2014 采购单状态仅主管可变更，适用于任何路径，而非仅靠按钮。',
+    },
+  },
   {
     v: 'v13.7', date: '3 Agu 2026',
     what: {

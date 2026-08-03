@@ -28,7 +28,7 @@ import { tr } from '../i18n/index.js';
 import { card, badge, btn, icon, searchInput, selectEl } from '../ui/components.js';
 import { num, fmtDate } from '../core/format.js';
 import { outstandingPOs, overDeliveredPOs, receivedBreakdown, isLabelPO } from '../core/outstanding.js';
-import { updatePO } from '../core/posApi.js';
+import { setPoItems } from '../core/posApi.js';
 import { isConfigured } from '../core/supabase.js';
 import { can } from '../auth/roles.js';
 import { blockWrite } from '../core/guard.js';
@@ -264,11 +264,12 @@ async function markArrived(picked) {
       if (!hit) return it;
       return { ...it, receivedDirect: (Number(it.receivedDirect) || 0) + hit.outstanding };
     });
-    const next = { ...po, items };
     try {
-      await updatePO(po.id, next);
+      // Sengaja BUKAN updatePO(): itu mengirim seluruh baris termasuk `status`.
+      // Lihat catatan di core/posApi.js.
+      await setPoItems(po.id, items);
     } catch (e) {
-      console.error('updatePO gagal', po.no, e);
+      console.error('setPoItems gagal', po.no, e);
       gagal.push({ no: po.contract || po.no, msg: e.message || String(e) });
       continue;
     }

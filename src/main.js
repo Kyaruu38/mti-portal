@@ -32,6 +32,7 @@ const SCREENS = {
   'surat-jalan': suratJalanScreen,
   'po-converter': poConverterScreen,
   'outstanding-po': outstandingPoScreen,
+  'change-password': () => changePasswordScreen({ voluntary: true }),
   approval: approvalScreen,
   ppkek: ppkekScreen,
   payment: paymentScreen,
@@ -122,7 +123,12 @@ function render() {
       mount(root, view);
       return;
     }
-    if (!allowed.includes(st.screen)) { setState({ screen: allowed[0] }); return; }
+    // Ganti password TIDAK ikut daftar ACCESS. Itu layar tentang akunnya
+    // sendiri, bukan tentang pekerjaan — setiap orang yang bisa login harus
+    // bisa mengganti passwordnya, dan mendaftarkannya per role berarti suatu
+    // saat ada akun yang tidak bisa. Tidak ada data siapa pun di sana.
+    const SELF_SERVICE = ['change-password'];
+    if (!allowed.includes(st.screen) && !SELF_SERVICE.includes(st.screen)) { setState({ screen: allowed[0] }); return; }
     syncHash(st.screen);
     let screenEl;
     try { screenEl = (SCREENS[st.screen] || dashboardScreen)(); }

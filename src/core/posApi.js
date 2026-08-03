@@ -143,6 +143,28 @@ export async function updatePO(poId, po) {
   if (error) throw error;
 }
 
+// PENERIMAAN BARANG MENULIS SATU KOLOM SAJA: items.
+// ---------------------------------------------------------------------------
+// Layar PO Outstanding awalnya memakai updatePO(), yang mengirim SELURUH baris
+// lewat toRow() — termasuk `status`. Artinya siapa pun yang boleh menandai
+// barang datang juga sedang mengirim nilai status ke server setiap kali, dan
+// satu-satunya yang mencegah dia mengirim 'Approved' adalah tombol di layar.
+//
+// Itu bukan kontrol. cania dan visca membuat PO; kalau jalur yang sama bisa
+// menulis status, maka pembuatnya bisa menyetujui PO-nya sendiri, dan seluruh
+// gunanya Approval Queue hilang tanpa ada yang tahu.
+//
+// Jadi penerimaan punya jalurnya sendiri yang cuma menyentuh `items`. Sisi
+// server ditutup dengan GRANT tingkat kolom (lihat supabase_po_receive.sql) —
+// RLS membatasi BARIS, cuma GRANT kolom yang bisa membatasi KOLOM.
+export async function setPoItems(poId, items) {
+  if (!isConfigured()) return;
+  const c = await getClient();
+  if (!c) throw new Error('Supabase client unavailable');
+  const { error } = await c.from('pos').update({ items }).eq('id', poId);
+  if (error) throw error;
+}
+
 export async function requestPoDelete(poId, reason) {
   const c = await getClient();
   if (!c) throw new Error('Supabase client unavailable');

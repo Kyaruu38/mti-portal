@@ -333,7 +333,18 @@ function userMenu(st) {
       h('div', { style: { padding: '2px 8px 8px' } }, langSwitch(st)),
       h('div', { style: { fontSize: '9.5px', fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-3)', padding: '2px 10px 4px' } }, t('theme')),
       h('div', { style: { padding: '2px 8px 8px' } }, themeSwitch(st)),
-      h('div', { style: { fontSize: '10px', color: 'var(--text-3)', padding: '0 10px 8px', lineHeight: 1.45 } }, t('pref_note')),
+      h('div.divider', { style: { margin: '6px 4px' } }),
+      // Ganti password ada di sini, bukan di menu samping. Ini urusan akun,
+      // bukan layar kerja — dan menaruhnya di daftar layar berarti dia ikut
+      // dipertimbangkan setiap kali seseorang mencari menu pekerjaan.
+      h('div', {
+        style: { display: 'flex', alignItems: 'center', gap: '9px', padding: '8px 10px', borderRadius: '8px', cursor: 'pointer', color: 'var(--text)' },
+        onClick: () => {
+          const cur = getState().screen;
+          setUI({ pwBack: cur === 'change-password' ? null : cur });
+          setState({ menuOpen: false, screen: 'change-password' });
+        },
+      }, [icon('lock', 14), h('span', { style: { fontSize: '12px', fontWeight: 600 } }, t('change_password'))]),
       h('div.divider', { style: { margin: '6px 4px' } }),
       h('div', {
         style: { display: 'flex', alignItems: 'center', gap: '9px', padding: '8px 10px', borderRadius: '8px', cursor: 'pointer', color: 'var(--st-red-tx)' },

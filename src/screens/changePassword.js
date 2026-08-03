@@ -19,7 +19,16 @@ import { LOGO_MTI } from '../assets/images.js';
 // never touches st.ui/st — it only ever lives in these closure-local
 // variables and in the direct Auth API call — st.ui is readable via the
 // window.__MTI__ debug handle, so it's not a safe place to park it either.
-export function changePasswordScreen() {
+// voluntary = dibuka sendiri dari menu akun, bukan gerbang paksa saat login
+// pertama. Bedanya cuma tiga hal: ada tombol Batal, judulnya tidak berbunyi
+// seperti peringatan, dan setelah berhasil dia kembali ke layar sebelumnya
+// alih-alih melempar orang ke layar pertama yang boleh dia buka.
+//
+// Isi formulirnya SENGAJA sama persis — termasuk aturan tidak menaruh password
+// di st.ui dan menampilkan error inline, bukan lewat toast. Menyalin ulang
+// layar ini untuk mode kedua berarti dua tempat yang harus sama-sama benar,
+// dan yang kedua pasti tertinggal.
+export function changePasswordScreen({ voluntary = false } = {}) {
   let current = '', next = '', confirm = '';
   let busy = false;
 
@@ -74,7 +83,8 @@ export function changePasswordScreen() {
     const s = getState();
     s.user.mustChangePassword = false;
     toast(t('cp_success')); // safe here: setState({screen}) below navigates away immediately
-    setState({ screen: allowedScreens(s.user.role)[0] || 'dashboard' });
+    if (voluntary) setState({ screen: s.ui.pwBack || allowedScreens(s.user.role)[0] || 'dashboard' });
+    else setState({ screen: allowedScreens(s.user.role)[0] || 'dashboard' });
   }
 
   [curInput, newInput, confirmInput].forEach(inp => inp.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); }));
@@ -83,9 +93,9 @@ export function changePasswordScreen() {
     h('div', { style: { width: '400px', maxWidth: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', boxShadow: 'var(--paper-shadow)', padding: '36px 36px 30px', animation: 'mtiPop .3s ease' } }, [
       h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', marginBottom: '22px' } }, [
         h('img', { src: LOGO_MTI, style: { height: '48px' } }),
-        icon('warn', 20),
-        h('div', { style: { fontSize: '15px', fontWeight: 800 } }, t('cp_title')),
-        h('div', { style: { fontSize: '11.5px', color: 'var(--text-3)', textAlign: 'center' } }, t('cp_subtitle')),
+        icon(voluntary ? 'lock' : 'warn', 20),
+        h('div', { style: { fontSize: '15px', fontWeight: 800 } }, t(voluntary ? 'cp_title_self' : 'cp_title')),
+        h('div', { style: { fontSize: '11.5px', color: 'var(--text-3)', textAlign: 'center' } }, t(voluntary ? 'cp_subtitle_self' : 'cp_subtitle')),
       ]),
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px' } }, [
         h('div', [h('div.field-label', t('cp_current')), curInput]),
@@ -93,6 +103,13 @@ export function changePasswordScreen() {
         h('div', [h('div.field-label', t('cp_confirm')), confirmInput]),
         errBox,
         submitBtn,
+        voluntary ? h('button.btn', {
+          style: { justifyContent: 'center', padding: '9px' },
+          onClick: () => {
+            const s = getState();
+            setState({ screen: s.ui.pwBack || allowedScreens(s.user.role)[0] || 'dashboard' });
+          },
+        }, t('cancel')) : null,
       ]),
     ]),
     h('div', { style: { marginTop: '18px' } }, [
