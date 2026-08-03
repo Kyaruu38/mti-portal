@@ -36,3 +36,33 @@ desktop.ini
 # Sisa transfer file dari sesi agent — bukan bagian portal.
 _to_delete/
 *.tgz
+
+# ============================================================================
+# DOKUMEN KERJA — JANGAN PERNAH MASUK REPO PUBLIK
+# ----------------------------------------------------------------------------
+# Repo ini publik (harus, supaya GitHub Pages jalan di akun free). Artinya
+# setiap file di sini bisa dibaca siapa pun tanpa login.
+#
+# Yang di bawah ini bukan bagian dari portal. Dicek sebelum ditulis: samples/
+# cuma disebut di KOMENTAR, tidak ada satu pun fetch/import yang menyentuhnya,
+# dan logo + cap sudah ditanam sebagai base64 di src/assets/images.js. Jadi
+# menghapusnya dari repo tidak mematikan apa pun.
+#
+# Isinya: rencana produksi PPIC, PO asli lengkap dengan nama supplier dan
+# nilai kontrak, PRF, surat jalan, berkas PPKEK, master supplier.
+#
+# vendor/ SENGAJA TIDAK diikutkan — libarchive.wasm dimuat saat runtime oleh
+# src/parsers/archive.js. Menghapusnya mematikan pembacaan file PPKEK.
+# ============================================================================
+
+samples/
+*.xlsx
+*.xls
+*.pdf
+*.rar
+*.zip
+
+HANDOVER-*.md
+PANDUAN*.md
+PPKEK-ANALISA.md
+PESAN-COMMIT-*.txt
