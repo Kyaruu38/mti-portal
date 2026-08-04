@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v13.9';
-export const VERSION_DATE = '3 Agu 2026';
+export const VERSION = 'v13.10';
+export const VERSION_DATE = '4 Agu 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v13.10', date: '4 Agu 2026',
+    what: {
+      id: 'Portal jadi jauh lebih cepat dibuka, tanpa satu pun fitur berubah. Dua sebab yang diperbaiki. Pertama, cap perusahaan (129 KB) menumpang di file yang sama dengan logo, jadi setiap orang mengunduhnya cuma untuk melihat form login \u2014 sekarang dia baru diambil kalau ada dokumen yang benar-benar dicetak. Kedua, saat login portal menarik 21 data dari server satu per satu, masing-masing menunggu yang sebelumnya selesai; sekarang semuanya berangkat bersamaan. Dalam pengujian dengan latensi yang sama, tahap ini turun dari 3,0 detik ke 0,3 detik. Bonus: satu tabel yang gagal dibaca tidak lagi menggagalkan seluruh login \u2014 dulu satu kegagalan melempar orang kembali ke layar login tanpa penjelasan.',
+      en: 'The portal now opens far faster, with no feature changed. Two causes fixed. First, the company chop (129 KB) shared a file with the logo, so everyone downloaded it merely to see the login form \u2014 it is now fetched only when a document is actually printed. Second, on login the portal pulled 21 datasets from the server one at a time, each waiting for the previous one; they now all leave together. Under identical simulated latency this stage fell from 3.0 s to 0.3 s. A bonus: one unreadable table no longer fails the entire login \u2014 previously a single failure bounced the user back to the login screen with no explanation.',
+      zh: '\u95e8\u6237\u6253\u5f00\u901f\u5ea6\u5927\u5e45\u63d0\u5347\uff0c\u529f\u80fd\u6beb\u65e0\u53d8\u52a8\u3002\u4fee\u590d\u4e86\u4e24\u4e2a\u539f\u56e0\u3002\u5176\u4e00\uff0c\u516c\u53f8\u5370\u7ae0\uff08129 KB\uff09\u4e0e\u5546\u6807\u5171\u7528\u4e00\u4e2a\u6587\u4ef6\uff0c\u56e0\u6b64\u6bcf\u4e2a\u4eba\u4ec5\u4e3a\u67e5\u770b\u767b\u5f55\u9875\u5c31\u8981\u4e0b\u8f7d\u5b83 \u2014 \u73b0\u5728\u53ea\u6709\u771f\u6b63\u6253\u5370\u5355\u636e\u65f6\u624d\u83b7\u53d6\u3002\u5176\u4e8c\uff0c\u767b\u5f55\u65f6\u95e8\u6237\u9010\u4e2a\u62c9\u53d6 21 \u7ec4\u6570\u636e\uff0c\u6bcf\u4e00\u7ec4\u90fd\u5728\u7b49\u4e0a\u4e00\u7ec4\uff1b\u73b0\u5728\u5b83\u4eec\u540c\u65f6\u53d1\u51fa\u3002\u5728\u76f8\u540c\u5ef6\u8fdf\u7684\u6a21\u62df\u6d4b\u8bd5\u4e2d\uff0c\u6b64\u9636\u6bb5\u4ece 3.0 \u79d2\u964d\u81f3 0.3 \u79d2\u3002\u53e6\u5916\uff0c\u5355\u4e00\u8868\u8bfb\u53d6\u5931\u8d25\u4e0d\u518d\u5bfc\u81f4\u6574\u4e2a\u767b\u5f55\u5931\u8d25 \u2014 \u4ee5\u5f80\u4e00\u6b21\u5931\u8d25\u5c31\u4f1a\u628a\u4eba\u9000\u56de\u767b\u5f55\u9875\uff0c\u4e14\u6ca1\u6709\u4efb\u4f55\u8bf4\u660e\u3002',
+    },
+  },
   {
     v: 'v13.9', date: '3 Agu 2026',
     what: {

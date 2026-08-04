@@ -7,8 +7,54 @@ import { h } from '../core/dom.js';
 import { num, fmtDate } from '../core/format.js';
 import { ccyDecimals, ppnFor, poTermDays, isAdvanceTerm } from '../core/format.js';
 import { COMPANY, IMPORT_APPLICANT } from '../config.js';
-import { CAP_MTI, LOGO_MTI } from '../assets/images.js';
+import { LOGO_MTI } from '../assets/images.js';
 import { amountInWords } from '../parsers/amountWords.js';
+
+// ---------------------------------------------------------------------------
+// CAP PERUSAHAAN — dimuat belakangan, TAPI TIDAK BOLEH TERLAMBAT.
+//
+// Capnya 129 KB dan cuma dipakai di satu tempat: kotak BUYER pada PO yang sudah
+// di-approve. Dulu dia ikut assets/images.js, yang juga memuat LOGO_MTI untuk
+// login dan sidebar — jadi 129 KB itu terunduh sebelum orang sempat mengetik
+// password. Sekarang dia di assets/cap.js dan diambil lewat import dinamis.
+//
+// BAHAYANYA, DAN KENAPA ADA ensureCap()
+// Empat tempat memanggil poDocument(po).outerHTML dan langsung mengirim
+// hasilnya ke printer atau ke file. outerHTML membaca DOM apa adanya, saat itu
+// juga. Kalau capnya belum tiba, <img> masih kosong dan PO tercetak TANPA
+// stempel — tanpa error, tanpa tanda apa pun, dan yang menyadarinya adalah
+// supplier yang menerima dokumennya. Karena itu setiap pemanggil yang
+// men-serialize dokumen WAJIB `await ensureCap()` lebih dulu.
+//
+// Untuk pratinjau di layar tidak perlu menunggu: capImg() menempelkan src ke
+// elemen yang sama begitu modulnya tiba. Tidak ada setState di sini — satu
+// setState berarti seluruh halaman dibangun ulang (core/dom.js mount()), dan
+// itu justru yang membuat fokus ketikan orang terlempar.
+// ---------------------------------------------------------------------------
+let CAP = null;
+let capPromise = null;
+export function ensureCap() {
+  if (CAP) return Promise.resolve(CAP);
+  if (!capPromise) {
+    capPromise = import('../assets/cap.js')
+      .then(m => { CAP = m.CAP_MTI; return CAP; })
+      .catch(e => {
+        // Gagal sekali tidak boleh permanen: nol-kan promise-nya supaya
+        // percobaan berikutnya benar-benar mencoba lagi, bukan mengembalikan
+        // kegagalan yang sama selamanya.
+        capPromise = null;
+        console.error('Cap perusahaan gagal dimuat:', e);
+        return null;
+      });
+  }
+  return capPromise;
+}
+function capImg(style) {
+  const el = h('img', { style });
+  if (CAP) el.src = CAP;
+  else ensureCap().then(v => { if (v) el.src = v; });
+  return el;
+}
 
 // Buyer block text taken verbatim from the BSN sample (real MTI details).
 const BUYER = {
@@ -149,7 +195,7 @@ export function poDocument(po) {
       h('tr', [
         h('td', { style: cell({ height: '78px', position: 'relative', textAlign: 'center' }) }, [
           h('div', { style: { fontSize: '9.5px', color: '#374151', marginTop: '52px' } }, BUYER.name),
-          approved ? h('img', { src: CAP_MTI, style: { position: 'absolute', right: '14px', top: '2px', width: '78px', height: '78px', objectFit: 'contain', opacity: 0.9, mixBlendMode: 'multiply' } }) : null,
+          approved ? capImg({ position: 'absolute', right: '14px', top: '2px', width: '78px', height: '78px', objectFit: 'contain', opacity: 0.9, mixBlendMode: 'multiply' }) : null,
         ]),
         h('td', { style: cell({ height: '78px', textAlign: 'center' }) }, h('div', { style: { fontSize: '9.5px', color: '#374151', marginTop: '52px' } }, po.supplier || '')),
       ]),

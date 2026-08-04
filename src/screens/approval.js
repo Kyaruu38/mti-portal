@@ -5,7 +5,7 @@ import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, modal, field, inputEl, selectEl } from '../ui/components.js';
 import { money, num, fmtDate, ppnFor } from '../core/format.js';
 import { newLineId } from '../core/posApi.js';
-import { poDocument } from '../ui/documents.js';
+import { poDocument, ensureCap } from '../ui/documents.js';
 import { can, isReadOnly } from '../auth/roles.js';
 import { downloadBlob } from '../core/dom.js';
 import { requestPoDelete, approvePoDelete, rejectPoDelete, updatePoStatus, updatePO, UUID_RE } from '../core/posApi.js';
@@ -146,15 +146,24 @@ export function approvalScreen() {
       setState({});
     } catch (e) { console.error(e); toast({ id: 'Gagal reject hapus: ' + (e.message || e), en: 'Failed to reject deletion: ' + (e.message || e), zh: '驳回删除申请失败：' + (e.message || e) }); }
   };
-  const downloadFinal = () => {
+  // await ensureCap() SEBELUM outerHTML. Capnya sekarang dimuat belakangan
+  // (lihat ui/documents.js), dan outerHTML membaca DOM apa adanya saat itu juga.
+  // Tanpa penantian ini, PO yang sudah di-approve bisa terunduh TANPA STEMPEL —
+  // tanpa error, tanpa tanda apa pun, dan yang menyadarinya suppliernya.
+  const downloadFinal = async () => {
+    await ensureCap();
     const html = wrapPrintable(poDocument(po).outerHTML, `PO ${po.no}`);
     downloadBlob(new Blob([html], { type: 'text/html' }), `${po.no.replace(/\//g, '-')}-final.html`);
     toast({ id: 'PO final (capped) diunduh', en: 'Final PO (stamped) downloaded', zh: '已下载最终采购单（含印章）' });
   };
-  const downloadPdf = () => {
-    const html = wrapPrintable(poDocument(po).outerHTML, `PO ${po.no}`);
+  const downloadPdf = async () => {
+    // window.open() DULU, sebelum await mana pun. Browser cuma mengizinkan popup
+    // selama masih di dalam rantai klik penggunanya; satu await sebelum baris ini
+    // dan popupnya diblokir walaupun pengaturannya sudah mengizinkan.
     const w = window.open('', '_blank');
     if (!w) { toast({ id: 'Popup diblokir — izinkan popup dulu buat Save PDF', en: 'Popup blocked — allow popups first to Save PDF', zh: '弹窗被拦截 — 请先允许弹窗再保存 PDF' }); return; }
+    await ensureCap();
+    const html = wrapPrintable(poDocument(po).outerHTML, `PO ${po.no}`);
     w.document.write(html); w.document.close();
     w.onload = () => { w.focus(); w.onafterprint = () => w.close(); setTimeout(() => w.print(), 300); };
   };

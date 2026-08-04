@@ -8,7 +8,7 @@ import { money, num, ppnFor, ppnModeFromForm } from '../core/format.js';
 import { insertPO, newLineId, duplicatePoNumber } from '../core/posApi.js';
 import { blockWrite } from '../core/guard.js';
 import { fmtDate } from '../core/format.js';
-import { poDocument } from '../ui/documents.js';
+import { poDocument, ensureCap } from '../ui/documents.js';
 import { wrapPrintable } from './approval.js';
 
 export function poConverterScreen() {
@@ -294,8 +294,9 @@ async function genConverterPO() {
 const RUNNING = ['Menunggu Approval', 'Approved', 'Diproses Wilbert', 'Diterima Purchasing', 'Open'];
 const DONE_TONE = { 'Approved': 'green', 'Rejected': 'red', 'Menunggu Approval': 'amber' };
 
-function openPoPdf(po) {
-  const html = wrapPrintable(poDocument(po).outerHTML, `PO ${po.no}`);
+async function openPoPdf(po) {
+  // Urutannya penting: popup dibuka dulu (harus di dalam rantai klik), cap
+  // ditunggu setelahnya, baru dokumennya di-serialize. Lihat ui/documents.js.
   const w = window.open('', '_blank');
   if (!w) {
     toast({
@@ -305,6 +306,8 @@ function openPoPdf(po) {
     });
     return;
   }
+  await ensureCap();
+  const html = wrapPrintable(poDocument(po).outerHTML, `PO ${po.no}`);
   w.document.write(html); w.document.close();
   w.onload = () => { w.focus(); };
 }

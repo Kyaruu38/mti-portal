@@ -5,7 +5,7 @@ import { card, sectionHead, badge, btn, icon } from '../ui/components.js';
 import { money, fmtDate, daysUntil, sumByCurrency, moneyMulti } from '../core/format.js';
 import { outstandingPOs } from '../core/outstanding.js';
 import { statusText } from '../core/statusText.js';
-import { poDocument } from '../ui/documents.js';
+import { poDocument, ensureCap } from '../ui/documents.js';
 import { wrapPrintable } from './approval.js';
 
 function stat(label, value, sub, accent) {
@@ -107,8 +107,8 @@ function myPoCard(st, u) {
     .slice(0, 12);
   const pending = mine.filter(p => p.status === 'Menunggu Approval').length;
 
-  const openPdf = (po) => {
-    const html = wrapPrintable(poDocument(po).outerHTML, `PO ${po.no}`);
+  const openPdf = async (po) => {
+    // Popup dulu, cap belakangan — lihat catatan di ui/documents.js.
     const w = window.open('', '_blank');
     if (!w) {
       toast({
@@ -118,6 +118,8 @@ function myPoCard(st, u) {
       });
       return;
     }
+    await ensureCap();
+    const html = wrapPrintable(poDocument(po).outerHTML, `PO ${po.no}`);
     w.document.write(html); w.document.close();
     w.onload = () => { w.focus(); w.onafterprint = () => w.close(); setTimeout(() => w.print(), 300); };
   };

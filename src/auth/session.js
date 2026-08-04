@@ -101,102 +101,112 @@ async function hydrate(user, username, preferScreen, preferLang) {
     seedIfEmpty();
   }
 
-  // Surat Jalan is wired to Supabase — pull the live, shared record set on
-  // login so every user's session starts from server truth instead of
-  // yesterday's seed data (fixed via A2 review).
-  const sjFromServer = await fetchSuratJalan();
-  if (sjFromServer) getState().suratJalan = sjFromServer;
+  // -------------------------------------------------------------------------
+  // SATU GELOMBANG, BUKAN DUA PULUH ANTREAN.
+  //
+  // Blok ini dulunya 18 `await` berurutan. Tidak satu pun dari mereka memakai
+  // hasil yang sebelumnya — semuanya pembacaan yang saling lepas — tapi setiap
+  // baris tetap menunggu baris di atasnya selesai. Dengan latensi ~150 ms per
+  // perjalanan ke Supabase, itu sekitar tiga detik layar kosong, setiap kali
+  // portal dibuka DAN setiap kali di-refresh. Tidak ada cache yang bisa
+  // menolong, karena ini bukan soal ukuran file.
+  //
+  // Sekarang semuanya berangkat bersamaan. Waktunya jadi selama yang PALING
+  // LAMBAT, bukan jumlah semuanya.
+  //
+  // allSettled, BUKAN all.
+  // Promise.all menolak begitu ada SATU yang gagal, dan sisanya terbuang
+  // walaupun sudah berhasil — satu tabel yang RLS-nya rewel akan membuat
+  // seluruh login gagal. allSettled menunggu semuanya, lalu setiap hasil
+  // diperlakukan sendiri-sendiri: yang berhasil dipakai, yang gagal dicatat ke
+  // console dan datanya dibiarkan seperti semula. Persis aturan yang sama
+  // dengan sebelumnya ("null berarti tidak terbaca, jangan sentuh yang lokal"),
+  // cuma sekarang juga berlaku untuk fetch yang melempar error.
+  //
+  // Urutan penulisan ke state TIDAK ikut acak: hasilnya dibongkar menurut
+  // urutan array di bawah, sama persis seperti dulu.
+  // -------------------------------------------------------------------------
+  const TUGAS = [
+    // Surat Jalan: catatan bersama, ditarik tiap login supaya sesi siapa pun
+    // mulai dari kebenaran server, bukan dari sisa data kemarin (A2).
+    ['suratJalan',    () => fetchSuratJalan()],
+    // POs (A3): baris server adalah sumber kebenaran dan diganti seluruhnya.
+    // Fixture seed dan PO yang insert-nya gagal sinkron (id bukan UUID, lihat
+    // posApi.js UUID_RE) hidup di ruang id yang terpisah, jadi server yang
+    // kosong atau bermasalah tidak bisa menghapus mereka.
+    ['pos',           () => fetchPOs()],
+    // Suppliers: pola ganti-seluruhnya yang sama. Menutup celah yang sama yang
+    // A3 tutup untuk PO — supplier yang dibuat cania kelihatan oleh wilbert.
+    ['suppliers',     () => fetchSuppliers()],
+    ['descDict',      () => fetchDescDict()],
+    ['items',         () => fetchItems()],
+    ['brandMap',      () => fetchBrandMap()],
+    ['labelRequests', () => fetchLabelRequests()],
+    ['designs',       () => fetchDesigns()],
+    ['units',         () => fetchUnits()],
+    // Finance. Urutan invoices -> prfs -> payments dipertahankan supaya enak
+    // dibaca (PRF menyebut nomor invoice, payment menyebut PRF), tapi ketiganya
+    // pembacaan lepas — tidak ada yang menunggu siapa pun.
+    ['invoices',      () => fetchInvoices()],
+    ['prfs',          () => fetchPrfs()],
+    ['payments',      () => fetchPayments()],
+    // PPKEK: cuma sekar/wilbert yang punya ppkek_rw, jadi ini mengembalikan
+    // null (bukan []) untuk peran lain dan st.ppkek lokal mereka tidak disentuh.
+    ['ppkek',         () => fetchPpkek()],
+    // Dashboard "Aktivitas Terbaru": audit_log asli yang ditulis trigger. RLS
+    // menyaringnya per peran (admin melihat semua, yang lain melihat miliknya).
+    ['audit',         () => fetchAuditLog(null, null, 20)],
+    // Label Inventory Tracker. RLS membatasinya ke is_purchasing(), jadi untuk
+    // sekar dan financemti keempatnya mengembalikan null dan array lokal
+    // mereka dibiarkan.
+    ['labelStock',    () => fetchLabelStock()],
+    ['labelUploads',  () => fetchLabelUploads()],
+    ['labelSettings', () => fetchLabelSettings()],
+    // Agregat untuk grafik stok. Null selama view-nya belum dibuat — grafiknya
+    // menggambar keadaan kosong dan tidak ada yang lain yang peduli.
+    ['labelTrend',    () => fetchLabelStockTrend()],
+    // Preferensi akun. Sengaja ikut gelombang ini juga; dipakai di bawah.
+    ['prefs',         () => fetchProfilePrefs()],
+  ];
 
-  // POs (A3): server rows are the source of truth and get replaced wholesale
-  // on every login. Seed fixtures and any PO whose insert failed to sync
-  // (non-UUID id, see posApi.js UUID_RE) are local-only by definition and are
-  // never touched here — they live in a disjoint id space from real server
-  // rows, so an empty/misbehaving server can't wipe the demo fixtures and a
-  // real PO can never be shadowed by a seed one. In production (no seed ever
-  // ran) st.pos just starts as [], so this naturally yields "empty until
-  // real POs exist."
-  const posFromServer = await fetchPOs();
-  if (posFromServer) {
-    const st = getState();
+  const hasil = await Promise.allSettled(TUGAS.map(([, jalan]) => jalan()));
+  const nilai = {};
+  hasil.forEach((r, i) => {
+    const nama = TUGAS[i][0];
+    if (r.status === 'fulfilled') { nilai[nama] = r.value; return; }
+    // Gagal satu tidak menjatuhkan yang lain, dan tidak menjatuhkan login.
+    // Dicatat keras-keras ke console supaya tidak jadi kegagalan diam-diam.
+    console.error(`Gagal memuat "${nama}" saat login — data lama dipakai apa adanya.`, r.reason);
+    nilai[nama] = null;
+  });
+
+  const st = getState();
+  if (nilai.suratJalan)    st.suratJalan    = nilai.suratJalan;
+  if (nilai.pos) {
     const localOnly = st.pos.filter(p => !UUID_RE.test(p.id));
-    st.pos = [...posFromServer, ...localOnly];
+    st.pos = [...nilai.pos, ...localOnly];
   }
-
-  // Suppliers: same wholesale-replace pattern. Master Data's saveSup() already
-  // lazy-upserts against real Supabase ids (UUID_RE), so fetching here just
-  // closes the same cross-session-visibility gap A3 closed for POs — a
-  // supplier cania creates now shows up for wilbert in a separate session.
-  const suppliersFromServer = await fetchSuppliers();
-  if (suppliersFromServer) getState().suppliers = suppliersFromServer;
-
-  // Batch 1 (Group A — light CRUD, no cross-module dependency): same
-  // wholesale-replace fetch pattern as suppliers/pos above, now covering the
-  // 4 remaining tables that already had both a schema table and RLS policies
-  // ready (see the recon) — only the frontend wiring was missing.
-  const descDictFromServer = await fetchDescDict();
-  if (descDictFromServer) getState().descDict = descDictFromServer;
-
-  const itemsFromServer = await fetchItems();
-  if (itemsFromServer) getState().items = itemsFromServer;
-
-  const brandMapFromServer = await fetchBrandMap();
-  if (brandMapFromServer) getState().brandMap = brandMapFromServer;
-
-  const labelReqFromServer = await fetchLabelRequests();
-  if (labelReqFromServer) getState().labelRequests = labelReqFromServer;
-  const designsFromServer = await fetchDesigns();
-  if (designsFromServer) getState().designs = designsFromServer;
-
-  const unitsFromServer = await fetchUnits();
-  if (unitsFromServer) getState().units = unitsFromServer;
-
-  // Batch 2 (Finance): invoices -> prfs -> payments, same wholesale-replace
-  // fetch pattern. Dependency order matters for reasoning about the data
-  // (a PRF references invoice numbers, a payment references a PRF), but the
-  // fetches themselves are independent reads — order here doesn't matter
-  // functionally, kept in the same order as the dependency for readability.
-  const invoicesFromServer = await fetchInvoices();
-  if (invoicesFromServer) getState().invoices = invoicesFromServer;
-
-  const prfsFromServer = await fetchPrfs();
-  if (prfsFromServer) getState().prfs = prfsFromServer;
-
-  const paymentsFromServer = await fetchPayments();
-  if (paymentsFromServer) getState().payments = paymentsFromServer;
-
-  // Batch 3 (PPKEK): same wholesale-replace pattern. Only sekar/wilbert have
-  // ppkek_rw, so this returns null (not []) for every other role and their
-  // seeded/local st.ppkek is left untouched — consistent with fetchInvoices
-  // et al returning null on any non-visible/failed fetch.
-  const ppkekFromServer = await fetchPpkek();
-  if (ppkekFromServer) getState().ppkek = ppkekFromServer;
-
-  // Dashboard "Aktivitas Terbaru": pull the real, trigger-written audit_log
-  // (item 4) instead of leaving it to seed fixtures. RLS scopes this per
-  // role automatically (admin sees everyone, others see their own actions)
-  // — same policy the Master Data audit drawer already relies on. Only
-  // covers suppliers/prfs/pos (the 3 trigger-backed tables); other modules'
-  // logAudit() calls still append locally on top of this during the session.
-  const auditFromServer = await fetchAuditLog(null, null, 20);
-  if (auditFromServer) {
-    getState().audit = auditFromServer.map(a => ({
-      id: a.id, at: a.at, user: a.username, entity: a.entity, target: a.target, action: a.action, detail: a.detail, status: a.status,
+  if (nilai.suppliers)     st.suppliers     = nilai.suppliers;
+  if (nilai.descDict)      st.descDict      = nilai.descDict;
+  if (nilai.items)         st.items         = nilai.items;
+  if (nilai.brandMap)      st.brandMap      = nilai.brandMap;
+  if (nilai.labelRequests) st.labelRequests = nilai.labelRequests;
+  if (nilai.designs)       st.designs       = nilai.designs;
+  if (nilai.units)         st.units         = nilai.units;
+  if (nilai.invoices)      st.invoices      = nilai.invoices;
+  if (nilai.prfs)          st.prfs          = nilai.prfs;
+  if (nilai.payments)      st.payments      = nilai.payments;
+  if (nilai.ppkek)         st.ppkek         = nilai.ppkek;
+  if (nilai.audit) {
+    st.audit = nilai.audit.map(a => ({
+      id: a.id, at: a.at, user: a.username, entity: a.entity, target: a.target,
+      action: a.action, detail: a.detail, status: a.status,
     }));
   }
-
-  // Label Inventory Tracker. RLS scopes these to is_purchasing(), so for sekar
-  // and financemti the fetches return null and their (empty) local arrays are
-  // left alone — same null-means-couldn't-read contract as every fetch above.
-  const labelFromServer = await fetchLabelStock();
-  if (labelFromServer) getState().labelStock = labelFromServer;
-  const labelUploadsFromServer = await fetchLabelUploads();
-  if (labelUploadsFromServer) getState().labelUploads = labelUploadsFromServer;
-  const labelSettingsFromServer = await fetchLabelSettings();
-  if (labelSettingsFromServer) getState().labelSettings = labelSettingsFromServer;
-  // Aggregate for the stock chart. Null while the view has not been created —
-  // the chart draws its empty state and nothing else notices.
-  const labelTrendFromServer = await fetchLabelStockTrend();
-  if (labelTrendFromServer) getState().labelTrend = labelTrendFromServer;
+  if (nilai.labelStock)    st.labelStock    = nilai.labelStock;
+  if (nilai.labelUploads)  st.labelUploads  = nilai.labelUploads;
+  if (nilai.labelSettings) st.labelSettings = nilai.labelSettings;
+  if (nilai.labelTrend)    st.labelTrend    = nilai.labelTrend;
 
   // DRAIN THE DRIVE QUEUE. Anything that failed to reach Drive while it was
   // down goes up now, without anyone re-picking a file.
@@ -237,7 +247,8 @@ async function hydrate(user, username, preferScreen, preferLang) {
   // Deliberately last, and deliberately tolerant: a null means the column does
   // not exist yet or could not be read, and then nothing changes. This must
   // never be a reason a login fails.
-  const serverPrefs = await fetchProfilePrefs();
+  // Sudah ikut terambil di gelombang di atas — tidak ada perjalanan tambahan.
+  const serverPrefs = nilai.prefs;
   adoptServerPrefs(serverPrefs);
   const lang = (serverPrefs && serverPrefs.lang) || preferLang || user.lang || 'id';
   const theme = (serverPrefs && serverPrefs.theme) || getPref('theme', getState().theme);
