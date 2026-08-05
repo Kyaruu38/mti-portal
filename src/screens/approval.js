@@ -3,7 +3,7 @@ import { getState, setState, setUI, toast, logAudit } from '../core/store.js';
 import { blockWrite } from '../core/guard.js';
 import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, modal, field, inputEl, selectEl } from '../ui/components.js';
-import { money, num, fmtDate, ppnFor } from '../core/format.js';
+import { money, num, fmtDate, ppnFor, poTermDays, isAdvanceTerm } from '../core/format.js';
 import { newLineId } from '../core/posApi.js';
 import { poDocument, ensureCap } from '../ui/documents.js';
 import { can, isReadOnly } from '../auth/roles.js';
@@ -267,6 +267,70 @@ export function approvalScreen() {
 // character typed into qty/price (same class of bug suratJalan.js's
 // qtyInput comment documents and avoids). Only structural changes (add/
 // remove a line, open/close the modal) go through setUI().
+// ---------------------------------------------------------------------------
+// DROPDOWN TERMS YANG TIDAK BERBOHONG.
+//
+// APA YANG SALAH SEBELUMNYA
+// Pilihannya enam string tetap: 'Payment in Advance', 'TOP 3' … 'TOP 60'.
+// Tapi yang tersimpan di po.terms tidak pernah berbentuk itu — poConverter.js
+// menyimpannya sebagai kalimat, lengkap dengan rujukan kontraknya:
+//     "30 days after B/L — ref CGDD2608040047"
+// Tidak ada satu pun <option> yang cocok, jadi tidak ada yang ber-`selected`,
+// dan HTML punya perilaku baku untuk itu: TAMPILKAN YANG PERTAMA. Yang pertama
+// kebetulan 'Payment in Advance'.
+//
+// Akibatnya SETIAP PO tampil sebagai "Payment in Advance" di modal ini, berapa
+// pun term aslinya. Dokumen cetaknya selalu benar — ui/documents.js membaca
+// po.terms langsung — jadi yang berbohong cuma layar ini, di tempat yang justru
+// dipakai orang untuk memeriksa.
+//
+// Lapisan keduanya: mengklik opsi yang SUDAH tersorot tidak memicu event
+// 'change'. Jadi orang yang benar-benar ingin mengubahnya menjadi Payment in
+// Advance tidak bisa — kliknya tidak menghasilkan apa pun, dan Save tidak
+// menulis apa pun. Satu-satunya jalan adalah memilih opsi lain dulu, lalu
+// kembali.
+//
+// PERBAIKANNYA
+// Nilai PO yang sebenarnya DIMASUKKAN sebagai opsi tersendiri kalau dia belum
+// ada di daftar. Dropdown jadi menyebutkan apa adanya, dan opsi baku tetap
+// bisa dipilih untuk mengubahnya.
+//
+// Sengaja TIDAK dinormalisasi jadi 'TOP 30' saat form dibuka. Normalisasi
+// membuat f.terms langsung berbeda dari po.terms sejak detik pertama, dan
+// commercialChange di bawah membaca perbedaan itu sebagai perubahan syarat
+// pembayaran — Save tanpa mengubah apa pun akan MENCABUT approval PO yang sudah
+// bercap. Persis kelas kesalahan yang catatan di commercialChange itu sendiri
+// peringatkan.
+// ---------------------------------------------------------------------------
+const TERM_OPTIONS = ['Payment in Advance', 'TOP 3', 'TOP 14', 'TOP 30', 'TOP 45', 'TOP 60'];
+
+function termOptionsFor(current) {
+  const cur = String(current == null ? '' : current).trim();
+  // PO tanpa syarat pembayaran: beri opsi kosong yang eksplisit, jangan biarkan
+  // browser memilihkan yang pertama dan membuatnya tampak sebagai prepayment.
+  if (!cur) {
+    return [{ value: '', label: tr({ id: '— belum diisi —', en: '— not set —', zh: '— 未填写 —' }) }, ...TERM_OPTIONS];
+  }
+  if (TERM_OPTIONS.includes(cur)) return TERM_OPTIONS;
+  return [{ value: cur, label: cur }, ...TERM_OPTIONS];
+}
+
+// Dua tulisan syarat pembayaran yang ARTINYA sama.
+//
+// "30 days after B/L — ref CGDD2608040047" dan "TOP 30" tercetak sama persis di
+// dokumen ("30 days after Invoice"), jadi berpindah dari satu ke yang lain bukan
+// perubahan komersial dan tidak boleh mencabut approval. Tanpa ini, membuka
+// modal lalu memilih opsi baku yang setara akan melempar kontrak bercap kembali
+// ke antrean approval tanpa ada yang berubah di kertasnya.
+function sameTerm(a, b) {
+  const ta = String(a == null ? '' : a).trim();
+  const tb = String(b == null ? '' : b).trim();
+  if (ta === tb) return true;
+  const da = poTermDays(ta), db = poTermDays(tb);
+  if (da != null || db != null) return da === db;   // dua-duanya hitungan hari
+  return isAdvanceTerm(ta) && isAdvanceTerm(tb);    // dua-duanya prepayment
+}
+
 function computeTotals(items, ppnMode) {
   const subtotal = items.reduce((s, it) => s + (it.a || 0), 0);
   // ppnFor() compares against the DOMAIN value 'paid'. This used to test the
@@ -331,7 +395,7 @@ function poEditModal() {
       h('div.grid.g2', [
         // Option values are the STORED currency / terms codes — untranslated.
         field(tr({ id: 'Currency', en: 'Currency', zh: '币种' }), selectEl(['IDR', 'USD', 'CNY', 'EUR'], { value: f.currency, onChange: v => { f.currency = v; recompute(); } })),
-        field(tr({ id: 'Terms', en: 'Terms', zh: '付款条件' }), selectEl(['Payment in Advance', 'TOP 3', 'TOP 14', 'TOP 30', 'TOP 45', 'TOP 60'], { value: f.terms, onChange: v => { f.terms = v; } })),
+        field(tr({ id: 'Terms', en: 'Terms', zh: '付款条件' }), selectEl(termOptionsFor(f.terms), { value: f.terms, onChange: v => { f.terms = v; } })),
       ]),
       field(tr({ id: 'Contract No', en: 'Contract No', zh: '合同号' }), inputEl({ value: f.contract, mono: true, onInput: v => { f.contract = v; } })),
       h('div', [
@@ -381,7 +445,7 @@ async function savePoEdit() {
   const itemsKey = list => JSON.stringify((list || []).map(i => [i.d, Number(i.qty) || 0, Number(i.u) || 0, i.unit || '']));
   const commercialChange = po.status === 'Approved' && (
     f.currency !== po.currency ||
-    f.terms !== po.terms ||
+    !sameTerm(f.terms, po.terms) ||
     itemsKey(f.items) !== itemsKey(po.items)
   );
 
@@ -392,7 +456,11 @@ async function savePoEdit() {
   // own array.
   const before = { ...po, items: (po.items || []).map(i => ({ ...i })) };
   po.supplier = f.supplier; po.supplierZh = f.supplierZh; po.currency = f.currency;
-  po.terms = f.terms; po.contract = f.contract; po.items = f.items.map(i => ({ ...i }));
+  // Kalau artinya sama, biarkan tulisan aslinya. "30 days after B/L — ref
+  // CGDD2608040047" menyimpan rujukan kontraknya; menimpanya dengan "TOP 30"
+  // membuang jejak itu tanpa mengubah apa pun yang tercetak.
+  if (!sameTerm(f.terms, po.terms)) po.terms = f.terms;
+  po.contract = f.contract; po.items = f.items.map(i => ({ ...i }));
   po.subtotal = subtotal; po.ppn = ppn; po.total = total;
   if (commercialChange) {
     po.status = 'Menunggu Approval';

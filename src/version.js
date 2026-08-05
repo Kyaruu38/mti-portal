@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v13.10';
+export const VERSION = 'v13.11';
 export const VERSION_DATE = '4 Agu 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v13.11', date: '4 Agu 2026',
+    what: {
+      id: 'Dropdown Terms di Edit PO berhenti berbohong. Pilihannya selama ini cuma enam string baku, sedangkan yang tersimpan di PO berbentuk kalimat ("30 days after B/L \u2014 ref CGDD..."), jadi tidak ada satu pun yang cocok \u2014 dan HTML menampilkan opsi PERTAMA kalau tidak ada yang cocok. Akibatnya SETIAP PO tampil sebagai "Payment in Advance" di layar itu, berapa pun syarat aslinya, sementara dokumen cetaknya tetap benar. Lebih parah, mengklik opsi yang sudah tersorot tidak memicu apa-apa, jadi yang benar-benar ingin mengubahnya ke Payment in Advance tidak bisa sama sekali. Sekarang nilai asli PO ikut jadi pilihan, jadi dropdown menyebut apa adanya. Dan dua tulisan yang artinya sama ("TOP 30" vs "30 days after B/L") tidak lagi dihitung sebagai perubahan syarat pembayaran \u2014 sebelumnya itu akan mencabut approval PO yang sudah bercap tanpa ada yang berubah di kertasnya.',
+      en: 'The Terms dropdown in Edit PO stops lying. Its options were six fixed strings, while a PO stores a sentence ("30 days after B/L \u2014 ref CGDD..."), so nothing ever matched \u2014 and HTML shows the FIRST option when nothing matches. Every PO therefore displayed as "Payment in Advance" on that screen whatever its real term, while the printed document stayed correct. Worse, clicking an already-highlighted option fires no event, so anyone who genuinely wanted Payment in Advance could not set it at all. The PO actual value is now offered as an option, so the dropdown states what is there. And two spellings that mean the same thing ("TOP 30" vs "30 days after B/L") no longer count as a change of payment terms \u2014 previously that would strip approval from a sealed PO with nothing changed on the paper.',
+      zh: '\u7f16\u8f91\u91c7\u8d2d\u5355\u4e2d\u7684\u4ed8\u6b3e\u6761\u4ef6\u4e0b\u62c9\u6846\u4e0d\u518d\u8bef\u5bfc\u3002\u5b83\u53ea\u6709\u516d\u4e2a\u56fa\u5b9a\u9009\u9879\uff0c\u800c\u91c7\u8d2d\u5355\u5b9e\u9645\u5b58\u50a8\u7684\u662f\u4e00\u53e5\u8bdd\uff08"30 days after B/L \u2014 ref CGDD..."\uff09\uff0c\u56e0\u6b64\u4ece\u672a\u5339\u914d \u2014 \u800c HTML \u5728\u65e0\u5339\u914d\u65f6\u4f1a\u663e\u793a\u7b2c\u4e00\u4e2a\u9009\u9879\u3002\u4e8e\u662f\u6bcf\u5f20\u91c7\u8d2d\u5355\u5728\u8be5\u754c\u9762\u90fd\u663e\u793a\u4e3a"\u9884\u4ed8\u6b3e"\uff0c\u65e0\u8bba\u5b9e\u9645\u6761\u4ef6\u5982\u4f55\uff0c\u800c\u6253\u5370\u5355\u636e\u4e00\u76f4\u662f\u5bf9\u7684\u3002\u66f4\u7cdf\u7684\u662f\uff0c\u70b9\u51fb\u5df2\u9009\u4e2d\u7684\u9009\u9879\u4e0d\u4f1a\u89e6\u53d1\u4efb\u4f55\u4e8b\u4ef6\uff0c\u56e0\u6b64\u771f\u6b63\u60f3\u6539\u4e3a\u9884\u4ed8\u6b3e\u7684\u4eba\u6839\u672c\u6539\u4e0d\u4e86\u3002\u73b0\u5728\u91c7\u8d2d\u5355\u7684\u5b9e\u9645\u503c\u4e5f\u4f5c\u4e3a\u9009\u9879\u5217\u51fa\u3002\u53e6\u5916\uff0c\u4e24\u79cd\u542b\u4e49\u76f8\u540c\u7684\u5199\u6cd5\u4e0d\u518d\u88ab\u5f53\u4f5c\u4ed8\u6b3e\u6761\u4ef6\u53d8\u66f4 \u2014 \u6b64\u524d\u90a3\u4f1a\u4f7f\u5df2\u76d6\u7ae0\u7684\u91c7\u8d2d\u5355\u88ab\u64a4\u9500\u5ba1\u6279\uff0c\u800c\u5355\u636e\u4e0a\u4ec0\u4e48\u90fd\u6ca1\u53d8\u3002',
+    },
+  },
   {
     v: 'v13.10', date: '4 Agu 2026',
     what: {
