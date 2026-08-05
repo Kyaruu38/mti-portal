@@ -9,6 +9,7 @@ import { poDocument, ensureCap } from '../ui/documents.js';
 import { can, isReadOnly } from '../auth/roles.js';
 import { downloadBlob } from '../core/dom.js';
 import { requestPoDelete, approvePoDelete, rejectPoDelete, updatePoStatus, updatePO, UUID_RE } from '../core/posApi.js';
+import { canBuildErp, susunBarisErp, unduhTemplateErp, namaFileErp } from '../core/erpRequest.js';
 
 // Reject-note draft. Lives OUTSIDE the store on purpose: writing it into
 // st.ui via setUI() on every keystroke rebuilt the DOM mid-type and truncated
@@ -190,7 +191,12 @@ export function approvalScreen() {
   if (!po) return h('div.stack', [listPanel, st.ui.poEdit ? poEditModal() : null]);
 
   const actions = po.status === 'Approved'
-    ? [badge(t('ap_approved'), 'green', { iconName: 'check' }), btn(tr({ id: 'Download PDF', en: 'Download PDF', zh: '下载 PDF' }), { variant: 'primary', iconName: 'download', onClick: downloadPdf }), btn(tr({ id: 'Download HTML', en: 'Download HTML', zh: '下载 HTML' }), { iconName: 'download', onClick: downloadFinal }), isWilbert ? btn(tr({ id: 'Edit', en: 'Edit', zh: '编辑' }), { iconName: 'edit', onClick: () => openPoEdit(po) }) : null]
+    ? [badge(t('ap_approved'), 'green', { iconName: 'check' }), btn(tr({ id: 'Download PDF', en: 'Download PDF', zh: '下载 PDF' }), { variant: 'primary', iconName: 'download', onClick: downloadPdf }), btn(tr({ id: 'Download HTML', en: 'Download HTML', zh: '下载 HTML' }), { iconName: 'download', onClick: downloadFinal }),
+      // Tombol ERP TIDAK dirender untuk PO non-label maupun PO yang belum
+      // disetujui — bukan dinonaktifkan. Tombol mati yang tidak akan pernah
+      // hidup cuma membuat orang mengkliknya lalu bertanya kenapa diam.
+      canBuildErp(po) ? btn(tr({ id: 'Template ERP', en: 'ERP template', zh: 'ERP 模板' }), { iconName: 'download', onClick: () => setUI({ erpPo: po.id }) }) : null,
+      isWilbert ? btn(tr({ id: 'Edit', en: 'Edit', zh: '编辑' }), { iconName: 'edit', onClick: () => openPoEdit(po) }) : null]
     : po.status === 'Rejected'
       ? [badge(t('ap_rejected'), 'red')]
       : isWilbert
@@ -256,7 +262,102 @@ export function approvalScreen() {
   return h('div.stack', [
     h('div.grid', { style: { gridTemplateColumns: '330px 1fr', alignItems: 'start' } }, [listPanel, previewPanel]),
     st.ui.poEdit ? poEditModal() : null,
+    st.ui.erpPo ? erpModal() : null,
   ]);
+}
+
+// ---------------------------------------------------------------------------
+// TEMPLATE ERP 采购申请 — pratinjau sebelum diunduh.
+//
+// Sengaja ada langkah pratinjau, bukan langsung mengunduh. Yang ditulis ke
+// berkas ini adalah kode material ERP dan tanggal kebutuhan; keduanya tidak
+// terlihat di dokumen PO, jadi kalau salah tidak ada yang akan menyadarinya
+// sampai barangnya tidak datang. Satu layar untuk melihatnya lebih dulu.
+// ---------------------------------------------------------------------------
+function erpModal() {
+  const st = getState();
+  const po = (st.pos || []).find(p => p.id === st.ui.erpPo);
+  if (!po) return null;
+  const { baris, kurang, tanggal } = susunBarisErp(st, po);
+  const tutup = () => setUI({ erpPo: null });
+  const bisa = kurang.length === 0 && baris.length > 0;
+
+  const info = (k, v) => h('div.row', { style: { justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px dashed var(--border)', fontSize: '12px' } },
+    [h('span', { style: { color: 'var(--text-3)' } }, k), h('span.mono', { style: { fontWeight: 700 } }, v)]);
+
+  return modal({
+    title: tr({ id: `Template ERP — ${po.no}`, en: `ERP template — ${po.no}`, zh: `ERP 模板 — ${po.no}` }),
+    width: 640, onClose: tutup,
+    body: [
+      // Blokir SELURUH berkas kalau ada satu saja SKU tanpa kode ERP. Membuang
+      // barisnya diam-diam menghasilkan berkas yang terlihat wajar, terunggah
+      // tanpa keluhan, dan baru ketahuan sebagai label yang tidak pernah dipesan.
+      kurang.length ? h('div', {
+        style: {
+          background: 'var(--st-red-bg)', border: '1px solid var(--st-red-tx)', borderRadius: '10px',
+          padding: '12px 14px', marginBottom: '14px', fontSize: '12px',
+        },
+      }, [
+        h('div', { style: { fontWeight: 800, color: 'var(--st-red-tx)', marginBottom: '6px' } }, tr({
+          id: `${kurang.length} SKU belum punya kode material ERP — file tidak dibuat.`,
+          en: `${kurang.length} SKU have no ERP material code — the file was not created.`,
+          zh: `${kurang.length} 个 SKU 没有 ERP 物料编号 — 未生成文件。`,
+        })),
+        h('div', { style: { color: 'var(--text-2)', marginBottom: '8px' } }, tr({
+          id: 'Cocokkan dulu di Label Stock → kolom ERP, lalu buka lagi.',
+          en: 'Match them first in Label Stock → ERP column, then reopen this.',
+          zh: '请先在标签库存的 ERP 列中完成匹配，然后重新打开。',
+        })),
+        ...kurang.map(k => h('div.mono', { style: { fontSize: '11px', color: 'var(--text-2)' } }, `${k.spec} · ${num(k.qty, 0)}`)),
+      ]) : null,
+
+      info(tr({ id: 'Prioritas PO', en: 'PO priority', zh: '采购单优先级' }), po.priority || 'Normal'),
+      info(tr({ id: '需求日期 yang ditulis', en: '需求日期 written', zh: '写入的需求日期' }), tanggal || '—'),
+      info(tr({ id: 'Baris siap', en: 'Rows ready', zh: '就绪行数' }), String(baris.length)),
+      info(tr({ id: 'Nama file', en: 'File name', zh: '文件名' }), namaFileErp(po)),
+
+      baris.length ? h('div', { style: { marginTop: '14px', maxHeight: '260px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '8px' } }, [
+        h('table.tbl', { style: { width: '100%' } }, [
+          h('thead', h('tr', [
+            h('th', '物料编号'), h('th', '物料名称'), h('th', { style: { textAlign: 'right' } }, '申请数量'),
+          ])),
+          h('tbody', baris.map(b => h('tr', [
+            h('td.mono', { style: { fontSize: '11px' } }, b.erp),
+            h('td', { style: { fontSize: '11px', color: 'var(--text-2)' } }, b.nama.slice(0, 46)),
+            h('td.mono', { style: { fontSize: '11px', textAlign: 'right' } }, num(b.qty, 0)),
+          ]))),
+        ]),
+      ]) : null,
+
+      h('div', { style: { marginTop: '12px', fontSize: '11px', color: 'var(--text-3)', lineHeight: 1.5 } }, tr({
+        id: '需求日期 = tanggal approve + lead time prioritas (Label Settings). Di ERP: 采购申请 → 新增 → isi dulu 计划类别/需求来源/流向/用途类别 → baru 导入明细.',
+        en: '需求日期 = approval date + the priority lead time (Label Settings). In the ERP: 采购申请 → 新增 → fill 计划类别/需求来源/流向/用途类别 FIRST → then 导入明细.',
+        zh: '需求日期 = 审批日期 + 优先级对应的提前期（标签设置）。在 ERP 中：采购申请 → 新增 → 先填写计划类别/需求来源/流向/用途类别 → 再点击导入明细。',
+      })),
+    ],
+    footer: [
+      btn(t('cancel'), { onClick: tutup }),
+      bisa ? btn(tr({ id: 'Unduh .xls', en: 'Download .xls', zh: '下载 .xls' }), {
+        variant: 'primary', iconName: 'download',
+        onClick: async () => {
+          try {
+            await unduhTemplateErp(namaFileErp(po), baris);
+            logAudit({ entity: 'po', target: po.no, action: 'erp_template', detail: `${baris.length} baris · ${tanggal}` });
+            toast({
+              id: `Template ERP ${po.no} diunduh — ${baris.length} baris`,
+              en: `ERP template ${po.no} downloaded — ${baris.length} rows`,
+              zh: `ERP 模板 ${po.no} 已下载 — ${baris.length} 行`,
+            });
+            tutup();
+          } catch (e) {
+            // Gagal membuat berkas tidak boleh menjatuhkan layar approval.
+            console.error('template ERP gagal:', e);
+            toast({ id: 'Gagal membuat file: ' + (e.message || e), en: 'Failed to build the file: ' + (e.message || e), zh: '生成文件失败：' + (e.message || e) });
+          }
+        },
+      }) : null,
+    ],
+  });
 }
 
 // Edit PO in-place (wilbert-only, gated in the actions array above). Content

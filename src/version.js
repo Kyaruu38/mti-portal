@@ -24,12 +24,20 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v13.11';
+export const VERSION = 'v14.0';
 export const VERSION_DATE = '4 Agu 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
 // not a changelog. The commit messages carry the reasoning.
 export const CHANGELOG = [
+  {
+    v: 'v14.0', date: '5 Agu 2026',
+    what: {
+      id: 'PO label yang sudah disetujui sekarang bisa menerbitkan berkas impor 采购申请 untuk ERP grup \u2014 tombol "Template ERP" di sebelah Download PDF. Tidak ada lagi mengetik ulang kode material sepanjang enam belas karakter yang diawali nol. 需求日期 dihitung dari tanggal approve ditambah lead time prioritas PO (Super Urgent 3 hari, Urgent 7, Normal 14), diambil dari Label Settings. Kalau ada SATU saja SKU yang belum punya kode material ERP, berkasnya TIDAK dibuat sama sekali dan SKU-nya disebut satu per satu \u2014 membuang barisnya diam-diam berarti label yang tidak pernah dipesan, dan itu baru ketahuan waktu barangnya tidak datang. Formatnya .xls BIFF8, sudah diuji langsung masuk ke ERP-nya.',
+      en: 'An approved label PO can now produce the 采购申请 import file for the group ERP \u2014 an "ERP template" button beside Download PDF. No more retyping sixteen-character material codes that begin with a zero. 需求日期 is the approval date plus the PO priority lead time (Super Urgent 3 days, Urgent 7, Normal 14), read from Label Settings. If even ONE SKU has no ERP material code the file is not created at all and the SKUs are named \u2014 dropping those rows silently means a label nobody ordered, discovered only when it fails to arrive. Format is .xls BIFF8, tested importing into the ERP itself.',
+      zh: '\u5df2\u5ba1\u6279\u7684\u6807\u7b7e\u91c7\u8d2d\u5355\u73b0\u5728\u53ef\u4ee5\u751f\u6210\u96c6\u56e2 ERP \u7684\u91c7\u8d2d\u7533\u8bf7\u5bfc\u5165\u6587\u4ef6 \u2014 \u5728\u4e0b\u8f7d PDF \u65c1\u7684"ERP \u6a21\u677f"\u6309\u94ae\u3002\u4e0d\u518d\u9700\u8981\u624b\u5de5\u91cd\u8f93\u4ee5\u96f6\u5f00\u5934\u7684\u5341\u516d\u4f4d\u7269\u6599\u7f16\u53f7\u3002\u9700\u6c42\u65e5\u671f = \u5ba1\u6279\u65e5\u671f + \u4f18\u5148\u7ea7\u63d0\u524d\u671f\uff08\u7279\u6025 3 \u5929\u3001\u7d27\u6025 7 \u5929\u3001\u666e\u901a 14 \u5929\uff09\uff0c\u53d6\u81ea\u6807\u7b7e\u8bbe\u7f6e\u3002\u53ea\u8981\u6709\u4e00\u4e2a SKU \u7f3a\u5c11 ERP \u7269\u6599\u7f16\u53f7\uff0c\u5c31\u5b8c\u5168\u4e0d\u751f\u6210\u6587\u4ef6\uff0c\u5e76\u9010\u4e00\u5217\u51fa\u8be5 SKU \u2014 \u9759\u9ed8\u4e22\u5f03\u8fd9\u4e9b\u884c\u610f\u5473\u7740\u65e0\u4eba\u8ba2\u8d27\u7684\u6807\u7b7e\uff0c\u800c\u8fd9\u53ea\u4f1a\u5728\u8d27\u7269\u672a\u5230\u65f6\u624d\u88ab\u53d1\u73b0\u3002\u683c\u5f0f\u4e3a .xls BIFF8\uff0c\u5df2\u5b9e\u9645\u5bfc\u5165 ERP \u9a8c\u8bc1\u3002',
+    },
+  },
   {
     v: 'v13.11', date: '4 Agu 2026',
     what: {
