@@ -10,6 +10,14 @@
 
 export const CHANGELOG = [
   {
+    v: 'v14.2', date: '5 Agu 2026',
+    what: {
+      id: 'Tab browser akhirnya punya ikon MTI. Sebelumnya browser mencari /favicon.ico di akar domain — bukan di dalam folder portalnya — jadi selalu 404, dan itu satu-satunya error yang tersisa di console. Sekarang alamatnya ditulis eksplisit di index.html. Ikonnya dibuat dari logo resmi dalam empat ukuran (16/32/48/64) di atas latar transparan, jadi bentuknya tetap utuh di tab terang maupun gelap.',
+      en: 'The browser tab finally has an MTI icon. The browser used to look for /favicon.ico at the domain root — not inside the portal folder — so it always 404ed, and that was the last error left in the console. The path is now written explicitly in index.html. The icon is built from the official logo at four sizes (16/32/48/64) on a transparent background, so it holds its shape on both light and dark tabs.',
+      zh: '浏览器标签页终于有了 MTI 图标。此前浏览器会在域名根目录寻找 /favicon.ico — 而非门户所在文件夹 — 因此始终 404，那也是控制台中最后一个错误。现在路径已在 index.html 中明确写出。图标由官方标志生成，包含四种尺寸（16/32/48/64），背景透明，因此在浅色与深色标签页中都能保持形状。',
+    },
+  },
+  {
     v: 'v14.1', date: '5 Agu 2026',
     what: {
       id: 'Portal jadi jauh lebih ringan dibuka, tanpa satu pun fitur berubah. Tiga belas layar sekarang diambil saat diklik, bukan saat boot — yang tidak pernah dibuka tidak pernah diunduh. Riwayat rilis lengkap (40 KB teks tiga bahasa) dipindah keluar dari berkas yang ikut terunduh pertama kali; sidebar cuma butuh entri terbaru. Fixture demo 15 KB juga baru diambil kalau Supabase tidak terhubung, dan di produksi itu berarti tidak pernah. Total yang terkirim saat membuka portal turun dari 452 KB ke 105 KB, dan jumlah berkasnya dari 72 jadi 38. Digabung dengan v13.10, tahap tarik data saat login juga sudah turun dari 3,0 detik ke 0,3 detik.',

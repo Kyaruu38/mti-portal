@@ -24,7 +24,7 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v14.1';
+export const VERSION = 'v14.2';
 export const VERSION_DATE = '5 Agu 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
@@ -40,7 +40,7 @@ export const VERSION_DATE = '5 Agu 2026';
 // Waktu menaikkan versi: perbarui VERSION, VERSION_DATE, LATEST di sini, dan
 // tambahkan entri lengkapnya di changelog.js.
 export const LATEST = {
-      id: 'Portal jadi jauh lebih ringan dibuka, tanpa satu pun fitur berubah. Tiga belas layar sekarang diambil saat diklik, bukan saat boot — yang tidak pernah dibuka tidak pernah diunduh. Riwayat rilis lengkap (40 KB teks tiga bahasa) dipindah keluar dari berkas yang ikut terunduh pertama kali; sidebar cuma butuh entri terbaru. Fixture demo 15 KB juga baru diambil kalau Supabase tidak terhubung, dan di produksi itu berarti tidak pernah. Total yang terkirim saat membuka portal turun dari 452 KB ke 105 KB, dan jumlah berkasnya dari 72 jadi 38. Digabung dengan v13.10, tahap tarik data saat login juga sudah turun dari 3,0 detik ke 0,3 detik.',
-      en: 'The portal opens far lighter, with no feature changed. Thirteen screens are now fetched when clicked rather than at boot — what nobody opens is never downloaded. The full release history (40 KB of trilingual text) moved out of the first-load bundle; the sidebar only needs the newest entry. The 15 KB demo fixtures are likewise fetched only when Supabase is absent, which in production means never. Bytes sent on opening the portal fell from 452 KB to 105 KB, and file count from 72 to 38. Together with v13.10, the login data-fetch stage is already down from 3.0 s to 0.3 s.',
-      zh: '门户打开更轻快，功能毫无变动。十三个界面现在改为点击时才加载，而非启动时 — 无人打开的就从不下载。完整发布历史（四十 KB 三语文本）已移出首次加载；侧栏只需最新一条。演示数据（15 KB）同样只在未连接 Supabase 时才获取，在生产环境中即从不获取。打开门户时传输量从 452 KB 降至 105 KB，文件数从 72 降至 38。结合 v13.10，登录拉取数据阶段已从 3.0 秒降至 0.3 秒。',
+      id: 'Tab browser akhirnya punya ikon MTI. Sebelumnya browser mencari /favicon.ico di akar domain — bukan di dalam folder portalnya — jadi selalu 404, dan itu satu-satunya error yang tersisa di console. Sekarang alamatnya ditulis eksplisit di index.html. Ikonnya dibuat dari logo resmi dalam empat ukuran (16/32/48/64) di atas latar transparan, jadi bentuknya tetap utuh di tab terang maupun gelap.',
+      en: 'The browser tab finally has an MTI icon. The browser used to look for /favicon.ico at the domain root — not inside the portal folder — so it always 404ed, and that was the last error left in the console. The path is now written explicitly in index.html. The icon is built from the official logo at four sizes (16/32/48/64) on a transparent background, so it holds its shape on both light and dark tabs.',
+      zh: '浏览器标签页终于有了 MTI 图标。此前浏览器会在域名根目录寻找 /favicon.ico — 而非门户所在文件夹 — 因此始终 404，那也是控制台中最后一个错误。现在路径已在 index.html 中明确写出。图标由官方标志生成，包含四种尺寸（16/32/48/64），背景透明，因此在浅色与深色标签页中都能保持形状。',
 };
