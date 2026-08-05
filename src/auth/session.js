@@ -1,7 +1,8 @@
 import { setState, getState, toast } from '../core/store.js';
 import { makeUser, usernameToEmail, allowedScreens } from './roles.js';
 import { isConfigured, signIn, signOut, fetchMustChangePassword, currentSession } from '../core/supabase.js';
-import { seedIfEmpty } from '../core/seed.js';
+// seed.js diimpor DINAMIS di hydrate() — 15 KB fixture demo yang tidak pernah
+// dipakai selama Supabase terhubung, dan itu berarti selalu, di produksi.
 import { getPref, adoptServerPrefs } from '../core/prefs.js';
 import { fetchProfilePrefs } from '../core/profilePrefsApi.js';
 import { retryPending, pendingOutbox } from '../core/driveOutbox.js';
@@ -98,6 +99,7 @@ async function hydrate(user, username, preferScreen, preferLang) {
   // confusing fake data in a production portal. isConfigured() is the exact
   // same check FEATURES.useSupabase is derived from (config.js).
   if (!isConfigured()) {
+    const { seedIfEmpty } = await import('../core/seed.js');
     seedIfEmpty();
   }
 

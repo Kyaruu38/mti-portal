@@ -8,38 +8,82 @@ import { restoreSession } from './auth/session.js';
 import { getPref } from './core/prefs.js';
 import { t, tr } from './i18n/index.js';
 
+// PINTU MASUK TETAP STATIS. Login dan ganti-password adalah dua layar yang
+// PASTI dibutuhkan setiap sesi, dan kedipan "memuat" di formulir login terbaca
+// seperti aplikasi yang rusak, bukan seperti aplikasi yang hemat.
 import { loginScreen } from './screens/login.js';
 import { changePasswordScreen } from './screens/changePassword.js';
-import { dashboardScreen } from './screens/dashboard.js';
-import { labelRequestScreen } from './screens/labelRequest.js';
-import { labelLibraryScreen } from './screens/labelLibrary.js';
-import { labelStockScreen } from './screens/labelStock.js';
-import { suratJalanScreen } from './screens/suratJalan.js';
-import { poConverterScreen } from './screens/poConverter.js';
-import { outstandingPoScreen } from './screens/outstandingPo.js';
-import { approvalScreen } from './screens/approval.js';
-import { ppkekScreen } from './screens/ppkek.js';
-import { paymentScreen } from './screens/payment.js';
-import { financeScreen } from './screens/finance.js';
-import { masterDataScreen } from './screens/masterData.js';
-import { reportsScreen } from './screens/reports.js';
 
-const SCREENS = {
-  dashboard: dashboardScreen,
-  'label-request': labelRequestScreen,
-  'label-library': labelLibraryScreen,
-  'label-stock': labelStockScreen,
-  'surat-jalan': suratJalanScreen,
-  'po-converter': poConverterScreen,
-  'outstanding-po': outstandingPoScreen,
-  'change-password': () => changePasswordScreen({ voluntary: true }),
-  approval: approvalScreen,
-  ppkek: ppkekScreen,
-  payment: paymentScreen,
-  finance: financeScreen,
-  'master-data': masterDataScreen,
-  reports: reportsScreen,
+// ---------------------------------------------------------------------------
+// TIGA BELAS LAYAR SISANYA DIAMBIL SAAT DIKLIK, BUKAN SAAT BOOT.
+//
+// APA YANG SALAH SEBELUMNYA
+// Semuanya diimpor di baris paling atas file ini. Sebuah ES module yang diimpor
+// statis harus tiba SEBELUM modul yang mengimpornya boleh jalan — jadi sebelum
+// formulir login sempat muncul, browser sudah mengunduh 72 berkas, 955 KB
+// mentah, sedalam lima tingkat waterfall. Termasuk Payment (84 KB), Label Stock
+// (80 KB) dan PPKEK (50 KB), yang mungkin tidak dibuka orangnya hari itu.
+//
+// Sekarang setiap layar diambil saat pertama kali dituju. Yang tidak pernah
+// dibuka tidak pernah diunduh.
+//
+// KENAPA BUKAN import() LANGSUNG DI render()
+// render() sinkron — dia harus mengembalikan sebuah elemen, bukan janji. Jadi
+// yang dipanggil di sana adalah fungsiLayar(), yang mengembalikan fungsi
+// layarnya kalau modulnya sudah ada, atau null kalau belum. Yang null memicu
+// pengambilannya satu kali, lalu setState({}) ketika modulnya tiba.
+//
+// Specifier-nya ditulis sebagai LITERAL, bukan dirangkai dari variabel. Tanpa
+// build step, browser me-resolve string itu apa adanya; '`./screens/${id}.js`'
+// bekerja di sini tapi mematikan analisis statis apa pun yang dipakai belakangan.
+// ---------------------------------------------------------------------------
+const LAZY = {
+  dashboard:        () => import('./screens/dashboard.js').then(m => m.dashboardScreen),
+  'label-request':  () => import('./screens/labelRequest.js').then(m => m.labelRequestScreen),
+  'label-library':  () => import('./screens/labelLibrary.js').then(m => m.labelLibraryScreen),
+  'label-stock':    () => import('./screens/labelStock.js').then(m => m.labelStockScreen),
+  'surat-jalan':    () => import('./screens/suratJalan.js').then(m => m.suratJalanScreen),
+  'po-converter':   () => import('./screens/poConverter.js').then(m => m.poConverterScreen),
+  'outstanding-po': () => import('./screens/outstandingPo.js').then(m => m.outstandingPoScreen),
+  approval:         () => import('./screens/approval.js').then(m => m.approvalScreen),
+  ppkek:            () => import('./screens/ppkek.js').then(m => m.ppkekScreen),
+  payment:          () => import('./screens/payment.js').then(m => m.paymentScreen),
+  finance:          () => import('./screens/finance.js').then(m => m.financeScreen),
+  'master-data':    () => import('./screens/masterData.js').then(m => m.masterDataScreen),
+  reports:          () => import('./screens/reports.js').then(m => m.reportsScreen),
 };
+
+// Ganti password TIDAK ikut LAZY: modulnya sudah statis di atas, dan layar ini
+// bisa muncul sebagai GERBANG WAJIB sebelum apa pun. Gerbang yang menunggu
+// unduhan adalah gerbang yang bisa gagal terbuka.
+const STATIS = {
+  'change-password': () => changePasswordScreen({ voluntary: true }),
+};
+
+const siap = {};      // id -> fungsi layar yang sudah tiba
+const jalan = {};     // id -> janji yang sedang berjalan
+const gagal = {};     // id -> error terakhir
+
+function fungsiLayar(id) {
+  if (STATIS[id]) return STATIS[id];
+  if (siap[id]) return siap[id];
+  if (!LAZY[id]) return null;
+  if (!jalan[id]) {
+    delete gagal[id];
+    jalan[id] = LAZY[id]()
+      .then(fn => { siap[id] = fn; delete jalan[id]; setState({}); })
+      .catch(e => {
+        // Gagal sekali TIDAK boleh permanen — janjinya dibuang supaya percobaan
+        // berikutnya benar-benar mencoba lagi, bukan mengembalikan kegagalan
+        // yang sama selamanya. Koneksi kantor putus sebentar tidak boleh
+        // mematikan satu layar sampai halaman di-reload.
+        delete jalan[id]; gagal[id] = e;
+        console.error(`Layar "${id}" gagal dimuat:`, e);
+        setState({});
+      });
+  }
+  return null;
+}
 
 const root = document.getElementById('app');
 
@@ -131,8 +175,17 @@ function render() {
     if (!allowed.includes(st.screen) && !SELF_SERVICE.includes(st.screen)) { setState({ screen: allowed[0] }); return; }
     syncHash(st.screen);
     let screenEl;
-    try { screenEl = (SCREENS[st.screen] || dashboardScreen)(); }
-    catch (e) { console.error('Screen render error:', e); screenEl = errorBox(e); }
+    const buat = fungsiLayar(st.screen);
+    if (gagal[st.screen]) {
+      screenEl = gagalMuat(st.screen, gagal[st.screen]);
+    } else if (!buat) {
+      // Cangkangnya tetap terpasang — sidebar, header, menu akun semuanya hidup.
+      // Yang menunggu cuma isi layarnya, dan cuma sekali per layar per sesi.
+      screenEl = sedangMemuat();
+    } else {
+      try { screenEl = buat(); }
+      catch (e) { console.error('Screen render error:', e); screenEl = errorBox(e); }
+    }
     view = appShell(st, [
       isConfigured() ? null : demoBanner(),
       screenEl,
@@ -140,6 +193,33 @@ function render() {
   }
 
   mount(root, view, st.toast ? toastEl(st.toast) : null);
+}
+
+function sedangMemuat() {
+  return h('div.card', { style: { padding: '48px', textAlign: 'center', color: 'var(--text-3)', fontSize: '12.5px' } },
+    tr({ id: 'Memuat layar…', en: 'Loading screen…', zh: '正在加载…' }));
+}
+
+// Kegagalan memuat layar TIDAK boleh berupa halaman kosong. Yang tersisa harus
+// menyebut apa yang gagal dan menawarkan jalan keluar, karena satu-satunya
+// penyebab yang masuk akal di sini adalah koneksi yang putus sebentar.
+function gagalMuat(id, e) {
+  return h('div.card', { style: { padding: '26px' } }, [
+    h('div', { style: { fontWeight: 700, color: 'var(--st-red-tx)', marginBottom: '6px' } }, tr({
+      id: `Layar "${id}" gagal dimuat.`,
+      en: `Screen "${id}" failed to load.`,
+      zh: `屏幕 "${id}" 加载失败。`,
+    })),
+    h('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginBottom: '12px' } }, tr({
+      id: 'Biasanya koneksi terputus sebentar. Data Anda tidak ada yang hilang.',
+      en: 'Usually a brief connection drop. None of your data is lost.',
+      zh: '通常是网络短暂中断，您的数据不会丢失。',
+    })),
+    h('button.btn.btn-primary', {
+      onClick: () => { delete gagal[id]; setState({}); },
+    }, tr({ id: 'Coba lagi', en: 'Try again', zh: '重试' })),
+    h('pre', { style: { fontSize: '10.5px', color: 'var(--text-3)', whiteSpace: 'pre-wrap', marginTop: '12px' } }, String(e && e.message || e)),
+  ]);
 }
 
 function bootSplash() {

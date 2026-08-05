@@ -8,7 +8,7 @@ import { logout, refreshData } from '../auth/session.js';
 import { setPref } from '../core/prefs.js';
 import { icon, iconBtn, badge, btn } from './components.js';
 import { COMPANY } from '../config.js';
-import { VERSION, VERSION_DATE, CHANGELOG } from '../version.js';
+import { VERSION, VERSION_DATE, LATEST } from '../version.js';
 import { LOGO_MTI } from '../assets/images.js';
 import { notificationsFor, unreadCount, notifTargetScreen, notifMessage } from '../core/notifications.js';
 import { fmtDateTime } from '../core/format.js';
@@ -112,7 +112,7 @@ function sidebar(st) {
       // code. Hover shows what that release changed.
       h('div.mono', {
         style: { fontSize: '9.5px', color: 'var(--sb-group)', marginTop: '8px' },
-        title: `${VERSION} · ${VERSION_DATE}\n${tr(CHANGELOG[0].what)}`,
+        title: `${VERSION} · ${VERSION_DATE}\n${tr(LATEST)}`,
       }, `${VERSION} · ${VERSION_DATE}`),
     ]),
   ]);
