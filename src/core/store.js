@@ -11,6 +11,12 @@ const state = {
   menuOpen: false,
   langOpen: false,
   toast: null,
+  // Versi yang terpasang di server, kalau berbeda dari yang sedang jalan
+  // (core/updateCheck.js). updateDismissed menyimpan versi yang spanduknya
+  // sudah ditutup manual — per nomor versi, supaya rilis berikutnya tetap
+  // muncul.
+  updateReady: null,
+  updateDismissed: null,
 
   // domain data (seeded in core/seed.js). Kept flat & simple.
   suppliers: [],
@@ -32,6 +38,19 @@ const state = {
   labelUploads: [],    // upload history (who/when/counts/quarantined rows)
   labelSettings: null, // { moq, leadNormal, leadUrgent, leadSuper, overstockMultiple }
   labelTrend: [],      // total stock per upload day, for the dashboard chart
+
+  // Sheet order (local / export / newitems / 加急优先下单) dari workbook yang
+  // sama dengan tracker — APA YANG SONA MINTA DIBELI, mentah, sebelum diadu
+  // dengan stok. Yang disimpan sengaja yang MENTAH, bukan hasil silangnya:
+  // hasil silang bergantung pada stok, dan stok berubah tiap upload. Menyimpan
+  // hasilnya berarti suatu hari layar menampilkan penilaian lama terhadap angka
+  // baru. Disusun ulang tiap render dari core/labelBuyList.js — 129 baris lawan
+  // dua Map, biayanya tidak terasa.
+  //
+  // HANYA BERTAHAN SELAMA SESI. Belum ada tabelnya di Supabase, dan menambah
+  // tabel berarti SQL — yang bukan hak modul ini untuk menjalankan. Kalau tab
+  // ditutup, sona mengunggah ulang berkas yang sama; tidak ada data yang rusak.
+  labelBuyRaw: null,   // { fileName, at, bagian: [{ sheet, kategori, items }] }
   driveQueue: [],      // files stashed but not yet accepted by Drive (core/driveOutbox)
 
   // transient module state

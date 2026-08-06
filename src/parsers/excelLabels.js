@@ -43,7 +43,14 @@ function matchHeader(cell) {
 }
 
 // Find the header row within the first `scan` rows (row that maps the most columns).
-function findHeaderRow(rows, scan = 8) {
+//
+// Exported because parsers/labelSheetSet.js has to decide WHICH sheets in a
+// 14-sheet workbook are order sheets, and the only honest way to answer that is
+// to run the same header matcher this parser will run later. A second private
+// copy of the alias list is a copy that will one day disagree with this one —
+// and it would disagree silently, by accepting a sheet the parser then refuses
+// to read.
+export function findHeaderRow(rows, scan = 8) {
   let best = { idx: -1, map: {}, hits: 0 };
   for (let i = 0; i < Math.min(scan, rows.length); i++) {
     const row = rows[i] || [];
@@ -168,6 +175,14 @@ export function parseLabelSheet(rows, { brandMap, knownErps = new Set() } = {}) 
       nameEn: nameEn || parsed.english,
       nameZh,
       hasTemplate: /✅|✔|有|yes|y/i.test(String(get(row, map.template)).trim()),
+      // pickup date DIBAWA APA ADANYA, tidak diurai jadi tanggal.
+      //
+      // Isinya di sheet 加急优先下单 adalah tulisan tangan manusia: "before 8.15",
+      // "next firday" (Friday, salah ketik). Menguraikan itu jadi tanggal berarti
+      // salah satu dari dua hal: gagal diam-diam, atau — lebih buruk — berhasil
+      // menebak tanggal yang keliru lalu memakainya sebagai tenggat ke supplier.
+      // 需求日期 di berkas ERP tetap dihitung dari prioritas + lead time.
+      pickup: String(get(row, map.pickup)).trim(),
       isNew,
       section,
       _row: i,

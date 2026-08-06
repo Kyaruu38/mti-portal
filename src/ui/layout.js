@@ -9,6 +9,7 @@ import { setPref } from '../core/prefs.js';
 import { icon, iconBtn, badge, btn } from './components.js';
 import { COMPANY } from '../config.js';
 import { VERSION, VERSION_DATE, LATEST } from '../version.js';
+import { updateTersedia, tutupUpdate, muatUlang } from '../core/updateCheck.js';
 import { LOGO_MTI } from '../assets/images.js';
 import { notificationsFor, unreadCount, notifTargetScreen, notifMessage } from '../core/notifications.js';
 import { fmtDateTime } from '../core/format.js';
@@ -361,7 +362,50 @@ export function appShell(st, screenEl) {
     sidebar(st),
     h('div.main-col', [
       header(st),
+      updateTersedia(st) ? spandukUpdate(st) : null,
       h('main.content', screenEl),
     ]),
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// SPANDUK VERSI BARU.
+//
+// Sengaja BUKAN toast. Toast hilang sendiri setelah beberapa detik, dan orang
+// yang sedang menatap Excel di monitor sebelah tidak akan pernah melihatnya.
+// Ini menetap sampai salah satu dari dua hal terjadi: dimuat ulang, atau
+// ditutup manual lewat tanda silang.
+//
+// Diletakkan di bawah header, bukan melayang di atas isi layar: yang melayang
+// menutupi baris tabel, dan orang menutupnya karena menghalangi — bukan karena
+// sudah membacanya.
+// ---------------------------------------------------------------------------
+function spandukUpdate(st) {
+  return h('div.row.gap10', {
+    style: {
+      alignItems: 'center', padding: '10px 18px',
+      background: 'var(--accent-soft)', borderBottom: '1px solid var(--accent)',
+      color: 'var(--text)', fontSize: '12.5px',
+    },
+  }, [
+    svg(ICONS.warn, 15, { stroke: 'var(--accent-tx)' }),
+    h('div.grow', [
+      h('span', { style: { fontWeight: 700 } }, tr({
+        id: `Versi baru tersedia — ${st.updateReady}`,
+        en: `A new version is available — ${st.updateReady}`,
+        zh: `有新版本可用 — ${st.updateReady}`,
+      })),
+      h('span', { style: { color: 'var(--text-2)', marginLeft: '8px' } }, tr({
+        id: `Anda memakai ${VERSION}. Muat ulang untuk memakai yang baru.`,
+        en: `You are on ${VERSION}. Reload to switch to it.`,
+        zh: `您正在使用 ${VERSION}。请重新加载以切换。`,
+      })),
+    ]),
+    h('button.btn.btn-sm.btn-primary', { onClick: () => muatUlang() },
+      tr({ id: 'Muat ulang', en: 'Reload', zh: '重新加载' })),
+    h('button.x-btn', {
+      onClick: () => tutupUpdate(),
+      title: tr({ id: 'Tutup', en: 'Dismiss', zh: '关闭' }),
+    }, icon('x', 14)),
   ]);
 }

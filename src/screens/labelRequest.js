@@ -55,6 +55,7 @@ function step1() {
   });
   return card([
     h('div.card-pad', [
+      duaPintu(st),
       dz,
       st.labelBatches.length ? h('div', { style: { marginTop: '18px' } }, [
         h('div.field-label', tr({ id: 'Upload Terakhir', en: 'Recent Uploads', zh: '最近上传' })),
@@ -68,6 +69,80 @@ function step1() {
           }), 'green'),
         ])),
       ]) : null,
+    ]),
+  ]);
+}
+
+// DUA JALAN MASUK, DAN YANG KEDUA SELAMA INI TIDAK KELIHATAN
+// ---------------------------------------------------------------------------
+// Jalur "centang di BUY NOW" sudah ada sejak lama, tapi dia hidup di layar
+// LAIN — di tab BUY NOW pada Stok Label. Orang yang membuka layar ini melihat
+// satu kotak unggah dan menyimpulkan Excel adalah satu-satunya cara. Fitur yang
+// tidak pernah ditemukan sama saja dengan fitur yang tidak ada.
+//
+// Kotak kedua di bawah ini tidak menambah kemampuan apa pun. Dia cuma
+// mengumumkan kemampuan yang sudah ada, di tempat orang mencarinya — lengkap
+// dengan berapa baris yang sedang menunggu di sana.
+function duaPintu(st) {
+  const menunggu = (st.labelStock || []).filter(r => r.status === 'BUY NOW').length
+    + ((st.labelBuyRaw && st.labelBuyRaw.bagian) ? st.labelBuyRaw.bagian.reduce((s, b) => s + b.items.length, 0) : 0);
+
+  const pintu = (opts) => h('div', {
+    style: {
+      flex: '1', minWidth: '250px', border: '1.5px solid var(--border-strong)',
+      borderRadius: '12px', padding: '15px 16px',
+      cursor: opts.onClick ? 'pointer' : 'default',
+      background: opts.aktif ? 'var(--accent-soft)' : 'var(--surface2)',
+      borderColor: opts.aktif ? 'var(--accent)' : 'var(--border-strong)',
+    },
+    onClick: opts.onClick || undefined,
+  }, [
+    h('div.row.gap8', { style: { alignItems: 'center', marginBottom: '5px' } }, [
+      icon(opts.iconName, 15),
+      h('div', { style: { fontSize: '13px', fontWeight: 700 } }, opts.title),
+      opts.chip ? h('div.mla', badge(opts.chip, 'accent')) : null,
+    ]),
+    h('div', { style: { fontSize: '11.5px', color: 'var(--text-2)', lineHeight: '1.6' } }, opts.body),
+    h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', marginTop: '6px' } }, opts.when),
+  ]);
+
+  return h('div', { style: { marginBottom: '16px' } }, [
+    h('div', { style: { fontSize: '12px', color: 'var(--text-3)', marginBottom: '9px' } }, tr({
+      id: 'Dua cara membuat permintaan. Hasilnya masuk ke antrean yang sama.',
+      en: 'Two ways to raise a request. Both land in the same queue.',
+      zh: '两种提交申请的方式，结果进入同一个队列。',
+    })),
+    h('div.row.gap8.wrap', { style: { alignItems: 'stretch' } }, [
+      pintu({
+        aktif: true, iconName: 'upload',
+        title: tr({ id: 'Dari file Excel', en: 'From an Excel file', zh: '来自 Excel 文件' }),
+        body: tr({
+          id: 'Taruh workbook order di kotak bawah. Semua sheet order dibaca sekaligus.',
+          en: 'Drop the order workbook in the box below. Every order sheet is read at once.',
+          zh: '将订单工作簿放入下方方框。所有订单工作表会一次读取。',
+        }),
+        when: tr({
+          id: 'Dipakai kalau daftarnya memang sudah jadi di Excel.',
+          en: 'Use this when the list already exists in Excel.',
+          zh: '当清单已在 Excel 中整理好时使用。',
+        }),
+      }),
+      pintu({
+        iconName: 'check',
+        onClick: () => setState({ screen: 'label-stock', ui: { ...getState().ui, lsTab: 'buy' } }),
+        title: tr({ id: 'Dari Stok Label · BUY NOW', en: 'From Label Stock · BUY NOW', zh: '来自标签库存 · 需采购' }),
+        chip: menunggu ? tr({ id: `${menunggu} menunggu`, en: `${menunggu} waiting`, zh: `${menunggu} 项待处理` }) : null,
+        body: tr({
+          id: 'Portal sudah hitung mana yang kurang, dan sudah baca daftar beli dari file bulanan. Tinggal centang.',
+          en: 'The portal has already worked out what is short, and has read the buy list from the monthly file. Just tick.',
+          zh: '门户已算出短缺项，并已读取月度文件中的采购清单。只需勾选。',
+        }),
+        when: tr({
+          id: 'Klik untuk ke sana. Baris yang stoknya sudah berlebih ditandai di layar itu.',
+          en: 'Click to go there. Rows already overstocked are flagged on that screen.',
+          zh: '点击前往。库存已过剩的行会在该页面标出。',
+        }),
+      }),
     ]),
   ]);
 }
@@ -299,8 +374,13 @@ function myRequests(st) {
   return h('div.card', [
     h('div.card-head', [h('div.card-title', t('lr_my_reqs')), badge(String(mine.filter(r => r.status === 'Diminta').length), 'amber')]),
     h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', [tr({ id: 'File', en: 'File', zh: '文件' }), 'Sheet', t('col_qty'), tr({ id: 'Dikirim', en: 'Sent', zh: '发送时间' }), t('col_supplier'), 'PO', t('col_status')].map((c, i) => h('th' + (i === 2 ? '.r' : ''), c)))),
+      h('thead', h('tr', [
+        tr({ id: 'Sumber', en: 'Source', zh: '来源' }),
+        tr({ id: 'File', en: 'File', zh: '文件' }), 'Sheet', t('col_qty'),
+        tr({ id: 'Dikirim', en: 'Sent', zh: '发送时间' }), t('col_supplier'), 'PO', t('col_status'),
+      ].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c)))),
       h('tbody', mine.map(r => h('tr', [
+        h('td', lencanaSumber(r)),
         h('td.mono', { style: { fontSize: '11px' } }, r.file || '—'),
         h('td.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } }, r.sheet || '—'),
         h('td.mono.r', String((r.rows || []).length)),
@@ -324,16 +404,63 @@ function incomingRequests(st) {
       h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, t('lr_incoming_sub')),
     ]),
     h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', [t('lr_req_by'), tr({ id: 'File', en: 'File', zh: '文件' }), 'Sheet', t('col_qty'), tr({ id: 'Diminta', en: 'Requested', zh: '申请时间' }), t('col_action')].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c)))),
+      h('thead', h('tr', [
+        t('lr_req_by'),
+        tr({ id: 'Sumber', en: 'Source', zh: '来源' }),
+        tr({ id: 'File', en: 'File', zh: '文件' }), 'Sheet',
+        t('col_qty'),
+        tr({ id: 'Catatan portal', en: 'Portal notes', zh: '门户提示' }),
+        tr({ id: 'Diminta', en: 'Requested', zh: '申请时间' }),
+        t('col_action'),
+      ].map((c, i) => h('th' + (i === 4 ? '.r' : ''), c)))),
       h('tbody', open.map(r => h('tr', [
         h('td.cell-strong', r.by),
+        h('td', lencanaSumber(r)),
         h('td.mono', { style: { fontSize: '11px' } }, r.file || '—'),
         h('td.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } }, r.sheet || '—'),
         h('td.mono.r', String((r.rows || []).length)),
+        h('td', catatanPortal(r)),
         h('td', { style: { fontSize: '11px', color: 'var(--text-3)' } }, fmtDateTime(r.at)),
         h('td', btn(t('lr_open_req'), { sm: true, variant: 'primary', onClick: () => openRequest(r) })),
       ]))),
     ])),
+  ]);
+}
+
+// DARI MANA PERMINTAAN INI DATANG
+// ---------------------------------------------------------------------------
+// Dua jalur masuk sekarang: sona mencentang di BUY NOW, atau seseorang menaruh
+// berkas Excel. Barisnya sengaja berbentuk identik supaya modal PO, pengecekan
+// desain, dan template ERP tidak perlu tahu bedanya — tapi ORANG perlu tahu.
+// Enam bulan lagi "ini dari mana?" adalah pertanyaan pertama yang muncul, dan
+// tanpa lencana ini jawabannya cuma ada di ingatan seseorang.
+//
+// Dibaca dari isi barisnya (`section`), BUKAN dari kolom baru di tabel:
+// permintaan lama yang sudah tersimpan tidak punya kolom itu, dan menambah
+// kolom berarti SQL — yang bukan hak layar ini untuk menjalankan.
+function lencanaSumber(r) {
+  const rows = r.rows || [];
+  const dariStok = rows.some(x => x.section === 'buynow')
+    || /Stok Label|Label Stock|标签库存/.test(String(r.file || ''));
+  return badge(
+    dariStok ? tr({ id: 'BUY NOW', en: 'BUY NOW', zh: '需采购' }) : tr({ id: 'Excel', en: 'Excel', zh: 'Excel' }),
+    dariStok ? 'accent' : 'blue',
+    { iconName: dariStok ? 'check' : 'upload' });
+}
+
+// Peringatan yang dihitung waktu permintaan dibuat IKUT TERSIMPAN di barisnya,
+// dan ditampilkan lagi di sini. Peringatan yang berhenti di layar orang pertama
+// tidak menolong orang kedua — dan orang keduanyalah yang menerbitkan PO.
+function catatanPortal(r) {
+  const rows = r.rows || [];
+  const stop = rows.filter(x => x._stop).length;
+  const cek = rows.filter(x => x._takBisaDicek).length;
+  const ganda = rows.filter(x => x._kodeGanda).length;
+  if (!stop && !cek && !ganda) return h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, '—');
+  return h('div.row.gap8.wrap', [
+    stop ? badge(tr({ id: `${stop} overstock`, en: `${stop} overstocked`, zh: `${stop} 项库存过剩` }), 'red', { iconName: 'warn' }) : null,
+    ganda ? badge(tr({ id: `${ganda} kode ganda`, en: `${ganda} duplicate codes`, zh: `${ganda} 个编码重复` }), 'red', { iconName: 'warn' }) : null,
+    cek ? badge(tr({ id: `${cek} tak bisa dicek`, en: `${cek} unverifiable`, zh: `${cek} 项无法核对` }), 'amber') : null,
   ]);
 }
 

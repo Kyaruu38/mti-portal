@@ -25,6 +25,22 @@ export async function readWorkbook(file) {
       const r = X.utils.decode_range(ws['!ref']);
       return r.e.r - r.s.r; // approx data rows (minus header)
     },
+    // Beberapa baris pertama saja.
+    //
+    // Dipakai untuk MENGENALI sheet, bukan membacanya. Workbook Agustus punya
+    // 14 sheet dan tiga di antaranya lebih dari seribu baris (硫化工艺 1.921,
+    // 投产规格 1.328, 轮胎重量 1.217). Menanyakan "sheet ini sheet order atau
+    // bukan?" cuma butuh baris headernya, dan header selalu ada di delapan
+    // baris pertama. Membaca ~5.000 baris untuk pertanyaan yang dijawab oleh
+    // delapan adalah beberapa ratus milidetik tab membeku, setiap kali berkas
+    // dijatuhkan.
+    headRows(name, n = 8) {
+      const ws = wb.Sheets[name];
+      if (!ws || !ws['!ref']) return [];
+      const full = X.utils.decode_range(ws['!ref']);
+      const range = { s: { r: full.s.r, c: full.s.c }, e: { r: Math.min(full.e.r, full.s.r + n - 1), c: full.e.c } };
+      return X.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: '', range });
+    },
   };
 }
 

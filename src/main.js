@@ -7,6 +7,7 @@ import { isConfigured } from './core/supabase.js';
 import { restoreSession } from './auth/session.js';
 import { getPref } from './core/prefs.js';
 import { t, tr } from './i18n/index.js';
+import { startUpdateWatch } from './core/updateCheck.js';
 
 // PINTU MASUK TETAP STATIS. Login dan ganti-password adalah dua layar yang
 // PASTI dibutuhkan setiap sesi, dan kedipan "memuat" di formulir login terbaca
@@ -269,6 +270,10 @@ if (restoring) {
     .catch(e => { console.warn('Session restore failed', e); return false; })
     .then(() => { restoring = false; setState({}); });
 }
+
+// Pengawas versi. Dimulai setelah render pertama, dan pemeriksaan pertamanya
+// sendiri masih ditunda 30 detik — boot tidak boleh ikut menanggung ini.
+startUpdateWatch();
 
 // Debug handle — READ-ONLY SNAPSHOT, and only on localhost.
 //

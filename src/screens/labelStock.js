@@ -5,9 +5,14 @@
 // derived column and flags disagreements — see parsers/labelStock.js. It never
 // substitutes its own figure.
 //
-// Tab names deliberately mirror the workbook (Master Tracker / BUY NOW / DO NOT
-// BUY) so nobody has to learn a second vocabulary for the same job.
-import { h } from '../core/dom.js';
+// Tab names mirror the workbook (Master Tracker / BUY NOW / DO NOT BUY) so
+// nobody has to learn a second vocabulary for the same job — but only in ID and
+// EN, where the workbook's own wording IS the local wording. In Chinese the
+// mirror stopped helping: the tab bar was the last strip of untranslated
+// English on an otherwise Chinese screen, and "DO NOT BUY" is not a phrase a
+// zh reader can guess. So zh gets real Chinese and the workbook link is carried
+// by the numbers next to it, which are identical either way.
+import { h, wireDrop } from '../core/dom.js';
 import { getState, setState, setUI, toast, logAudit, uid } from '../core/store.js';
 import { tr } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, searchInput, selectEl } from '../ui/components.js';
@@ -18,6 +23,9 @@ import {
   fileHasKind, describeFile, planSheetName, planMonth,
   parseProductionPlan, parseSalesPlan, applyPlansToStock,
 } from '../parsers/planFiles.js';
+import { parseLabelSheet } from '../parsers/excelLabels.js';
+import { petakanWorkbook, labelKategori } from '../parsers/labelSheetSet.js';
+import { susunDaftarBeli, gabungDenganPortal, TANDA, bolehPilihSemua } from '../core/labelBuyList.js';
 import { labelOrders, erpCandidates, recentOrdersFor, REORDER_WINDOW_DAYS } from '../core/labelOrders.js';
 import { applyLabelStockUpload, fetchLabelStock, fetchLabelUploads, setLabelStockErp } from '../core/labelStockApi.js';
 import { isConfigured } from '../core/supabase.js';
@@ -61,9 +69,25 @@ export function labelStockScreen() {
   const unmatched = rows.filter(r => !r.erp).length;
   const ord = labelOrders(st, st.labelSettings, new Date());
   const tabs = [
-    ['master', `Master Tracker · ${rows.length}`],
-    ['buy', `BUY NOW · ${rows.filter(r => r.status === 'BUY NOW').length}`],
-    ['nobuy', `DO NOT BUY · ${rows.filter(r => r.status === 'OVERSTOCK' || r.status === 'IDLE STOCK').length}`],
+    ['master', tr({
+      id: `Master Tracker · ${rows.length}`,
+      en: `Master Tracker · ${rows.length}`,
+      zh: `主跟踪表 · ${rows.length}`,
+    })],
+    // Angka di tab BUY NOW menghitung daftar gabungan (diminta di file +
+    // hitungan portal), bukan cuma hitungan portal. Kalau tidak, tab bertuliskan
+    // 22 lalu terbuka berisi 150 baris — dan angka yang berbohong di tab bar
+    // adalah angka yang membuat orang berhenti mempercayai tab bar.
+    ['buy', tr({
+      id: `BUY NOW · ${jumlahBeli(st)}`,
+      en: `BUY NOW · ${jumlahBeli(st)}`,
+      zh: `需采购 · ${jumlahBeli(st)}`,
+    })],
+    ['nobuy', tr({
+      id: `DO NOT BUY · ${rows.filter(r => r.status === 'OVERSTOCK' || r.status === 'IDLE STOCK').length}`,
+      en: `DO NOT BUY · ${rows.filter(r => r.status === 'OVERSTOCK' || r.status === 'IDLE STOCK').length}`,
+      zh: `请勿采购 · ${rows.filter(r => r.status === 'OVERSTOCK' || r.status === 'IDLE STOCK').length}`,
+    })],
     ['orders', tr({
       id: `Order Tracking · ${ord.summary.open} open`,
       en: `Order Tracking · ${ord.summary.open} open`,
@@ -78,8 +102,7 @@ export function labelStockScreen() {
     h('button.btn' + (tab === id ? '.btn-navy' : ''), { onClick: () => setUI({ lsTab: id }) }, label)));
 
   let body;
-  if (tab === 'buy') body = listTab(st, r => r.status === 'BUY NOW', 'BUY NOW',
-    tr({ id: 'Stok di bawah kebutuhan — perlu order.', en: 'Stock below requirement — needs ordering.', zh: '库存低于需求量 — 需要下单。' }));
+  if (tab === 'buy') body = buyNowTab(st);
   else if (tab === 'nobuy') body = listTab(st, r => r.status === 'OVERSTOCK' || r.status === 'IDLE STOCK', 'DO NOT BUY',
     tr({ id: 'Stok berlebih atau tidak terpakai — jangan order, habiskan dulu.', en: 'Overstocked or unused — do not order, use it up first.', zh: '库存过剩或未使用 — 请勿下单，先消耗现有库存。' }));
   else if (tab === 'orders') body = ordersTab(st, ord);
@@ -184,7 +207,11 @@ const BOXES = [
   {
     n: 1, kind: 'tracker', required: true,
     title: { id: 'Stok Label', en: 'Label Stock', zh: '标签库存' },
-    file:  { id: 'Label Inventory Tracker.xlsx', en: 'Label Inventory Tracker.xlsx', zh: 'Label Inventory Tracker.xlsx' },
+    // Nama berkasnya TIDAK diterjemahkan — yang dipegang orangnya memang
+    // bernama "Label Inventory Tracker.xlsx", dan nama Tionghoa yang cantik di
+    // layar tidak akan pernah cocok dengan apa pun di Windows Explorer-nya.
+    // Yang ditambahkan cuma artinya, di dalam kurung.
+    file:  { id: 'Label Inventory Tracker.xlsx', en: 'Label Inventory Tracker.xlsx', zh: 'Label Inventory Tracker.xlsx（标签库存表）' },
   },
   {
     n: 2, kind: 'production', required: false,
@@ -253,23 +280,57 @@ function uploadCard(st) {
   if (!can(st.user.role, 'labelStockWrite')) return null;
   const ready = !!ui.lsSheets;
 
+  const gabung = ui.lsMode === 'gabung';
+
   return card([h('div.card-pad', [
-    h('div', { style: { fontSize: '12.5px', color: 'var(--text-2)', marginBottom: '10px' } }, tr({
-      id: 'Taruh tiap file di kotak bernomornya. Salah kotak pasti ditolak.',
-      en: 'Drop each file in its numbered box. A file in the wrong box is always refused.',
-      zh: '请将每个文件放入对应编号的方框。放错方框一定会被拒绝。',
-    })),
+    // Dua cara memberi file, karena kenyataannya memang dua.
+    //
+    // Sona kadang sudah menyatukan stok, rencana produksi, dan rencana
+    // penjualan dalam SATU workbook — dan memaksanya memecah file yang sudah
+    // jadi cuma untuk memenuhi bentuk layar ini adalah pekerjaan tambahan yang
+    // tidak menghasilkan apa-apa. Dua-duanya dibaca dengan parser yang sama
+    // persis; yang berbeda cuma berapa berkas yang dijatuhkan.
+    h('div.row.gap8', { style: { marginBottom: '12px', alignItems: 'center', flexWrap: 'wrap' } }, [
+      h('span', { style: { fontSize: '11.5px', color: 'var(--text-3)', fontWeight: 700 } }, tr({
+        id: 'Cara unggah', en: 'Upload mode', zh: '上传方式',
+      })),
+      ...[
+        { v: 'pisah',  l: { id: 'File terpisah', en: 'Separate files', zh: '分开的文件' } },
+        { v: 'gabung', l: { id: '1 file, banyak sheet', en: 'One file, many sheets', zh: '一个文件，多个工作表' } },
+      ].map(o => h('button.btn.btn-sm', {
+        style: o.v === (ui.lsMode || 'pisah')
+          ? { background: 'var(--accent)', borderColor: 'var(--accent)', color: '#fff', fontWeight: 700 }
+          : {},
+        // Ganti cara TIDAK membuang yang sudah diunggah. Orang yang salah pilih
+        // lalu membetulkannya tidak boleh kehilangan file yang sudah masuk.
+        onClick: () => setUI({ lsMode: o.v }),
+      }, tr(o.l))),
+    ]),
+
+    h('div', { style: { fontSize: '12.5px', color: 'var(--text-2)', marginBottom: '10px' } }, gabung
+      ? tr({
+          id: 'Taruh satu workbook yang berisi semuanya. Portal membaca sheet mana yang ada, dan menyebut yang tidak ketemu.',
+          en: 'Drop one workbook containing everything. The portal reads whichever sheets are there, and names the ones it cannot find.',
+          zh: '放入一个包含全部内容的工作簿。系统会读取其中存在的工作表，并列出找不到的部分。',
+        })
+      : tr({
+          id: 'Taruh tiap file di kotak bernomornya. Salah kotak pasti ditolak.',
+          en: 'Drop each file in its numbered box. A file in the wrong box is always refused.',
+          zh: '请将每个文件放入对应编号的方框。放错方框一定会被拒绝。',
+        })),
 
     // Bukan .g3: kelas itu mengunci tiga kolom dan tidak ada satu pun media
     // query di seluruh stylesheet, jadi di layar sempit tiga kotak unggah
     // saling menghimpit sampai tulisannya tidak terbaca. auto-fit menumpuknya
     // sendiri tanpa menyentuh CSS global.
-    h('div', {
-      style: {
-        display: 'grid', gap: '12px',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-      },
-    }, BOXES.map(b => boxTile(st, b))),
+    gabung
+      ? kotakGabung(st)
+      : h('div', {
+          style: {
+            display: 'grid', gap: '12px',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          },
+        }, BOXES.map(b => boxTile(st, b))),
 
     ready ? h('div.row.gap8.wrap', { style: { marginTop: '14px', alignItems: 'flex-end' } }, [
       h('div', [
@@ -283,6 +344,100 @@ function uploadCard(st) {
       btn(tr({ id: 'Batal', en: 'Cancel', zh: '取消' }), { onClick: () => clearAllBoxes() }),
     ]) : null,
   ])]);
+}
+
+// Satu kotak untuk workbook gabungan. Ringkasan di bawahnya menyebut apa yang
+// KETEMU dan apa yang TIDAK — bukan cuma yang ketemu. File yang kurang satu
+// sheet terlihat persis sama dengan file yang lengkap kalau yang dilaporkan
+// hanya keberhasilan.
+function kotakGabung(st) {
+  const ui = st.ui;
+  const isi = BOXES.map(b => ({ box: b, ada: !!ui[BOX_STATE[b.kind]] }));
+  const adaIsi = isi.some(x => x.ada);
+
+  const tile = h('div', {
+    style: {
+      border: '1.5px dashed var(--border-strong)', borderRadius: '12px',
+      padding: '26px 18px', textAlign: 'center', cursor: 'pointer',
+      background: adaIsi ? 'var(--st-green-bg)' : 'var(--surface2)',
+      borderColor: adaIsi ? 'var(--st-green-tx)' : 'var(--border-strong)',
+    },
+  }, [
+    h('div', { style: { display: 'flex', justifyContent: 'center', marginBottom: '10px' } },
+      icon('upload', 22, { stroke: adaIsi ? 'var(--st-green-tx)' : 'var(--accent)' })),
+    h('div', { style: { fontWeight: 700, fontSize: '13px' } }, tr({
+      id: 'Satu file berisi semuanya', en: 'One file with everything', zh: '包含全部内容的单一文件',
+    })),
+    h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '4px' } },
+      'Master Tracker · 排产计划 · 销售需求'),
+  ]);
+  wireDrop(tile, { accept: '.xlsx,.xls', onFiles: f => handleCombinedFile(f[0]) });
+
+  return h('div', [
+    tile,
+    adaIsi ? h('div', { style: { marginTop: '12px', display: 'grid', gap: '6px' } }, isi.map(x => h('div.row.gap8', {
+      style: { fontSize: '12px', alignItems: 'center' },
+    }, [
+      icon(x.ada ? 'check' : 'x', 13, { stroke: x.ada ? 'var(--st-green-tx)' : 'var(--st-red-tx)' }),
+      h('span', { style: { color: x.ada ? 'var(--text)' : 'var(--text-3)' } }, tr(x.box.title)),
+      h('span.grow'),
+      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } },
+        x.ada ? (ui[BOX_STATE[x.box.kind]].note || '') : tr({ id: 'tidak ada di file', en: 'not in the file', zh: '文件中没有' })),
+    ]))) : null,
+    adaIsi ? h('div.row.gap8', { style: { marginTop: '10px' } }, [
+      btn(tr({ id: 'Kosongkan', en: 'Clear', zh: '清空' }), { sm: true, onClick: () => clearAllBoxes() }),
+    ]) : null,
+  ]);
+}
+
+// Satu workbook, sekali baca, semua jenis yang ada di dalamnya dipakai.
+//
+// Dibaca SEKALI lalu dipakai berkali-kali — bukan dibaca ulang per jenis.
+// Workbook stok label itu ratusan ribu sel; membacanya tiga kali membekukan
+// tab selama beberapa detik tanpa alasan.
+async function handleCombinedFile(file) {
+  if (blockWrite('upload file stok label')) return;
+  if (!file) return;
+  toast({ id: 'Membaca file…', en: 'Reading file…', zh: '正在读取文件…' });
+
+  let wb;
+  try {
+    wb = await readWorkbook(file);
+  } catch (e) {
+    console.error(e);
+    toast({
+      id: 'Gagal membaca Excel: ' + (e.message || e),
+      en: 'Failed to read Excel: ' + (e.message || e),
+      zh: '读取 Excel 失败：' + (e.message || e),
+    });
+    return;
+  }
+
+  const jenis = BOXES.map(b => b.kind).filter(k => fileHasKind(wb.sheetNames, k));
+  if (!jenis.length) {
+    toast({
+      id: 'File ini tidak berisi satu pun sheet yang dikenali (Master Tracker / 排产计划 / 销售需求).',
+      en: 'This file contains none of the expected sheets (Master Tracker / 排产计划 / 销售需求).',
+      zh: '此文件不包含任何可识别的工作表（Master Tracker / 排产计划 / 销售需求）。',
+    });
+    return;
+  }
+
+  clearAllBoxes();
+  const gagal = [];
+  for (const kind of jenis) {
+    const err = await terapkanKotak(kind, wb, file.name);
+    if (err) gagal.push(`${tr(BOX_OF_KIND(kind).title)}: ${typeof err === 'string' ? err : tr(err)}`);
+  }
+
+  const dapat = jenis.filter(k => !gagal.some(g => g.startsWith(tr(BOX_OF_KIND(k).title))));
+  const kurang = BOXES.map(b => b.kind).filter(k => !dapat.includes(k));
+  toast({
+    id: `${dapat.length} bagian terbaca${kurang.length ? ` · tidak ada: ${kurang.map(k => tr(BOX_OF_KIND(k).title)).join(', ')}` : ''}`,
+    en: `${dapat.length} part(s) read${kurang.length ? ` · missing: ${kurang.map(k => tr(BOX_OF_KIND(k).title)).join(', ')}` : ''}`,
+    zh: `已读取 ${dapat.length} 部分${kurang.length ? ` · 缺少：${kurang.map(k => tr(BOX_OF_KIND(k).title)).join('、')}` : ''}`,
+  });
+  if (gagal.length) console.warn('bagian yang gagal dibaca:', gagal);
 }
 
 // Nama kotak untuk pesan penolakan. Menyebut nomornya, bukan cuma namanya:
@@ -331,34 +486,54 @@ async function handleBoxFile(box, file) {
     return;
   }
 
-  if (box.kind === 'tracker') {
+  const err = await terapkanKotak(box.kind, wb, file.name);
+  if (err) toast(err);
+}
+
+// SATU JALUR, DIPAKAI DUA CARA UNGGAH
+// ---------------------------------------------------------------------------
+// Baik tiga kotak terpisah maupun satu workbook gabungan berakhir di sini.
+// Kalau masing-masing punya salinan logikanya sendiri, perbaikan di salah satu
+// diam-diam tidak sampai ke yang lain — dan yang paling mungkin lupa diperbarui
+// justru jalur gabungan, yang lebih jarang dipakai sehingga lebih jarang
+// ketahuan salah.
+//
+// Mengembalikan pesan kesalahan (objek tr) atau null kalau berhasil. TIDAK
+// memanggil toast sendiri: pemanggil gabungan mengumpulkan beberapa kegagalan
+// sekaligus, dan tiga toast berturut-turut saling menimpa sampai yang terbaca
+// cuma yang terakhir.
+async function terapkanKotak(kind, wb, fileName) {
+  if (kind === 'tracker') {
     const sheets = wb.sheetNames.map(n => ({ name: n, count: wb.countRows(n) }));
     const pref = sheets.find(s => /master\s*tracker/i.test(s.name)) || sheets[0];
     setUI({
-      lsWb: wb, lsSheets: sheets, lsSheet: (pref || {}).name, lsFile: file.name,
-      lsBox1: { fileName: file.name, note: tr({ id: `${sheets.length} sheet`, en: `${sheets.length} sheets`, zh: `${sheets.length} 个工作表` }) },
+      lsWb: wb, lsSheets: sheets, lsSheet: (pref || {}).name, lsFile: fileName,
+      lsBox1: { fileName, note: tr({ id: `${sheets.length} sheet`, en: `${sheets.length} sheets`, zh: `${sheets.length} 个工作表` }) },
+      // Workbook yang sama biasanya juga membawa daftar belinya. Dibaca di sini,
+      // disimpan mentah, dan baru diadu dengan stok SETELAH stoknya tersimpan —
+      // lihat catatan di applyUpload().
+      lsOrder: bacaSheetOrder(wb, fileName),
     });
-    return;
+    return null;
   }
 
   // Rencana: langsung dibaca. Tidak ada pilihan sheet — nama sheetnya sendiri
   // yang menentukan, dan itu sudah diverifikasi ke file Juli maupun Agustus.
-  const sheetName = planSheetName(wb.sheetNames, box.kind);
-  const parse = box.kind === 'production' ? parseProductionPlan : parseSalesPlan;
+  const sheetName = planSheetName(wb.sheetNames, kind);
+  const parse = kind === 'production' ? parseProductionPlan : parseSalesPlan;
   let res;
   try {
     res = parse(wb.rows(sheetName));
   } catch (e) {
     console.error(e);
-    toast({ id: 'Gagal baca rencana: ' + (e.message || e), en: 'Failed to read the plan: ' + (e.message || e), zh: '读取计划失败：' + (e.message || e) });
-    return;
+    return { id: 'Gagal baca rencana: ' + (e.message || e), en: 'Failed to read the plan: ' + (e.message || e), zh: '读取计划失败：' + (e.message || e) };
   }
-  if (!res.ok) { toast(res.error); return; }
+  if (!res.ok) return res.error;
 
   const month = planMonth(sheetName);
   setUI({
-    [BOX_STATE[box.kind]]: {
-      fileName: file.name,
+    [BOX_STATE[kind]]: {
+      fileName,
       sheetName,
       month,
       plan: res,
@@ -369,6 +544,49 @@ async function handleBoxFile(box, file) {
       }),
     },
   });
+  return null;
+}
+
+// DAFTAR BELI IKUT DIBACA DARI WORKBOOK YANG SAMA
+// ---------------------------------------------------------------------------
+// Berkas bulanan sona berisi tiga hal, bukan dua: stok, rencana, DAN daftar
+// yang mau dibeli (sheet local / export / newitems / 加急优先下单). Selama ini
+// yang ketiga dilewati, lalu disusun ulang dengan tangan di layar lain.
+//
+// Sheet order dikenali dari HEADER-nya, bukan namanya — nama sheet berubah tiap
+// bulan dan tiap orang, kolomnya tidak. Diuji ke berkas Agustus: 4 sheet order
+// lolos, 10 sheet produksi (排产计划, 轮胎重量, 硫化工艺, …) semuanya ditolak,
+// termasuk 排产计划 yang punya kolom 市场 dan tetap ditolak karena tidak punya
+// ERP CODE.
+//
+// Sheet yang gagal diparse TIDAK menjatuhkan sisanya — dia dicatat di `gagal`
+// dan yang lain jalan terus. Ini fitur pinggiran; unggah stok tidak boleh mati
+// karenanya.
+function bacaSheetOrder(wb, fileName) {
+  let peta;
+  try {
+    peta = petakanWorkbook(wb.sheetNames, n => wb.headRows(n, 8));
+  } catch (e) {
+    console.warn('deteksi sheet order gagal (tidak fatal):', e);
+    return null;
+  }
+  if (!peta.order.length) return null;
+
+  const st = getState();
+  const knownErps = new Set((st.items || []).map(i => i.erp).filter(Boolean));
+  const bagian = [], gagal = [];
+  for (const o of peta.order) {
+    try {
+      const res = parseLabelSheet(wb.rows(o.nama), { brandMap: st.brandMap || [], knownErps });
+      if (!res.ok) { gagal.push({ sheet: o.nama, alasan: tr(res.error) }); continue; }
+      bagian.push({ sheet: o.nama, kategori: o.kategori, items: res.items });
+    } catch (e) {
+      console.warn('sheet order gagal diparse:', o.nama, e);
+      gagal.push({ sheet: o.nama, alasan: String((e && e.message) || e) });
+    }
+  }
+  if (!bagian.length) return null;
+  return { fileName, at: new Date().toISOString(), bagian, gagal, bukan: peta.bukan };
 }
 
 function clearBox(kind) {
@@ -729,12 +947,29 @@ async function applyUpload() {
   const ups = await fetchLabelUploads();
   if (ups) getState().labelUploads = ups;
 
+  // Daftar beli dipasang SETELAH stok baru masuk, bukan sebelumnya.
+  //
+  // Silangnya ("spec ini sudah overstock, jangan dibeli lagi") harus diadu ke
+  // stok TERBARU — yaitu stok yang baru saja diunggah dalam berkas yang sama.
+  // Memasangnya lebih awal berarti menilai daftar beli bulan ini dengan angka
+  // stok bulan lalu, dan itu justru jenis kesalahan yang fitur ini ada untuk
+  // mencegahnya.
+  const ord = st.ui.lsOrder;
+  if (ord && ord.bagian && ord.bagian.length) {
+    getState().labelBuyRaw = ord;
+    logAudit({
+      entity: 'label_stock', target: ord.fileName, action: 'buylist',
+      detail: `${ord.bagian.length} sheet order dibaca: ` +
+        ord.bagian.map(b => `${b.sheet} (${b.items.length})`).join(', '),
+    });
+  }
+
   logAudit({
     entity: 'label_stock', target: fileName || sheetName, action: 'upload',
     detail: `${res.stats.imported} SKU masuk · ${res.stats.duplicated} dobel dilewati · ${res.stats.mismatched} rumus tidak cocok`
       + (plan ? ` · ${plan.stats.touched} angka rencana dikoreksi dari file (${plan.stats.toBuyNow} jadi BUY NOW)` : ''),
   });
-  setUI({ lsPreview: null, lsWb: null, lsSheets: null, lsSheet: null, lsFile: null, lsBox1: null, lsBox2: null, lsBox3: null });
+  setUI({ lsPreview: null, lsWb: null, lsSheets: null, lsSheet: null, lsFile: null, lsBox1: null, lsBox2: null, lsBox3: null, lsOrder: null });
   toast(plan && plan.stats.touched
     ? {
         id: `${res.stats.imported} SKU tersimpan · ${plan.stats.touched} angka rencana dikoreksi dari file`,
@@ -804,201 +1039,577 @@ function masterTab(st) {
 // jalur manual.
 // ---------------------------------------------------------------------------
 const pickKey = r => `${String(r.spec).trim().toUpperCase()}||${String(r.market || '').trim().toUpperCase()}`;
+// ===========================================================================
+// BUY NOW
+// ===========================================================================
+// Dulu tab ini cuma menampilkan hasil hitungan portal: baris yang stoknya di
+// bawah kebutuhan. Itu menjawab "apa yang menurut angka kurang" — dan tidak
+// menjawab "apa yang sona minta dibeli", yang selama ini hidup di sheet order
+// di dalam berkas yang sama dan tidak pernah dibaca.
+//
+// Sekarang dua-duanya di satu layar, sebagai SATU daftar. Barang yang muncul
+// di dua-duanya jadi satu baris, bukan dua — dua baris untuk barang yang sama
+// adalah cara paling rapi untuk memesannya dua kali.
+//
+// Tiga hal yang layar ini WAJIB tunjukkan, dan yang ketiga paling sering lupa
+// dibuat orang:
+//   1. yang diminta padahal stoknya sudah berlebih  → ⛔ STOP
+//   2. yang portal setujui                          → ✓
+//   3. YANG PORTAL TIDAK BISA CEK SAMA SEKALI       → ⚠
+// Nomor 3 itu 114 dari 129 baris di berkas Agustus. Kalau layar cuma menulis
+// "8 overstock", orang membacanya sebagai "sisanya aman" — padahal untuk 114
+// baris portal tidak tahu apa-apa. Diam bukan berarti aman, jadi angkanya
+// dipasang sama besar dengan yang lain.
+// ---------------------------------------------------------------------------
+const TANDA_UI = {
+  [TANDA.STOP]: { tone: 'red',   label: { id: '⛔ stop', en: '⛔ stop', zh: '⛔ 停止' } },
+  [TANDA.CEK]:  { tone: 'amber', label: { id: '⚠ tak bisa dicek', en: '⚠ cannot check', zh: '⚠ 无法核对' } },
+  [TANDA.OK]:   { tone: 'green', label: { id: '✓ aman', en: '✓ clear', zh: '✓ 可采购' } },
+};
 
-// Baris request dibentuk sama persis dengan hasil parseLabelSheet, supaya
-// layar Label Request, modal PO, dan pengecekan desain tidak perlu tahu request
-// ini datang dari mana. Yang tidak ada di tracker diambil dari master item lewat
-// kode ERP — itulah gunanya 966 kode yang baru disuntik.
-function requestRowsFrom(st, rows) {
+// Disusun ulang tiap render dari data mentah — lihat catatan labelBuyRaw di
+// core/store.js. Tanpa berkas order, hasilnya persis daftar lama: baris BUY NOW
+// hitungan portal, tidak lebih dan tidak kurang.
+export function daftarBeliSekarang(st) {
+  const raw = st.labelBuyRaw;
+  const daftar = raw && raw.bagian && raw.bagian.length
+    ? susunDaftarBeli(st, raw.bagian)
+    : { rows: [], kodeGanda: [], stats: hitungKosong() };
+  return { daftar, rows: gabungDenganPortal(st, daftar) };
+}
+const hitungKosong = () => ({ total: 0, stop: 0, cek: 0, ok: 0, mintaTotal: 0, marketAsing: 0, lewatSpec: 0, kodeGanda: 0 });
+
+// Untuk label tab. Dibungkus try/catch karena dia dipanggil saat MENGGAMBAR
+// KERANGKA layar — kalau dia melempar, seluruh layar Stok Label mati, termasuk
+// tab-tab yang tidak ada hubungannya. Aturan yang sudah berlaku di portal ini:
+// fitur pinggiran tidak boleh menjatuhkan fitur inti.
+function jumlahBeli(st) {
+  try { return daftarBeliSekarang(st).rows.length; }
+  catch (e) {
+    console.warn('daftar beli gagal disusun (tidak fatal):', e);
+    return (st.labelStock || []).filter(r => r.status === 'BUY NOW').length;
+  }
+}
+
+function saringBeli(st, rows) {
+  const ui = st.ui;
+  const q = (ui.lsbQ || '').toLowerCase().trim();
+  const mk = ui.lsbMarket || '', br = ui.lsbBrand || '', kt = ui.lsbKat || '', td = ui.lsbTanda || '';
+  return rows.filter(r =>
+    (!q || `${r.spec} ${r.erp} ${r.brand}`.toLowerCase().includes(q)) &&
+    (!mk || r.market === mk) &&
+    (!br || r.brand === br) &&
+    (!kt || r.kategori === kt) &&
+    (!td || r.tanda === td));
+}
+
+function buyNowTab(st) {
+  const { daftar, rows: semua } = daftarBeliSekarang(st);
+  const ui = st.ui;
+  const rows = saringBeli(st, semua);
+  const dariFile = semua.filter(r => r.asal === 'file').length;
+  const dariPortal = semua.filter(r => r.asal === 'portal').length;
+  const s = daftar.stats;
+
+  const tile = (label, value, sub, tone) => h('div.card', { style: { padding: '13px 16px', flex: '1', minWidth: '140px' } }, [
+    h('div', { style: { fontSize: '10.5px', fontWeight: 700, color: 'var(--text-3)', letterSpacing: '.04em' } }, label),
+    h('div.mono', { style: { fontSize: '19px', fontWeight: 800, marginTop: '4px', color: tone ? `var(--st-${tone}-tx)` : 'var(--text)' } }, value),
+    sub ? h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', marginTop: '2px' } }, sub) : null,
+  ]);
+
+  const opsi = (kosong, nilai) => [{ value: '', label: kosong }, ...nilai.map(v => ({ value: v, label: v }))];
+  const daftarMarket = [...new Set(semua.map(r => r.market).filter(Boolean))].sort();
+  const daftarBrand = [...new Set(semua.map(r => r.brand).filter(Boolean))].sort();
+
+  return h('div.stack', [
+    dariFile ? h('div.row.gap8.wrap', [
+      tile(tr({ id: 'DIMINTA DI FILE', en: 'REQUESTED IN FILE', zh: '文件中申请' }), num(dariFile),
+        tr({ id: `${(st.labelBuyRaw.bagian || []).length} sheet order`, en: `${(st.labelBuyRaw.bagian || []).length} order sheets`, zh: `${(st.labelBuyRaw.bagian || []).length} 个订单工作表` })),
+      tile(tr({ id: 'PORTAL: HARUS BELI', en: 'PORTAL: MUST BUY', zh: '门户：需采购' }), num(dariPortal),
+        tr({ id: 'tidak diminta di file', en: 'not requested in the file', zh: '文件中未申请' }), 'red'),
+      tile(tr({ id: '⛔ STOP', en: '⛔ STOP', zh: '⛔ 停止' }), num(s.stop),
+        tr({ id: 'diminta tapi stok berlebih', en: 'requested but overstocked', zh: '已申请但库存过剩' }), s.stop ? 'red' : null),
+      tile(tr({ id: 'TAK BISA DICEK', en: 'CANNOT CHECK', zh: '无法核对' }), num(s.cek),
+        tr({ id: 'belum ada di tracker', en: 'not in the tracker yet', zh: '跟踪表中尚无' }), s.cek ? 'amber' : null),
+      tile(tr({ id: 'AMAN', en: 'CLEAR', zh: '可采购' }), num(s.ok + dariPortal),
+        tr({ id: 'file & portal sepakat', en: 'file and portal agree', zh: '文件与门户一致' }), 'green'),
+    ]) : null,
+
+    s.stop ? bannerStop(semua) : null,
+    daftar.kodeGanda.length ? bannerKodeGanda(daftar.kodeGanda) : null,
+    s.cek ? h('div.cfg-banner', { style: { display: 'block', background: 'var(--st-amber-bg)', color: 'var(--st-amber-tx)', borderColor: 'var(--st-amber-tx)' } }, [
+      h('div', { style: { fontWeight: 700 } }, [icon('warn', 14), tr({
+        id: ` ${s.cek} baris tidak bisa diadu dengan stok — spec-nya belum ada di tracker`,
+        en: ` ${s.cek} rows cannot be checked against stock — the spec is not in the tracker yet`,
+        zh: ` ${s.cek} 行无法与库存核对 — 该规格尚未出现在跟踪表中`,
+      })]),
+      h('div', { style: { fontSize: '10.5px', marginTop: '3px' } }, tr({
+        id: 'Portal tidak punya angka stoknya, jadi dia tidak bilang apa-apa soal baris ini. TIDAK ADA PERINGATAN BUKAN BERARTI AMAN — angka ini ditulis di sini justru supaya tidak dibaca sebagai lampu hijau.',
+        en: 'The portal has no stock figure for these, so it says nothing about them. NO WARNING DOES NOT MEAN SAFE — this number is printed here precisely so the silence is not read as a green light.',
+        zh: '门户没有这些行的库存数据，因此无法作出判断。没有警告不等于安全 — 此数字在此列出，正是为了避免把沉默当成放行。',
+      })),
+      s.lewatSpec ? h('div', { style: { fontSize: '10.5px', marginTop: '3px' } }, tr({
+        id: `${s.lewatSpec} baris dicocokkan lewat NAMA SPEC, bukan kode ERP — lebih rawan meleset.`,
+        en: `${s.lewatSpec} rows were matched on the SPEC NAME, not the ERP code — more prone to error.`,
+        zh: `${s.lewatSpec} 行按规格名称匹配，而非 ERP 编码 — 更容易出错。`,
+      })) : null,
+    ]) : null,
+    s.marketBeda ? h('div.cfg-banner', { style: { display: 'block', background: 'var(--st-red-bg)', color: 'var(--st-red-tx)', borderColor: 'var(--st-red-tx)' } }, [
+      h('div', { style: { fontWeight: 700 } }, [icon('warn', 14), tr({
+        id: ` ${s.marketBeda} barang market-nya berbeda antar sheet — salah satunya pasti salah`,
+        en: ` ${s.marketBeda} items have a different market in different sheets — one of them must be wrong`,
+        zh: ` ${s.marketBeda} 个产品在不同工作表中的市场不一致 — 其中必有一个是错的`,
+      })]),
+      h('div', { style: { fontSize: '10.5px', marginTop: '3px' } }, tr({
+        id: 'Dibandingkan SETELAH nama tujuan Tionghoa disamakan (印尼 dan SNI dianggap sama), jadi yang tersisa memang beda pasar sungguhan. Portal tidak memilih — lihat kolom Market, lawannya disebut di sana.',
+        en: 'Compared AFTER the Chinese destination names are normalised (印尼 and SNI count as the same), so what remains is a genuine market difference. The portal does not pick — see the Market column, the alternative is named there.',
+        zh: '比较是在中文目的地名称统一之后进行的（印尼 与 SNI 视为相同），因此剩下的是真正的市场差异。门户不作选择 — 请查看市场列，其中已列出另一个值。',
+      })),
+    ]) : null,
+    s.marketAsing ? h('div.cfg-banner', [icon('warn', 14), tr({
+      id: ` ${s.marketAsing} baris market-nya tidak dikenal — dibiarkan apa adanya, tidak ditebak`,
+      en: ` ${s.marketAsing} rows have an unrecognised market — left as-is, not guessed`,
+      zh: ` ${s.marketAsing} 行的市场无法识别 — 保持原样，不作推测`,
+    })]) : null,
+
+    // Penyaring. Market dan brand diambil dari isinya sendiri, bukan daftar
+    // tetap — daftar tetap akan ketinggalan begitu ada brand baru masuk.
+    h('div.card', { style: { padding: '11px 14px' } }, h('div.row.gap8.wrap', [
+      searchInput({
+        id: 'lsb-q', placeholder: tr({ id: 'Cari spec / ERP / brand…', en: 'Search spec / ERP / brand…', zh: '搜索规格 / ERP / 品牌…' }),
+        value: ui.lsbQ || '', onChange: v => setUI({ lsbQ: v }),
+      }),
+      selectEl(opsi(tr({ id: 'Semua market', en: 'All markets', zh: '全部市场' }), daftarMarket),
+        { value: ui.lsbMarket || '', onChange: v => setUI({ lsbMarket: v }) }),
+      selectEl(opsi(tr({ id: 'Semua brand', en: 'All brands', zh: '全部品牌' }), daftarBrand),
+        { value: ui.lsbBrand || '', onChange: v => setUI({ lsbBrand: v }) }),
+      dariFile ? selectEl([
+        { value: '', label: tr({ id: 'Semua kategori', en: 'All categories', zh: '全部类别' }) },
+        ...[...new Set(semua.map(r => r.kategori).filter(Boolean))].map(k => ({ value: k, label: tr(labelKategori(k)) })),
+      ], { value: ui.lsbKat || '', onChange: v => setUI({ lsbKat: v }) }) : null,
+      selectEl([
+        { value: '', label: tr({ id: 'Semua status', en: 'All statuses', zh: '全部状态' }) },
+        { value: TANDA.STOP, label: tr(TANDA_UI[TANDA.STOP].label) },
+        { value: TANDA.CEK, label: tr(TANDA_UI[TANDA.CEK].label) },
+        { value: TANDA.OK, label: tr(TANDA_UI[TANDA.OK].label) },
+      ], { value: ui.lsbTanda || '', onChange: v => setUI({ lsbTanda: v }) }),
+      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
+        id: `${rows.length} dari ${semua.length}`, en: `${rows.length} of ${semua.length}`, zh: `${semua.length} 中的 ${rows.length}`,
+      })),
+      h('div.mla.row.gap8', [
+        btn(tr({ id: 'Kosongkan filter', en: 'Clear filters', zh: '清除筛选' }), {
+          sm: true, onClick: () => setUI({ lsbQ: '', lsbMarket: '', lsbBrand: '', lsbKat: '', lsbTanda: '' }),
+        }),
+        btn(tr({ id: 'Export Excel', en: 'Export Excel', zh: '导出 Excel' }), { sm: true, iconName: 'download', onClick: () => exportBeli(rows) }),
+      ]),
+    ])),
+
+    barKirim(st, rows, semua),
+    tabelBeli(st, rows),
+  ]);
+}
+
+// Jumlah yang benar-benar dipesan untuk satu baris. Kotak isian menang atas
+// angka bawaan — sona yang tahu hal-hal yang tidak ada di sheet mana pun: sisa
+// gulungan di gudang, order yang sudah jalan tapi belum tercatat.
+function qtyPesan(st, r) {
+  const v = (st.ui.lsQty || {})[r.kunci];
+  const n = Number(v);
+  if (v !== undefined && v !== '' && Number.isFinite(n)) return Math.max(0, n);
+  return Number(r.pesan) || 0;
+}
+
+function barKirim(st, rows, semua) {
+  const sel = st.ui.lsPick || {};
+  const dipilih = semua.filter(r => sel[r.kunci]);
+  const total = dipilih.reduce((s, r) => s + qtyPesan(st, r), 0);
+  const nolan = dipilih.filter(r => qtyPesan(st, r) <= 0);
+  const stopDipilih = dipilih.filter(r => r.tanda === TANDA.STOP);
+  const bisa = rows.filter(bolehPilihSemua);
+  const semuaOn = bisa.length > 0 && bisa.every(r => sel[r.kunci]);
+  const mayAsk = can(st.user.role, 'labelRequestAsk');
+
+  return h('div.card', { style: { padding: '12px 16px' } }, h('div.row.gap12.wrap', { style: { alignItems: 'center' } }, [
+    h('label.row.gap8', { style: { alignItems: 'center', cursor: 'pointer', fontSize: '12px' } }, [
+      h('input', {
+        type: 'checkbox', checked: semuaOn,
+        style: { accentColor: 'var(--accent)', cursor: 'pointer' },
+        // "Pilih semua" TIDAK PERNAH mencentang baris STOP, dan itu inti
+        // seluruh fitur ini. Sekali dia ikut tercentang, seluruh peringatannya
+        // jadi hiasan — orang mencentang semua, mengirim, dan peringatan yang
+        // sudah dihitung dengan susah payah tidak mengubah apa pun.
+        onChange: e => {
+          const s = { ...(getState().ui.lsPick || {}) };
+          for (const r of rows) {
+            if (e.target.checked && bolehPilihSemua(r)) s[r.kunci] = true;
+            else delete s[r.kunci];
+          }
+          setUI({ lsPick: s });
+        },
+      }),
+      tr({ id: 'Pilih semua yang aman', en: 'Select all that are clear', zh: '全选可采购项' }),
+      h('span', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, tr({
+        id: '(baris ⛔ stop dilewati)', en: '(⛔ stop rows are skipped)', zh: '（跳过 ⛔ 停止行）',
+      })),
+    ]),
+    dipilih.length
+      ? h('span', { style: { fontSize: '12px' } }, [
+          h('b', tr({ id: `${dipilih.length} SKU dipilih`, en: `${dipilih.length} SKU selected`, zh: `已选择 ${dipilih.length} 个 SKU` })),
+          h('span', { style: { color: 'var(--text-3)' } }, tr({
+            id: ` · total ${num(total)} lembar`, en: ` · ${num(total)} sheets in total`, zh: ` · 共 ${num(total)} 张`,
+          })),
+        ])
+      : h('span', { style: { fontSize: '11.5px', color: 'var(--text-3)' } }, tr({
+          id: 'Centang yang mau dipesan. Jumlahnya sudah terisi — boleh diubah.',
+          en: 'Tick what to order. The quantities are pre-filled — editable.',
+          zh: '勾选要订购的项目。数量已预填 — 可修改。',
+        })),
+    stopDipilih.length ? badge(tr({
+      id: `${stopDipilih.length} baris ⛔ stop ikut dicentang`,
+      en: `${stopDipilih.length} ⛔ stop rows are ticked`,
+      zh: `已勾选 ${stopDipilih.length} 个 ⛔ 停止行`,
+    }), 'red', { iconName: 'warn' }) : null,
+    nolan.length ? badge(tr({
+      id: `${nolan.length} baris jumlahnya 0`, en: `${nolan.length} rows have qty 0`, zh: `${nolan.length} 行数量为 0`,
+    }), 'amber') : null,
+    h('div.mla.row.gap8', [
+      mayAsk ? btn(tr({ id: 'Kirim ke Label Request →', en: 'Send to Label Request →', zh: '发送至标签申请 →' }), {
+        variant: 'primary', disabled: !dipilih.length, onClick: () => kirimDaftarBeli(),
+      }) : null,
+    ]),
+  ]));
+}
+
+// Satu kiriman = satu permintaan PER KATEGORI.
+//
+// Kategorinya ikut dari sheet asalnya (local / export / newitems / 加急), jadi
+// sona tidak perlu memilihnya lagi. Cania membuka "Export", membuat PO, tutup —
+// bukan satu gumpalan yang harus dia pilah sendiri.
+//
+// Baris yang datang dari hitungan portal tidak punya kategori: dia masuk ke
+// permintaannya sendiri, dan itu jujur — portal memang tidak tahu barang itu
+// untuk lokal atau ekspor.
+async function kirimDaftarBeli() {
+  if (blockWrite('kirim request label')) return;
+  const st = getState();
+  const sel = st.ui.lsPick || {};
+  const { rows: semua } = daftarBeliSekarang(st);
+  const dipilih = semua.filter(r => sel[r.kunci]);
+  if (!dipilih.length) {
+    toast({ id: 'Centang dulu yang mau dipesan', en: 'Tick what to order first', zh: '请先勾选要订购的项目' });
+    return;
+  }
+  const nolan = dipilih.filter(r => qtyPesan(st, r) <= 0);
+  if (nolan.length) {
+    toast({
+      id: `${nolan.length} baris jumlahnya 0 — isi dulu, atau lepas centangnya.`,
+      en: `${nolan.length} rows have qty 0 — fill it in, or untick them.`,
+      zh: `${nolan.length} 行数量为 0 — 请填写数量或取消勾选。`,
+    });
+    return;
+  }
+
+  const grup = new Map();
+  for (const r of dipilih) {
+    const k = r.kategori || 'portal';
+    if (!grup.has(k)) grup.set(k, []);
+    grup.get(k).push(r);
+  }
+
+  const berhasil = [], gagal = [];
+  for (const [kat, baris] of grup) {
+    const items = barisPermintaan(st, baris);
+    const local = {
+      file: kat === 'portal'
+        ? tr({ id: 'Stok Label — hitungan portal', en: 'Label Stock — portal calculation', zh: '标签库存 — 门户计算' })
+        : tr({ id: `Stok Label — ${tr(labelKategori(kat))}`, en: `Label Stock — ${tr(labelKategori(kat))}`, zh: `标签库存 — ${tr(labelKategori(kat))}` }),
+      sheet: `${kat === 'portal' ? 'BUY NOW' : kat} · ${fmtDate(new Date())}`,
+      rows: items,
+      by: st.user.username, at: new Date().toISOString(), status: 'Diminta',
+    };
+    try {
+      const saved = await insertLabelRequest(local);
+      st.labelRequests.unshift(saved && saved.id ? saved : { ...local, id: uid('lr') });
+      berhasil.push({ kat, n: items.length });
+    } catch (e) {
+      console.error('insertLabelRequest gagal untuk kategori', kat, e);
+      gagal.push(kat);
+    }
+  }
+
+  if (!berhasil.length) {
+    toast({
+      id: 'Gagal kirim request — centangan tidak dihapus, coba lagi.',
+      en: 'Failed to send the request — the ticks are kept, try again.',
+      zh: '发送申请失败 — 勾选保留，请重试。',
+    });
+    return;
+  }
+
+  // Yang berhasil DIHAPUS centangnya, yang gagal DIBIARKAN. Menghapus semuanya
+  // berarti kategori yang gagal hilang tanpa jejak dan sona mengira sudah
+  // terkirim; membiarkan semuanya berarti dia mengirim ulang yang sudah masuk.
+  const katBerhasil = new Set(berhasil.map(b => b.kat));
+  const sisa = { ...sel };
+  for (const r of dipilih) if (katBerhasil.has(r.kategori || 'portal')) delete sisa[r.kunci];
+  setUI({ lsPick: sisa });
+
+  const totalBaris = berhasil.reduce((s, b) => s + b.n, 0);
+  const stopIkut = dipilih.filter(r => r.tanda === TANDA.STOP && katBerhasil.has(r.kategori || 'portal')).length;
+  logAudit({
+    entity: 'label_request', target: `${totalBaris} SKU`, action: 'request',
+    detail: `dari BUY NOW · ${berhasil.length} permintaan (${berhasil.map(b => b.kat).join(', ')})`
+      + (stopIkut ? ` · ${stopIkut} baris OVERSTOCK sengaja diikutkan` : ''),
+  });
+  toast(gagal.length
+    ? {
+        id: `${berhasil.length} permintaan terkirim · ${gagal.length} gagal (${gagal.join(', ')}) — centangannya masih ada.`,
+        en: `${berhasil.length} requests sent · ${gagal.length} failed (${gagal.join(', ')}) — their ticks are kept.`,
+        zh: `已发送 ${berhasil.length} 份申请 · ${gagal.length} 份失败（${gagal.join('、')}）— 其勾选已保留。`,
+      }
+    : {
+        id: `${berhasil.length} permintaan · ${totalBaris} SKU dikirim — cania & visca yang lanjutkan jadi PO.`,
+        en: `${berhasil.length} requests · ${totalBaris} SKU sent — cania & visca take it on to a PO.`,
+        zh: `${berhasil.length} 份申请 · ${totalBaris} 个 SKU 已发送 — 由 cania 与 visca 继续开立采购单。`,
+      });
+  setState({});
+}
+
+// Baris permintaan dibentuk sama persis dengan hasil parseLabelSheet, supaya
+// layar Label Request, modal PO, dan template ERP tidak perlu tahu permintaan
+// ini datang dari mana.
+function barisPermintaan(st, rows) {
   const byErp = new Map((st.items || []).map(i => [String(i.erp || '').trim(), i]));
   return rows.map((r, i) => {
     const it = byErp.get(String(r.erp || '').trim()) || {};
-    const qty = Number(st.ui.lsQty && st.ui.lsQty[pickKey(r)]);
     return {
       market: r.market || it.market || '',
       spec: r.spec,
       erp: r.erp || '',
       ean: it.ean || '',
-      brand: it.brand || '',
+      brand: r.brand || it.brand || '',
       ttl: '', pr: '', ms: it.ms || '',
-      qty: Number.isFinite(qty) && qty > 0 ? qty : (Number(r.suggestedQty) || 0),
+      qty: qtyPesan(st, r),
       unit: it.unit || '张',
       rr: it.rr || '', noise: it.noise || '',
       nameEn: it.nameEn || '', nameZh: it.nameZh || '',
       hasTemplate: (st.designs || []).some(d => d.erp && d.erp === r.erp),
-      // Tanpa kode ERP, purchasing tidak bisa menyambungkan baris ini ke barang
-      // mana pun. Ditandai baru supaya layar Label Request menyorotinya, bukan
-      // meloloskannya diam-diam.
       isNew: !r.erp,
-      section: 'buynow',
+      kategori: r.kategori || null,
+      section: r.asal === 'file' ? (r.sheet || 'file') : 'buynow',
       _row: i + 1,
       // Jejak balik ke angka yang melahirkan permintaan ini. Kalau enam bulan
       // lagi ada yang bertanya "kenapa pesan 12.500?", jawabannya ada di baris
       // ini, bukan di ingatan orang.
-      _from: { stock: r.stock, requirement: r.requirement, surplus: r.surplus, suggested: r.suggestedQty },
-      // Peringatan pesanan berulang IKUT TERSIMPAN, bukan cuma tampil sekilas
-      // di layar Sona. Yang membuat PO-nya cania/visca — merekalah yang punya
-      // daftar PO di depan mata dan bisa memutuskan. Peringatan yang berhenti
-      // di layar orang pertama tidak menolong orang kedua.
+      _from: { stock: r.stok, requirement: r.kebutuhan, status: r.status, minta: r.minta, sheet: r.sheet },
+      // Peringatan IKUT TERSIMPAN, bukan berhenti di layar sona. Yang membuat
+      // PO-nya cania/visca — merekalah yang bisa membatalkannya.
+      _stop: r.tanda === TANDA.STOP ? { status: r.status, stok: r.stok, kebutuhan: r.kebutuhan } : null,
+      _takBisaDicek: r.tanda === TANDA.CEK || undefined,
+      _kodeGanda: (r.kodeGanda && r.kodeGanda.length) ? r.kodeGanda : undefined,
       _recentOrders: (recentOrdersFor(st, r) || []).slice(0, 3)
         .map(o => ({ poNo: o.poNo, umur: o.umur, qty: o.qty, outstanding: o.outstanding, status: o.status })),
     };
   });
 }
 
-async function sendBuyNowToRequest() {
-  if (blockWrite('kirim request label')) return;
+async function exportBeli(rows) {
   const st = getState();
-  const sel = st.ui.lsPick || {};
-  const rows = (st.labelStock || []).filter(r => r.status === 'BUY NOW' && sel[pickKey(r)]);
-  if (!rows.length) {
-    toast({ id: 'Centang dulu SKU yang mau dipesan', en: 'Tick the SKUs to order first', zh: '请先勾选要订购的 SKU' });
-    return;
+  const aoa = [[
+    'Spec', 'ERP', 'Market', 'Market di file', 'Brand', 'Kategori', 'Sheet',
+    'Stok', 'Kebutuhan', 'Status portal', 'Tanda', 'Minta', 'Pesan',
+  ]];
+  for (const r of rows) {
+    aoa.push([
+      r.spec, r.erp || '', r.market || '', r.marketAsal || '', r.brand || '',
+      r.kategori ? tr(labelKategori(r.kategori)) : '', r.sheet || '',
+      r.stok == null ? '' : r.stok, r.kebutuhan == null ? '' : r.kebutuhan,
+      r.status || '', r.tanda, r.minta == null ? '' : r.minta, qtyPesan(st, r),
+    ]);
   }
-  const items = requestRowsFrom(st, rows);
-  const zero = items.filter(r => !r.qty).length;
-  if (zero) {
-    toast({
-      id: `${zero} baris qty-nya 0 — isi dulu jumlahnya.`,
-      en: `${zero} rows have qty 0 — fill the quantity first.`,
-      zh: `${zero} 行数量为 0 — 请先填写数量。`,
-    });
-    return;
-  }
-
-  const local = {
-    file: tr({ id: 'Dari layar Stok Label (BUY NOW)', en: 'From the Label Stock screen (BUY NOW)', zh: '来自标签库存页面（需采购）' }),
-    sheet: `BUY NOW · ${fmtDate(new Date())}`,
-    rows: items,
-    by: st.user.username, at: new Date().toISOString(), status: 'Diminta',
-  };
-  try {
-    const saved = await insertLabelRequest(local);
-    st.labelRequests.unshift(saved && saved.id ? saved : { ...local, id: uid('lr') });
-  } catch (e) {
-    console.error('insertLabelRequest failed', e);
-    toast({
-      id: 'Gagal kirim request: ' + (e.message || e),
-      en: 'Failed to send the request: ' + (e.message || e),
-      zh: '发送申请失败：' + (e.message || e),
-    });
-    return;   // centangan sengaja dibiarkan supaya bisa dicoba lagi
-  }
-
-  logAudit({
-    entity: 'label_request', target: `${items.length} SKU`, action: 'request',
-    detail: `dari layar Stok Label · ${num(items.reduce((s, r) => s + r.qty, 0))} lembar`,
-  });
-  setUI({ lsPick: {}, lsQty: {} });
-  toast({
-    id: `${items.length} SKU dikirim ke Label Request — cania & visca yang lanjutkan jadi PO.`,
-    en: `${items.length} SKU sent to Label Request — cania & visca take it on to a PO.`,
-    zh: `${items.length} 个 SKU 已发送至标签申请 — 由 cania 与 visca 继续开立采购单。`,
-  });
-  setState({});
+  await writeWorkbook(`Daftar Beli Label - ${fmtDate(new Date())}.xlsx`, [{
+    name: 'Daftar Beli', aoa,
+    cols: [{ wch: 46 }, { wch: 18 }, { wch: 8 }, { wch: 12 }, { wch: 14 }, { wch: 11 }, { wch: 14 },
+           { wch: 10 }, { wch: 11 }, { wch: 13 }, { wch: 8 }, { wch: 10 }, { wch: 10 }],
+  }]);
 }
 
-function pickBar(st, rows) {
-  const sel = st.ui.lsPick || {};
-  const chosen = rows.filter(r => sel[pickKey(r)]);
-  // Dihitung dari yang DICENTANG, bukan dari seluruh daftar: peringatan yang
-  // menghitung baris yang tidak jadi dipesan akan diabaikan orang, dan sekali
-  // diabaikan dia tidak lagi menjadi peringatan.
-  const dobel = chosen
-    .map(r => ({ r, rec: recentOrdersFor(getState(), r) }))
-    .filter(x => x.rec.length);
-  const allOn = rows.length > 0 && chosen.length === rows.length;
-  const total = chosen.reduce((s, r) => {
-    const q = Number((st.ui.lsQty || {})[pickKey(r)]);
-    return s + (Number.isFinite(q) && q > 0 ? q : (Number(r.suggestedQty) || 0));
-  }, 0);
-  const mayAsk = can(st.user.role, 'labelRequestAsk');
-
-  const warn = dobel.length ? h('div', {
-    style: {
-      marginBottom: '10px', padding: '9px 12px', borderRadius: '8px',
-      background: 'var(--st-amber-bg)', color: 'var(--st-amber-tx)',
-      border: '1px solid var(--st-amber-tx)',
-    },
-  }, [
-    h('div', { style: { fontWeight: 700, fontSize: '12px' } }, [icon('warn', 13), tr({
-      id: ` ${dobel.length} dari ${chosen.length} SKU yang dicentang SUDAH dipesan dalam ${REORDER_WINDOW_DAYS} hari terakhir`,
-      en: ` ${dobel.length} of the ${chosen.length} ticked SKU were ALREADY ordered within the last ${REORDER_WINDOW_DAYS} days`,
-      zh: ` 已勾选的 ${chosen.length} 个 SKU 中有 ${dobel.length} 个在过去 ${REORDER_WINDOW_DAYS} 天内已订购`,
+function bannerStop(semua) {
+  const stop = semua.filter(r => r.tanda === TANDA.STOP)
+    .sort((a, b) => (b.stok / Math.max(b.kebutuhan, 1)) - (a.stok / Math.max(a.kebutuhan, 1)));
+  const t = stop[0];
+  return h('div.cfg-banner', { style: { display: 'block', background: 'var(--st-red-bg)', color: 'var(--st-red-tx)', borderColor: 'var(--st-red-tx)' } }, [
+    h('div', { style: { fontWeight: 700 } }, [icon('warn', 14), tr({
+      id: ` ${stop.length} spec diminta di Excel padahal stoknya SUDAH BERLEBIH`,
+      en: ` ${stop.length} specs are requested in the Excel even though stock is ALREADY OVER`,
+      zh: ` ${stop.length} 个规格在 Excel 中被申请采购，但库存已经过剩`,
     })]),
-    h('div', { style: { fontSize: '10.5px', margin: '3px 0 5px' } }, tr({
-      id: 'Stok baru berubah setelah barangnya datang dan Excel diunggah lagi — jadi SKU yang PO-nya sedang jalan tetap muncul di BUY NOW dengan angka yang sama. Ini peringatan, bukan larangan: kalau memang perlu dipesan lagi, lanjutkan.',
-      en: 'Stock only changes once the goods arrive and the Excel is uploaded again — so a SKU with a PO in flight still shows in BUY NOW with the same figures. This is a warning, not a block: if it genuinely needs reordering, carry on.',
-      zh: '库存要等货到并重新上传 Excel 后才会变化 — 因此在途采购单对应的 SKU 仍会以相同数值出现在需采购列表中。这是提醒而非阻止：若确需再次订购，请继续。',
+    h('div', { style: { fontSize: '10.5px', marginTop: '3px' } }, tr({
+      id: 'Barisnya TIDAK dihapus dan TIDAK dikunci — jumlahnya cuma dimulai dari nol, dan "Pilih semua" melewatinya. Kalau memang harus dibeli, centang sendiri; portal mencatat siapa yang memutuskan.',
+      en: 'The rows are NOT deleted and NOT locked — the quantity simply starts at zero, and "Select all" skips them. If it genuinely must be bought, tick it yourself; the portal records who decided.',
+      zh: '这些行不会被删除，也不会被锁定 — 数量从零开始，"全选"会跳过它们。若确实需要采购，请自行勾选；门户会记录决定人。',
     })),
-    ...dobel.slice(0, 5).map(x => h('div.mono', { style: { fontSize: '10px' } },
-      `• ${x.r.spec.slice(0, 38)} — ${x.rec[0].poNo}, ${x.rec[0].umur} hari lalu, ${num(x.rec[0].qty)}${x.rec[0].outstanding ? ` (sisa ${num(x.rec[0].outstanding)})` : ' (sudah diterima penuh)'}`)),
-    dobel.length > 5 ? h('div', { style: { fontSize: '10px' } }, tr({
-      id: `…dan ${dobel.length - 5} lagi`, en: `…and ${dobel.length - 5} more`, zh: `…还有 ${dobel.length - 5} 个`,
+    ...stop.slice(0, 4).map(r => h('div.mono', { style: { fontSize: '10px' } },
+      `• ${String(r.spec).slice(0, 40)} — minta ${num(r.minta)}, stok ${num(r.stok)}, kebutuhan ${num(r.kebutuhan)}`
+      + (r.kebutuhan > 0 ? ` (${Math.round(r.stok / r.kebutuhan)}× kebutuhan)` : ''))),
+    stop.length > 4 ? h('div', { style: { fontSize: '10px' } }, tr({
+      id: `…dan ${stop.length - 4} lagi — pakai filter status "⛔ stop"`,
+      en: `…and ${stop.length - 4} more — use the "⛔ stop" status filter`,
+      zh: `…还有 ${stop.length - 4} 个 — 请使用"⛔ 停止"状态筛选`,
     })) : null,
-  ]) : null;
-
-  return h('div.card', { style: { padding: '12px 16px' } }, [warn, h('div.row.gap12.wrap', { style: { alignItems: 'center' } }, [
-    h('label.row.gap8', { style: { alignItems: 'center', cursor: 'pointer', fontSize: '12px' } }, [
-      h('input', {
-        type: 'checkbox', checked: allOn,
-        style: { accentColor: 'var(--accent)', cursor: 'pointer' },
-        onChange: e => {
-          const s = {};
-          if (e.target.checked) rows.forEach(r => (s[pickKey(r)] = true));
-          setUI({ lsPick: s });
-        },
-      }),
-      tr({ id: 'Pilih semua', en: 'Select all', zh: '全选' }),
-    ]),
-    chosen.length
-      ? h('span', { style: { fontSize: '12px' } }, [
-          h('b', tr({
-            id: `${chosen.length} SKU dipilih`,
-            en: `${chosen.length} SKU selected`,
-            zh: `已选择 ${chosen.length} 个 SKU`,
-          })),
-          h('span', { style: { color: 'var(--text-3)' } }, tr({
-            id: ` · total ${num(total)} lembar`,
-            en: ` · ${num(total)} sheets in total`,
-            zh: ` · 共 ${num(total)} 张`,
-          })),
-        ])
-      : h('span', { style: { fontSize: '11.5px', color: 'var(--text-3)' } }, tr({
-          id: 'Centang SKU yang mau dipesan. Jumlahnya sudah diisi saran portal — boleh diubah.',
-          en: 'Tick the SKUs to order. Quantities are pre-filled with the portal\'s suggestion — editable.',
-          zh: '勾选要订购的 SKU。数量已按门户建议预填 — 可修改。',
-        })),
-    h('div.mla.row.gap8', [
-      btn(tr({ id: 'Export Excel', en: 'Export Excel', zh: '导出 Excel' }), { sm: true, iconName: 'download', onClick: () => exportRows(rows) }),
-      mayAsk
-        ? btn(tr({
-            id: `Kirim ke Label Request${chosen.length ? ` (${chosen.length})` : ''} →`,
-            en: `Send to Label Request${chosen.length ? ` (${chosen.length})` : ''} →`,
-            zh: `发送至标签申请${chosen.length ? `（${chosen.length}）` : ''} →`,
-          }), { variant: 'primary', sm: true, iconName: 'check', onClick: () => sendBuyNowToRequest() })
-        : null,
-    ]),
-  ])]);
+  ]);
 }
 
+// Satu kode ERP dipakai untuk dua spec berbeda. Ini bukan duplikat — ini salah
+// ketik, dan yang paling mahal jenisnya: kode ERP-lah yang menentukan barang
+// apa yang dicetak, nama spec cuma keterangan. Berkas 采购申请-nya akan lolos
+// impor tanpa keluhan karena kodenya sendiri sah.
+function bannerKodeGanda(list) {
+  return h('div.cfg-banner', { style: { display: 'block', background: 'var(--st-red-bg)', color: 'var(--st-red-tx)', borderColor: 'var(--st-red-tx)' } }, [
+    h('div', { style: { fontWeight: 700 } }, [icon('warn', 14), tr({
+      id: ` ${list.length} kode ERP dipakai untuk lebih dari satu spec — salah satunya pasti salah`,
+      en: ` ${list.length} ERP codes are used for more than one spec — one of them must be wrong`,
+      zh: ` ${list.length} 个 ERP 编码对应了多个规格 — 其中必有一个是错的`,
+    })]),
+    h('div', { style: { fontSize: '10.5px', marginTop: '3px' } }, tr({
+      id: 'Kode ERP yang menentukan barang apa yang dicetak; nama spec cuma keterangan. Kedua barisnya tetap ada dan tidak digabung — portal tidak punya cara untuk tahu mana yang benar. Betulkan di Excel, lalu unggah ulang.',
+      en: 'The ERP code decides what actually gets printed; the spec name is only a description. Both rows are kept and not merged — the portal has no way to know which is right. Fix it in the Excel and upload again.',
+      zh: 'ERP 编码决定实际印刷的产品，规格名称仅为说明。两行都会保留且不会合并 — 门户无从判断哪个正确。请在 Excel 中更正后重新上传。',
+    })),
+    ...list.slice(0, 3).map(g => h('div', { style: { marginTop: '5px' } }, [
+      h('div.mono', { style: { fontSize: '10.5px', fontWeight: 700 } }, g.erp),
+      ...g.baris.map(b => h('div.mono', { style: { fontSize: '10px', paddingLeft: '10px' } },
+        `↳ ${String(b.spec).slice(0, 46)} — ${num(b.minta)}`)),
+    ])),
+  ]);
+}
+
+function tabelBeli(st, rows) {
+  if (!rows.length) {
+    return card([h('div.card-pad', { style: { fontSize: '12px', color: 'var(--text-3)' } }, tr({
+      id: 'Tidak ada baris yang cocok dengan filter.',
+      en: 'No rows match the filter.',
+      zh: '没有符合筛选条件的行。',
+    }))]);
+  }
+  const sel = st.ui.lsPick || {};
+  const head = [
+    tr({ id: 'Spec', en: 'Spec', zh: '规格' }),
+    tr({ id: 'Market', en: 'Market', zh: '市场' }),
+    tr({ id: 'Brand', en: 'Brand', zh: '品牌' }),
+    tr({ id: 'Kategori', en: 'Category', zh: '类别' }),
+    tr({ id: 'Stok', en: 'Stock', zh: '库存' }),
+    tr({ id: 'Kebutuhan', en: 'Requirement', zh: '需求量' }),
+    tr({ id: 'Status', en: 'Status', zh: '状态' }),
+    tr({ id: 'Minta', en: 'Requested', zh: '申请量' }),
+    tr({ id: 'Pesan', en: 'Order', zh: '订购量' }),
+  ];
+  return h('div.card', h('div.tbl-wrap', h('table.tbl', [
+    h('thead', h('tr', [
+      h('th', { style: { width: '34px' } }),
+      ...head.map((c, i) => h('th' + (i >= 4 && i !== 6 ? '.r' : ''), c)),
+    ])),
+    h('tbody', rows.slice(0, 400).map(r => {
+      const t = TANDA_UI[r.tanda] || TANDA_UI[TANDA.OK];
+      return h('tr', {
+        // Latar merah tipis, bukan baris yang dicoret atau disembunyikan.
+        // Yang harus terjadi di sini adalah orangnya BERHENTI dan MEMBACA —
+        // bukan barisnya menghilang.
+        style: r.tanda === TANDA.STOP ? { background: 'var(--st-red-bg)' } : {},
+      }, [
+        h('td', h('input', {
+          type: 'checkbox', checked: !!sel[r.kunci],
+          style: { accentColor: 'var(--accent)', cursor: 'pointer' },
+          onChange: () => {
+            const s = { ...(getState().ui.lsPick || {}) };
+            if (s[r.kunci]) delete s[r.kunci]; else s[r.kunci] = true;
+            setUI({ lsPick: s });
+          },
+        })),
+        h('td.cell-strong', { style: { maxWidth: '300px' } }, [
+          r.spec,
+          r.erp ? h('div.mono', { style: { fontSize: '9.5px', color: 'var(--text-3)' } }, r.erp) : null,
+          r.kodeGanda && r.kodeGanda.length
+            ? h('div', { style: { marginTop: '2px' } }, badge(tr({
+                id: `kode dipakai juga oleh: ${r.kodeGanda.map(x => String(x.spec).slice(0, 26)).join(', ')}`,
+                en: `code also used by: ${r.kodeGanda.map(x => String(x.spec).slice(0, 26)).join(', ')}`,
+                zh: `此编码也用于：${r.kodeGanda.map(x => String(x.spec).slice(0, 26)).join('、')}`,
+              }), 'red', { iconName: 'warn' }))
+            : null,
+          (() => {
+            const rec = recentOrdersFor(getState(), r);
+            if (!rec.length) return null;
+            const o = rec[0];
+            return h('span', { style: { marginLeft: '6px' }, title: rec.map(x => `${x.poNo} · ${x.umur} hari lalu · ${num(x.qty)}`).join('\n') },
+              badge(tr({ id: `sudah dipesan ${o.umur} hr lalu`, en: `ordered ${o.umur}d ago`, zh: `${o.umur} 天前已订购` }), 'amber', { iconName: 'warn' }));
+          })(),
+        ]),
+        // "PT ← 美国": orangnya harus bisa melihat portal mengerti, bukan cuma
+        // mempercayainya.
+        h('td.mono', { style: { fontSize: '10.5px' } }, [
+          r.market || '—',
+          r.marketAsal ? h('span', { style: { color: 'var(--text-3)' } }, ` ← ${r.marketAsal}`) : null,
+          // Pasar yang berbeda untuk barang yang sama, antar sheet. Salah satu
+          // pasti salah, dan portal tidak punya cara untuk tahu yang mana.
+          r.marketBeda && r.marketBeda.length > 1
+            ? h('div', { style: { marginTop: '2px' } }, badge(tr({
+                id: `beda antar sheet: ${r.marketBeda.join(' / ')}`,
+                en: `differs across sheets: ${r.marketBeda.join(' / ')}`,
+                zh: `各工作表不一致：${r.marketBeda.join(' / ')}`,
+              }), 'red', { iconName: 'warn' }))
+            : null,
+        ]),
+        h('td', { style: { fontSize: '11px' } }, r.brand || '—'),
+        h('td', r.kategori
+          ? badge(tr(labelKategori(r.kategori)), r.kategori === 'urgent' ? 'red' : 'blue')
+          : h('span', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, tr({ id: 'dari portal', en: 'from portal', zh: '来自门户' }))),
+        h('td.mono.r', { style: { color: 'var(--text-3)' } }, r.stok == null ? '—' : num(r.stok)),
+        h('td.mono.r', { style: { color: 'var(--text-3)' } }, r.kebutuhan == null ? '—' : num(r.kebutuhan)),
+        h('td', [
+          badge(tr(t.label), t.tone),
+          r.status ? h('span', { style: { marginLeft: '4px' } }, badge(statusLabel(r.status), TONE[r.status] || 'gray')) : null,
+        ]),
+        h('td.mono.r', { style: { color: 'var(--text-2)' } }, r.minta == null ? '—' : num(r.minta)),
+        h('td.r', h('input.input.mono', {
+          type: 'number', min: '0',
+          value: String((st.ui.lsQty || {})[r.kunci] ?? r.pesan ?? ''),
+          style: {
+            width: '92px', textAlign: 'right', padding: '4px 6px', fontSize: '11px',
+            ...(r.tanda === TANDA.STOP ? { borderColor: 'var(--st-red-tx)', color: 'var(--st-red-tx)' } : {}),
+          },
+          // Ditulis langsung ke state tanpa setUI: setUI me-render ulang tabel
+          // dan mengambil fokus dari kotak yang sedang diketik. Nilainya sudah
+          // benar di DOM dan dibaca ulang saat dikirim. Pola yang sama dipakai
+          // searchInput dan tabel stok lama.
+          onInput: e => {
+            const q = { ...(getState().ui.lsQty || {}) };
+            q[r.kunci] = e.target.value;
+            getState().ui.lsQty = q;
+          },
+        })),
+      ]);
+    })),
+    rows.length > 400 ? h('tfoot', h('tr', h('td', { colSpan: 10, style: { fontSize: '10.5px', color: 'var(--text-3)' } }, tr({
+      id: `Menampilkan 400 dari ${rows.length} baris — pakai filter untuk mempersempit.`,
+      en: `Showing 400 of ${rows.length} rows — use the filters to narrow it down.`,
+      zh: `显示 ${rows.length} 行中的 400 行 — 请使用筛选缩小范围。`,
+    })))) : null,
+  ])));
+}
+
+// Sekarang cuma dipakai DO NOT BUY. Pencentangan sudah pindah seluruhnya ke
+// buyNowTab(), dan DO NOT BUY memang tidak boleh punya tombol kirim: dia adalah
+// daftar yang justru TIDAK boleh dipesan, dan memberinya tombol kirim
+// mengundang persis kesalahan yang daftar itu ada untuk mencegahnya.
 function listTab(st, pred, title, sub) {
-  const rows = (st.labelStock || []).filter(pred)
-    .sort((a, b) => (title === 'BUY NOW' ? a.surplus - b.surplus : b.surplus - a.surplus));
-
-  // Hanya BUY NOW yang bisa dicentang. DO NOT BUY adalah daftar yang justru
-  // TIDAK boleh dipesan — memberinya tombol kirim mengundang persis kesalahan
-  // yang daftar itu ada untuk mencegahnya.
-  const picking = title === 'BUY NOW' && rows.length > 0;
-
+  const rows = (st.labelStock || []).filter(pred).sort((a, b) => b.surplus - a.surplus);
   return h('div.stack', [
     h('div.row.gap8', [
       h('div.card-title', title),
       h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, sub),
-      picking ? null : h('div.mla', btn(tr({ id: 'Export Excel', en: 'Export Excel', zh: '导出 Excel' }), { sm: true, iconName: 'download', onClick: () => exportRows(rows) })),
+      h('div.mla', btn(tr({ id: 'Export Excel', en: 'Export Excel', zh: '导出 Excel' }), { sm: true, iconName: 'download', onClick: () => exportRows(rows) })),
     ]),
-    picking ? pickBar(st, rows) : null,
-    stockTable(rows, false, picking ? { st } : null),
+    stockTable(rows, false, null),
   ]);
 }
 
