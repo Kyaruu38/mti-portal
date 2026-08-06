@@ -24,7 +24,7 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v14.2';
+export const VERSION = 'v14.3';
 export const VERSION_DATE = '5 Agu 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
@@ -40,7 +40,7 @@ export const VERSION_DATE = '5 Agu 2026';
 // Waktu menaikkan versi: perbarui VERSION, VERSION_DATE, LATEST di sini, dan
 // tambahkan entri lengkapnya di changelog.js.
 export const LATEST = {
-      id: 'Tab browser akhirnya punya ikon MTI. Sebelumnya browser mencari /favicon.ico di akar domain — bukan di dalam folder portalnya — jadi selalu 404, dan itu satu-satunya error yang tersisa di console. Sekarang alamatnya ditulis eksplisit di index.html. Ikonnya dibuat dari logo resmi dalam empat ukuran (16/32/48/64) di atas latar transparan, jadi bentuknya tetap utuh di tab terang maupun gelap.',
-      en: 'The browser tab finally has an MTI icon. The browser used to look for /favicon.ico at the domain root — not inside the portal folder — so it always 404ed, and that was the last error left in the console. The path is now written explicitly in index.html. The icon is built from the official logo at four sizes (16/32/48/64) on a transparent background, so it holds its shape on both light and dark tabs.',
-      zh: '浏览器标签页终于有了 MTI 图标。此前浏览器会在域名根目录寻找 /favicon.ico — 而非门户所在文件夹 — 因此始终 404，那也是控制台中最后一个错误。现在路径已在 index.html 中明确写出。图标由官方标志生成，包含四种尺寸（16/32/48/64），背景透明，因此在浅色与深色标签页中都能保持形状。',
+      id: 'Tombol kirim PRF sekarang kebal pencetan ganda. Tanggal 5 Agustus dua PRF lahir dua kali dengan invoice dan nominal yang sama persis — yang satu berjarak 1,97 detik, yang satu 0,179 detik. Itu bukan orang yang berubah pikiran, itu tombol yang terpencit dua kali atau layar yang belum bergerak sehingga diklik lagi. Penyebabnya: fungsi kirim menunggu beberapa panggilan jaringan sebelum menyimpan, dan selama jeda itu tidak ada yang menahan klik kedua. Sekarang klik kedua diabaikan sampai yang pertama selesai. Ini lapisan pertama, bukan jaminan — browser bisa mengirim ulang sendiri dan dua tab tidak saling tahu, jadi ada SQL terpisah untuk mengunci nomor PRF di sisi server.',
+      en: 'The submit-PRF button is now immune to double presses. On 5 August two PRFs were created twice with identical invoices and amounts — one pair 1.97 seconds apart, the other 0.179 seconds. That is not someone changing their mind; it is a button pressed twice, or a screen that had not moved yet. The cause: the submit function awaits several network calls before saving, and nothing held back a second click during that gap. A second click is now ignored until the first finishes. This is the first layer, not a guarantee — a browser can retry on its own and two tabs do not know about each other, so a separate SQL locks the PRF number server-side.',
+      zh: '提交付款申请单的按钮现在不再受重复点击影响。8月5日有两张付款申请单被重复创建，发票与金额完全相同 — 一组相隔1.97秒，另一组相隔0.179秒。这不是有人改变主意，而是按钮被点了两次，或界面尚未响应而再次点击。原因：提交函数在保存前需等待若干次网络调用，而这段间隙内没有任何机制拦住第二次点击。现在第二次点击会被忽略，直到第一次完成。这只是第一层防护，并非保证 — 浏览器可能自行重试，两个标签页之间也互不知情，因此另有 SQL 在服务端锁定付款申请单编号。',
 };

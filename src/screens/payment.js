@@ -1432,7 +1432,45 @@ function prfModal() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// SATU KLIK = SATU PRF, walaupun tombolnya dipencet lima kali.
+//
+// KEJADIAN NYATA, 5 Agustus 2026
+//   PRF/PC/VIII/081  dua baris, invoice sama, IDR 2.338.459.200, selisih 1,97 detik
+//   PRF/PC/VIII/082  dua baris, invoice sama, IDR   939.859.200, selisih 0,179 detik
+//
+// 179 milidetik. Tidak ada manusia yang sengaja membuat dua PRF secepat itu —
+// itu tombol yang terpencit dua kali, atau orang yang mengklik lagi karena
+// layarnya belum bergerak.
+//
+// submitPrf() menunggu beberapa panggilan jaringan SEBELUM insertPrf(): sinkron
+// desc_dict, kadang minta nomor PRF ke server. Selama jeda itu tidak ada apa pun
+// yang menahan klik kedua, dan klik kedua menjalankan seluruh fungsinya lagi
+// dari awal — termasuk insert-nya.
+//
+// Penjaga ini menutup jendela itu di sisi browser. TAPI DIA BUKAN JAMINAN:
+// browser bisa mengirim ulang permintaan sendiri, dan dua tab bisa mengirim
+// PRF yang sama tanpa saling tahu. Yang benar-benar menjamin cuma unique
+// constraint di kolom prfs.no — sama seperti yang sudah ada di invoices.no dan
+// ppkek.nopen. Ini lapisan pertama, bukan satu-satunya.
+// ---------------------------------------------------------------------------
+let kirimPrfBerjalan = false;
+
 async function submitPrf() {
+  if (kirimPrfBerjalan) {
+    console.warn('PRF sedang dikirim — klik kedua diabaikan.');
+    return;
+  }
+  kirimPrfBerjalan = true;
+  // finally, BUKAN setelah await: setiap jalan keluar dari fungsi ini —
+  // termasuk return awal dan lemparan error — harus melepas kuncinya. Kunci
+  // yang tidak pernah dilepas berarti tombolnya mati sampai halaman di-reload,
+  // dan itu kerusakan yang lebih buruk daripada yang diperbaikinya.
+  try { await submitPrfInti(); }
+  finally { kirimPrfBerjalan = false; }
+}
+
+async function submitPrfInti() {
   if (blockWrite('kirim PRF')) return;
   const st = getState(); const d = st.ui.prfDraft;
   // Learn descriptions — sync to Supabase too (desc_dict is wired since
