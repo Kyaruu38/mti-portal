@@ -1,7 +1,7 @@
 import { h, pickFiles } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { badge, btn, icon, driveLink, selectEl, inputEl, searchInput, modal, field } from '../ui/components.js';
+import { badge, btn, icon, driveLink, selectEl, inputEl, searchInput, modal, field, pager, pageSlice, PAGE_DEFAULT } from '../ui/components.js';
 import { uploadToDrive } from '../core/drive.js';
 import { insertDesign, updateDesign, deleteDesign } from '../core/designsApi.js';
 import { linkOutbox } from '../core/driveOutbox.js';
@@ -23,9 +23,9 @@ export function labelLibraryScreen() {
   const markets = [t('lib_all_market'), ...new Set(st.designs.map(d => d.market))];
 
   const toolbar = h('div.row.gap8.wrap', [
-    searchInput({ id: 'lib-q', placeholder: t('lib_search'), value: ui.libQ || '', onChange: v => setUI({ libQ: v }) }),
-    selectEl(brands, { value: brand, onChange: v => setUI({ libBrand: v }) }),
-    selectEl(markets, { value: market, onChange: v => setUI({ libMarket: v }) }),
+    searchInput({ id: 'lib-q', placeholder: t('lib_search'), value: ui.libQ || '', onChange: v => setUI({ libQ: v, libPage: 1 }) }),
+    selectEl(brands, { value: brand, onChange: v => setUI({ libBrand: v, libPage: 1 }) }),
+    selectEl(markets, { value: market, onChange: v => setUI({ libMarket: v, libPage: 1 }) }),
     h('span', { style: { fontSize: '11.5px', color: 'var(--text-3)' } }, [h('span.mono', String(st.designs.length)), ` ${t('lib_designs')}`]),
     // designWrite, not screen presence. This file had no capability check at
     // all: every role that could open the library could also add to it.
@@ -34,11 +34,31 @@ export function labelLibraryScreen() {
       : h('div.mla', badge(tr({ id: 'Read-only', en: 'Read-only', zh: '只读' }), 'gray', { iconName: 'eye' })),
   ]);
 
-  const grid = h('div.lib-grid', designs.map(d => card(d)));
+  // SEPULUH YANG TERAKHIR MASUK, sisanya lewat penyaring.
+  //
+  // Layar ini menggambar SEMUA desain sekaligus — 57 kartu, masing-masing dengan
+  // gambarnya sendiri. Dan karena core/dom.js mount() membangun ulang seluruh
+  // layar setiap kali ada yang diklik, semua kartu itu dibongkar-pasang lagi
+  // tiap kali orangnya mengetik satu huruf di kotak cari.
+  //
+  // Urutannya sudah benar tanpa perlu diurutkan ulang: designsApi memuatnya
+  // dengan created_at menurun, dan desain baru di-unshift ke depan. Jadi
+  // sepuluh pertama memang sepuluh yang terakhir dimasukkan.
+  //
+  // Yang mencari desain tertentu memakai kotak cari atau penyaring brand/market
+  // yang sudah ada di atas — itu jalan yang lebih pendek daripada menggulir
+  // lima puluh tujuh kartu, dan sekarang jadi jalan yang jelas.
+  const size = ui.libSize === 0 ? 0 : (Number(ui.libSize) || PAGE_DEFAULT);
+  const hal = pageSlice(designs, ui.libPage || 1, size);
+  hal.size = size;
+  const grid = h('div.lib-grid', hal.items.map(d => card(d)));
+  const kaki = h('div.card', { style: { padding: '0' } },
+    pager(hal, { onPage: n => setUI({ libPage: n }), onSize: n => setUI({ libSize: n, libPage: 1 }) }));
   const open = ui.libPreview ? st.designs.find(d => d.id === ui.libPreview) : null;
   return h('div.stack', [
     toolbar,
     grid,
+    kaki,
     open ? (ui.libEdit ? editModal(st, open) : previewModal(st, open)) : null,
   ]);
 }
