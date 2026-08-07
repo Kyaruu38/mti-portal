@@ -24,6 +24,10 @@ function fromRow(row) {
     jalur: row.jalur || 'LDP', so: row.so || '', jo: row.jo || '', costing: row.costing || '',
     poErpIna: row.po_erp_ina || '', status: row.status || 'Open', receivedDate: row.received_date || '',
     ppkekNo: row.ppkek_no || '', items: row.items || [],
+    // Declared supporting documents: { jenis, no, tanggal } each. A row written
+    // before this column existed reads back as [], which is exactly right — it
+    // was imported by a build that could not see them.
+    docs: row.docs || [],
     driveFolder: row.drive_folder || '', files,
     driveUrl: (realFile || files[0] || {}).url || '',
   };
@@ -88,6 +92,7 @@ function toRow(r) {
     so: r.so || '', jo: r.jo || '', costing: r.costing || '', po_erp_ina: r.poErpIna || '',
     status: r.status || 'Open', received_date: toIsoDate(r.receivedDate),
     ppkek_no: r.ppkekNo || null, items: r.items || [],
+    docs: r.docs || [],
     drive_folder: r.driveFolder || null, files: r.files || [],
   };
 }
@@ -176,7 +181,7 @@ const COLUMN = {
   date: 'ppkek_date', eta: 'eta', supplier: 'supplier', address: 'address',
   invoiceNo: 'invoice_no', plNo: 'pl_no', contractNo: 'contract_no',
   usd: 'usd', idr: 'idr', kurs: 'kurs', valuta: 'valuta',
-  ppkekNo: 'ppkek_no', items: 'items', jalur: 'jalur',
+  ppkekNo: 'ppkek_no', items: 'items', docs: 'docs', jalur: 'jalur',
   // typed by hand — never touched by a re-import (see updateRegisterRow)
   so: 'so', jo: 'jo', costing: 'costing', poErpIna: 'po_erp_ina',
   status: 'status', receivedDate: 'received_date',

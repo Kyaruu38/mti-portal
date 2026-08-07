@@ -606,16 +606,30 @@ async function processArchive(file, onDoc) {
   const pdf = files.find(f => /ppkek/i.test(f.name) && /\.pdf$/i.test(f.name)) || files.find(f => /\.pdf$/i.test(f.name));
   let parsed = null;
   if (pdf) { try { parsed = await parsePpkekPdf(pdf); } catch (e) { console.warn(e); } }
-  // Supplier + address come from the SPPB, not the PPKEK — see parseSppbPdf()
-  // for why. Purely additive: if the SPPB is missing or unreadable the PPKEK
-  // values stand, so a bundle without one behaves exactly as before.
+  // SPPB IS NOW A FALLBACK, NOT AN OVERRIDE — and that is the whole point.
+  //
+  // It used to overwrite the PPKEK's supplier unconditionally, because the
+  // PPKEK's three-column party block could not be read and returned the literal
+  // word "Pemasok". Verified against nopen 007076, which declares:
+  //
+  //     2. Eksportir LN/Penjual : CHEMO-SENSE INTERNATIONAL TRADING CO., LIMITED
+  //     3. Pemasok              : SENNICS CO., LTD.
+  //
+  // and whose SPPB names SENNICS under "PENGIRIM BARANG" — the party that
+  // SHIPPED the goods. So the override was quietly filing every import under
+  // the freight party instead of the company MTI actually bought from. The two
+  // are routinely different companies and the register had no way to show it.
+  //
+  // parseParty() reads the right column now, so the SPPB only fills a gap: a
+  // bundle whose PPKEK party block is unreadable still gets a name instead of
+  // an empty cell.
   if (parsed) {
     const sppb = files.find(f => /sppb/i.test(f.name) && /\.pdf$/i.test(f.name));
     if (sppb) {
       try {
         const extra = await parseSppbPdf(sppb);
-        if (extra.supplier) parsed.supplier = extra.supplier;
-        if (extra.address) parsed.address = extra.address;
+        if (!parsed.supplier && extra.supplier) parsed.supplier = extra.supplier;
+        if (!parsed.address && extra.address) parsed.address = extra.address;
       } catch (e) { console.warn('SPPB parse skipped:', e); }
     }
   }
@@ -679,6 +693,13 @@ async function addRegisterRow(p, folder, files) {
     // Item lines were parsed and thrown away at this exact point. The register
     // workbook is ONE ROW PER ITEM, so without them the export can never match.
     items: p.items || [],
+    // Every document the PPKEK declares — one PPKEK legitimately carries several
+    // invoices and several contracts, and invoiceNo/contractNo above can only
+    // ever hold a summary of them. Same shape and same treatment as `items`: a
+    // JSON column on this row, not a table of its own. Requires
+    // supabase_ppkek_docs.sql; without it writeTolerant() drops just this field
+    // and everything else still saves.
+    docs: p.docs || [],
     so: '', jo: '', costing: '', poErpIna: '', status: 'Open',
     driveFolder: folder, files: cleanFiles,
   };
@@ -726,6 +747,7 @@ async function updateRegisterRow(row, p, folder, files) {
     idr: p.valueIDR || row.idr, kurs: p.kursNDPBM || row.kurs,
     ppkekNo: p.ppkekNo || row.ppkekNo,
     items: (p.items && p.items.length) ? p.items : row.items,
+    docs: (p.docs && p.docs.length) ? p.docs : row.docs,
     jalur: p.asal || row.jalur, driveFolder: folder || row.driveFolder, files: merged,
   };
   Object.assign(row, patch);
