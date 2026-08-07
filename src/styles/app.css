@@ -156,11 +156,23 @@ textarea.input { resize:vertical; }
    object-fit:contain, bukan cover: label itu 79x254 mm, jauh lebih tinggi daripada
    lebar. cover memotong sisi atas-bawahnya — persis bagian yang berisi ukuran ban
    dan kode barcode. */
-.lib-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(268px,1fr)); gap:16px; }
+/* Lebar kartu mengikuti lebar gambar SUMBERNYA, bukan sebaliknya. Thumbnail
+   dibuat parsers/pdf.js pada 300 px (renderThumb maxW=300); digambar lebih lebar
+   dari itu hasilnya cuma piksel yang direntangkan — terlihat lebih besar,
+   terbaca lebih buram. Jadi 340 px kartu, sisanya padding. */
+.lib-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:16px; }
 .lib-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow); padding:14px; }
 .lib-card:hover { box-shadow:var(--paper-shadow); }
-.lib-thumb { height:340px; border-radius:8px; background:var(--surface2); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; overflow:hidden; }
+.lib-thumb { height:430px; border-radius:8px; background:var(--surface2); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; overflow:hidden; padding:6px; }
+/* Kotak 110px yang lama adalah bentuk LABELNYA (79×254 mm, tinggi kurus), dan
+   itu benar untuk kotak KOSONG — dia memang menggambarkan label yang belum ada
+   gambarnya. Tapi thumbnail sungguhan tidak seramping itu: yang dipindai adalah
+   satu halaman, bukan potongan labelnya saja. Dipaksa masuk kotak 110px lebar,
+   object-fit:contain menahannya di lebar, jadi gambarnya berhenti di sekitar
+   150px tinggi dan menyisakan 170px ruang kosong di atas-bawahnya. Yang punya
+   gambar sekarang memakai seluruh kotak; yang kosong tetap ramping. */
 .lib-label { width:110px; height:320px; border-radius:3px; background:repeating-linear-gradient(45deg,var(--ph-a) 0 6px,var(--ph-b) 6px 12px); border:1px solid var(--border-strong); display:flex; flex-direction:column; align-items:center; overflow:hidden; }
+.lib-label.ada-gambar { width:100%; height:100%; }
 .lib-label img { width:100%; height:100%; object-fit:contain; }
 
 /* Language switcher */

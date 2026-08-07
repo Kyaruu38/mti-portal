@@ -306,11 +306,39 @@ export function designImage(d) {
   return '';
 }
 
+// SIMPANAN ELEMEN GAMBAR — bukan simpanan datanya, elemennya sendiri.
+//
+// mount() membuang seluruh isi layar lalu membangunnya lagi setiap setUI(). Untuk
+// <div> dan <span> itu murah. Untuk <img> yang src-nya data URL JPEG puluhan KB,
+// itu TIDAK murah: setiap elemen baru berarti browser membongkar ulang gambarnya
+// dari nol, karena data URL tidak lewat cache HTTP mana pun. Sepuluh kartu
+// berarti sepuluh pembongkaran JPEG di SETIAP klik — termasuk klik yang tidak
+// ada hubungannya dengan gambar, seperti ganti bahasa atau buka lonceng.
+//
+// Elemennya disimpan di sini dan DIPAKAI ULANG. Elemen yang sama, setelah
+// dicabut dari halaman lalu dipasang lagi, tidak membongkar apa pun — gambarnya
+// sudah jadi di dalamnya. Kuncinya menyertakan src juga, jadi desain yang
+// gambarnya diganti tetap menggambar yang baru, bukan yang lama.
+const GAMBAR = new Map();
+function gambarDesain(d, src) {
+  const kunci = `${d.id}|${src}`;
+  let el = GAMBAR.get(kunci);
+  if (!el) {
+    el = h('img', { src, alt: d.erp, decoding: 'async', loading: 'lazy' });
+    // Batas kasar supaya simpanannya tidak tumbuh selamanya di sesi yang membuka
+    // ratusan desain. Map menjaga urutan masuk, jadi yang paling lama dibuang
+    // duluan.
+    if (GAMBAR.size > 150) GAMBAR.delete(GAMBAR.keys().next().value);
+    GAMBAR.set(kunci, el);
+  }
+  return el;
+}
+
 function card(d) {
   const img = designImage(d);
   return h('div.lib-card', { style: { cursor: 'pointer' }, onClick: () => setUI({ libPreview: d.id }) }, [
-    h('div.lib-thumb', h('div.lib-label', { style: img ? { background: 'none', border: 'none' } : {} }, img
-      ? h('img', { src: img, alt: d.erp })
+    h('div.lib-thumb', h('div.lib-label' + (img ? '.ada-gambar' : ''), { style: img ? { background: 'none', border: 'none' } : {} }, img
+      ? gambarDesain(d, img)
       : [h('span', { style: { width: '100%', height: '20px', background: d.color || '#1B3A6B' } }), h('span.mono', { style: { flex: 1, display: 'flex', alignItems: 'center', fontSize: '8.5px', color: 'var(--text-3)', writingMode: 'vertical-rl' } }, tr({
         id: 'label artwork · 79×254 mm',
         en: 'label artwork · 79×254 mm',
