@@ -2,7 +2,7 @@ import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { blockWrite } from '../core/guard.js';
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, statusTone, driveLink } from '../ui/components.js';
+import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, statusTone, driveLink, pager, pageSlice, PAGE_DEFAULT } from '../ui/components.js';
 import { money, num, fmtDate, romanMonth, daysUntil, topDays, addDays, ccyTone } from '../core/format.js';
 import { prfPaper } from '../ui/documents.js';
 import { downloadBlob } from '../core/dom.js';
@@ -260,10 +260,18 @@ async function markPrfsReceived() {
 }
 
 function prfTrackingCard(st, readonly) {
-  const list = st.prfs.slice(0, 25);
+  // Dulu dipotong 25 secara diam-diam: PRF ke-26 tidak ada di layar dan tidak
+  // ada satu pun tulisan yang menyebutkannya. Sekarang seluruhnya ada, dibuka
+  // per halaman, dan jumlah aslinya tertulis di kaki tabel.
+  const semua = st.prfs;
+  const halPrf = halamanBayar(semua, st, 'prfPage', 'prfSize');
+  const list = halPrf.items;
   const canReceive = !readonly && can(st.user.role, 'prfReceive');
   const recvSel = st.ui.prfRecvSel || {};
-  const tickedCount = list.filter(p => recvSel[p.no] && canTick(p)).length;
+  // Dihitung dari SELURUH PRF, bukan halaman yang tampil: mencentang di
+  // halaman 1 lalu pindah ke halaman 2 tidak boleh membuat centangannya
+  // terlihat hilang.
+  const tickedCount = semua.filter(p => recvSel[p.no] && canTick(p)).length;
   const tone = s => ({ 'Terbentuk': 'gray', 'Diproses Wilbert': 'amber', 'Diterima Finance': 'blue', 'Paid': 'green' }[s] || 'gray');
   return h('div.card', [
     h('div.card-head', [
@@ -278,11 +286,15 @@ function prfTrackingCard(st, readonly) {
       // PRFs per currency, so a single supplier already produces two, and a
       // week's run produces a stack — each needing its own click, its own print
       // dialog, its own Save As.
-      list.length > 1 ? h('div.mla', btn(tr({
-        id: `Download semua (${list.length}) · ZIP`,
-        en: `Download all (${list.length}) · ZIP`,
-        zh: `全部下载（${list.length}）· ZIP`,
-      }), { sm: true, iconName: 'download', onClick: () => downloadAllPrf(list) })) : null,
+      // "Download semua" berarti SEMUA, bukan sepuluh yang kebetulan sedang
+      // tampil. Memakai halaman yang terlihat akan menghasilkan ZIP yang isinya
+      // berubah-ubah tergantung halaman berapa yang sedang dibuka — dan tidak
+      // ada satu pun tanda di layar yang menjelaskan kenapa.
+      semua.length > 1 ? h('div.mla', btn(tr({
+        id: `Download semua (${semua.length}) · ZIP`,
+        en: `Download all (${semua.length}) · ZIP`,
+        zh: `全部下载（${semua.length}）· ZIP`,
+      }), { sm: true, iconName: 'download', onClick: () => downloadAllPrf(semua) })) : null,
       // The handover, done in one go. The papers arrive as a stack, so ticking
       // them off one modal at a time would be the wrong shape entirely.
       (canReceive && tickedCount) ? btn(tr({
@@ -325,6 +337,7 @@ function prfTrackingCard(st, readonly) {
         ])),
       ]))),
     ])) : h('div', { style: { padding: '16px', fontSize: '12px', color: 'var(--text-3)' } }, tr({ id: 'Belum ada PRF dibuat.', en: 'No PRF has been created yet.', zh: '尚未创建任何付款申请单。' })),
+    semua.length ? pagerBayar(halPrf, 'prfPage', 'prfSize') : null,
   ]);
 }
 
@@ -502,13 +515,28 @@ function poPpnPaid(inv) {
 }
 function trStage(s) { const m = { 'Diterima Purchasing': t('st_diterima_purchasing'), 'Diproses Wilbert': t('st_diproses_wilbert'), 'Diterima Finance': t('st_diterima_finance'), 'Paid': t('st_paid') }; return m[s] || s; }
 
+// Paginasi. Alasan lengkapnya di ui/components.js: mount() membangun ulang
+// seluruh layar setiap klik, jadi 137 baris invoice + 136 baris PRF di satu
+// halaman berarti SETIAP tombol di layar ini membayar ongkos 273 baris.
+function halamanBayar(rows, st, kHal, kUkur) {
+  const size = st.ui[kUkur] === 0 ? 0 : (Number(st.ui[kUkur]) || PAGE_DEFAULT);
+  const info = pageSlice(rows, st.ui[kHal] || 1, size);
+  info.size = size;
+  return info;
+}
+const pagerBayar = (info, kHal, kUkur) => pager(info, {
+  onPage: n => setUI({ [kHal]: n }),
+  onSize: n => setUI({ [kUkur]: n, [kHal]: 1 }),
+});
+
 function invoiceTable(st, opts) {
   // readonly: render the same table with no action buttons. Used by the
   // observe-only branch, which needs the invoice list for monitoring but must
   // offer no way to advance a stage or add a row.
   const readonly = !!(opts && opts.readonly);
   const head = h('thead', h('tr', [tr({ id: 'Invoice', en: 'Invoice', zh: '发票' }), t('col_supplier'), 'PO Ref', t('col_amount'), t('col_due'), t('pay_faktur'), tr({ id: 'File', en: 'File', zh: '文件' }), t('col_status')].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c))));
-  const body = h('tbody', st.invoices.map(inv => {
+  const halInv = halamanBayar(st.invoices, st, 'invPage', 'invSize');
+  const body = h('tbody', halInv.items.map(inv => {
     const d = daysUntil(inv.due);
     const dueTone = inv.status === 'Paid' ? '' : d < 0 ? 'red' : d <= 1 ? 'amber' : '';
     // Advancing an invoice is purchasing-side work (sekar's job), not a
@@ -561,6 +589,7 @@ function invoiceTable(st, opts) {
       readonly ? null : h('div.mla', btn(tr({ id: 'Add Invoice', en: 'Add Invoice', zh: '新增发票' }), { sm: true, variant: 'primary', iconName: 'plus', onClick: () => openInvoiceModal() })),
     ]),
     h('div.tbl-wrap', h('table.tbl', [head, body])),
+    pagerBayar(halInv, 'invPage', 'invSize'),
   ]);
 }
 

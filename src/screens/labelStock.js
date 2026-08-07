@@ -15,7 +15,7 @@
 import { h, wireDrop } from '../core/dom.js';
 import { getState, setState, setUI, toast, logAudit, uid } from '../core/store.js';
 import { tr } from '../i18n/index.js';
-import { card, badge, btn, icon, dropzone, modal, searchInput, selectEl } from '../ui/components.js';
+import { card, badge, btn, icon, dropzone, modal, searchInput, selectEl, pager, pageSlice, PAGE_DEFAULT } from '../ui/components.js';
 import { num, money, fmtDate, fmtDateTime } from '../core/format.js';
 import { readWorkbook, writeWorkbook } from '../core/xlsx.js';
 import { parseLabelStockSheet, STATUSES, guessErp, requirementOf, suggestedQtyOf, statusOf } from '../parsers/labelStock.js';
@@ -99,7 +99,7 @@ export function labelStockScreen() {
     ['uploads', tr({ id: 'Riwayat Upload', en: 'Upload History', zh: '上传记录' })],
   ];
   const tabBar = h('div.row.gap8.wrap', tabs.map(([id, label]) =>
-    h('button.btn' + (tab === id ? '.btn-navy' : ''), { onClick: () => setUI({ lsTab: id }) }, label)));
+    h('button.btn' + (tab === id ? '.btn-navy' : ''), { onClick: () => setUI({ lsTab: id, lsPage: 1, lsbPage: 1 }) }, label)));
 
   let body;
   if (tab === 'buy') body = buyNowTab(st);
@@ -1002,13 +1002,13 @@ function masterTab(st) {
       searchInput({
         id: 'ls-q',
         placeholder: tr({ id: 'Cari spec / market / ERP…', en: 'Search spec / market / ERP…', zh: '搜索规格 / 市场 / ERP…' }),
-        value: st.ui.lsQ || '', onChange: v => setUI({ lsQ: v }),
+        value: st.ui.lsQ || '', onChange: v => setUI({ lsQ: v, lsPage: 1 }),
       }),
       // Option VALUES stay the stored strings — only the visible label is translated.
       selectEl(['Semua', ...STATUSES].map(s => ({
         value: s,
         label: s === 'Semua' ? tr({ id: 'Semua', en: 'All', zh: '全部' }) : statusLabel(s),
-      })), { value: st.ui.lsStatus || 'Semua', onChange: v => setUI({ lsStatus: v }) }),
+      })), { value: st.ui.lsStatus || 'Semua', onChange: v => setUI({ lsStatus: v, lsPage: 1 }) }),
       h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
         id: `${rows.length} dari ${(st.labelStock || []).length} SKU`,
         en: `${rows.length} of ${(st.labelStock || []).length} SKU`,
@@ -1061,6 +1061,30 @@ const pickKey = r => `${String(r.spec).trim().toUpperCase()}||${String(r.market 
 // baris portal tidak tahu apa-apa. Diam bukan berarti aman, jadi angkanya
 // dipasang sama besar dengan yang lain.
 // ---------------------------------------------------------------------------
+// Paginasi dipakai lewat ui/components.js — alasan lengkapnya (termasuk angka
+// hasil pengukurannya) ada di sana. Ringkasnya: mount() membangun ulang seluruh
+// layar setiap klik, jadi jumlah baris yang tampil menentukan ongkos SETIAP
+// tombol di halaman ini, bukan cuma ongkos menggulir tabelnya.
+//
+// Dua tabel di layar ini punya halaman SENDIRI-SENDIRI (lsPage/lsSize untuk
+// stok, lsbPage/lsbSize untuk daftar beli). Berbagi satu nomor halaman berarti
+// pindah tab bisa mendarat di halaman 7 dari daftar yang cuma punya 2.
+function halaman(rows, st, kunciHal, kunciUkur) {
+  const size = st.ui[kunciUkur] === 0 ? 0 : (Number(st.ui[kunciUkur]) || PAGE_DEFAULT);
+  const info = pageSlice(rows, st.ui[kunciHal] || 1, size);
+  info.size = size;
+  return info;
+}
+function barisPager(info, kunciHal, kunciUkur) {
+  return pager(info, {
+    onPage: n => setUI({ [kunciHal]: n }),
+    // Ganti jumlah baris SELALU kembali ke halaman 1. Tanpa ini, orang yang di
+    // halaman 40 lalu memilih "100" mendarat di halaman kosong dan menyimpulkan
+    // datanya hilang.
+    onSize: n => setUI({ [kunciUkur]: n, [kunciHal]: 1 }),
+  });
+}
+
 const TANDA_UI = {
   [TANDA.STOP]: { tone: 'red',   label: { id: '⛔ stop', en: '⛔ stop', zh: '⛔ 停止' } },
   [TANDA.CEK]:  { tone: 'amber', label: { id: '⚠ tak bisa dicek', en: '⚠ cannot check', zh: '⚠ 无法核对' } },
@@ -1177,28 +1201,28 @@ function buyNowTab(st) {
     h('div.card', { style: { padding: '11px 14px' } }, h('div.row.gap8.wrap', [
       searchInput({
         id: 'lsb-q', placeholder: tr({ id: 'Cari spec / ERP / brand…', en: 'Search spec / ERP / brand…', zh: '搜索规格 / ERP / 品牌…' }),
-        value: ui.lsbQ || '', onChange: v => setUI({ lsbQ: v }),
+        value: ui.lsbQ || '', onChange: v => setUI({ lsbQ: v, lsbPage: 1 }),
       }),
       selectEl(opsi(tr({ id: 'Semua market', en: 'All markets', zh: '全部市场' }), daftarMarket),
-        { value: ui.lsbMarket || '', onChange: v => setUI({ lsbMarket: v }) }),
+        { value: ui.lsbMarket || '', onChange: v => setUI({ lsbMarket: v, lsbPage: 1 }) }),
       selectEl(opsi(tr({ id: 'Semua brand', en: 'All brands', zh: '全部品牌' }), daftarBrand),
-        { value: ui.lsbBrand || '', onChange: v => setUI({ lsbBrand: v }) }),
+        { value: ui.lsbBrand || '', onChange: v => setUI({ lsbBrand: v, lsbPage: 1 }) }),
       dariFile ? selectEl([
         { value: '', label: tr({ id: 'Semua kategori', en: 'All categories', zh: '全部类别' }) },
         ...[...new Set(semua.map(r => r.kategori).filter(Boolean))].map(k => ({ value: k, label: tr(labelKategori(k)) })),
-      ], { value: ui.lsbKat || '', onChange: v => setUI({ lsbKat: v }) }) : null,
+      ], { value: ui.lsbKat || '', onChange: v => setUI({ lsbKat: v, lsbPage: 1 }) }) : null,
       selectEl([
         { value: '', label: tr({ id: 'Semua status', en: 'All statuses', zh: '全部状态' }) },
         { value: TANDA.STOP, label: tr(TANDA_UI[TANDA.STOP].label) },
         { value: TANDA.CEK, label: tr(TANDA_UI[TANDA.CEK].label) },
         { value: TANDA.OK, label: tr(TANDA_UI[TANDA.OK].label) },
-      ], { value: ui.lsbTanda || '', onChange: v => setUI({ lsbTanda: v }) }),
+      ], { value: ui.lsbTanda || '', onChange: v => setUI({ lsbTanda: v, lsbPage: 1 }) }),
       h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
         id: `${rows.length} dari ${semua.length}`, en: `${rows.length} of ${semua.length}`, zh: `${semua.length} 中的 ${rows.length}`,
       })),
       h('div.mla.row.gap8', [
         btn(tr({ id: 'Kosongkan filter', en: 'Clear filters', zh: '清除筛选' }), {
-          sm: true, onClick: () => setUI({ lsbQ: '', lsbMarket: '', lsbBrand: '', lsbKat: '', lsbTanda: '' }),
+          sm: true, onClick: () => setUI({ lsbQ: '', lsbMarket: '', lsbBrand: '', lsbKat: '', lsbTanda: '', lsbPage: 1 }),
         }),
         btn(tr({ id: 'Export Excel', en: 'Export Excel', zh: '导出 Excel' }), { sm: true, iconName: 'download', onClick: () => exportBeli(rows) }),
       ]),
@@ -1493,6 +1517,7 @@ function tabelBeli(st, rows) {
     }))]);
   }
   const sel = st.ui.lsPick || {};
+  const hal = halaman(rows, st, 'lsbPage', 'lsbSize');
   const head = [
     tr({ id: 'Spec', en: 'Spec', zh: '规格' }),
     tr({ id: 'Market', en: 'Market', zh: '市场' }),
@@ -1504,12 +1529,12 @@ function tabelBeli(st, rows) {
     tr({ id: 'Minta', en: 'Requested', zh: '申请量' }),
     tr({ id: 'Pesan', en: 'Order', zh: '订购量' }),
   ];
-  return h('div.card', h('div.tbl-wrap', h('table.tbl', [
+  return h('div.card', [h('div.tbl-wrap', h('table.tbl', [
     h('thead', h('tr', [
       h('th', { style: { width: '34px' } }),
       ...head.map((c, i) => h('th' + (i >= 4 && i !== 6 ? '.r' : ''), c)),
     ])),
-    h('tbody', rows.slice(0, 400).map(r => {
+    h('tbody', hal.items.map(r => {
       const t = TANDA_UI[r.tanda] || TANDA_UI[TANDA.OK];
       return h('tr', {
         // Latar merah tipis, bukan baris yang dicoret atau disembunyikan.
@@ -1589,12 +1614,7 @@ function tabelBeli(st, rows) {
         })),
       ]);
     })),
-    rows.length > 400 ? h('tfoot', h('tr', h('td', { colSpan: 10, style: { fontSize: '10.5px', color: 'var(--text-3)' } }, tr({
-      id: `Menampilkan 400 dari ${rows.length} baris — pakai filter untuk mempersempit.`,
-      en: `Showing 400 of ${rows.length} rows — use the filters to narrow it down.`,
-      zh: `显示 ${rows.length} 行中的 400 行 — 请使用筛选缩小范围。`,
-    })))) : null,
-  ])));
+  ])), barisPager(hal, 'lsbPage', 'lsbSize')]);
 }
 
 // Sekarang cuma dipakai DO NOT BUY. Pencentangan sudah pindah seluruhnya ke
@@ -1623,6 +1643,7 @@ function stockTable(rows, showAll, opts) {
   }
   const pick = opts && opts.st ? opts.st : null;
   const sel = pick ? (pick.ui.lsPick || {}) : null;
+  const hal = halaman(rows, getState(), 'lsPage', 'lsSize');
 
   const head = [
     tr({ id: 'Spec', en: 'Spec', zh: '规格' }),
@@ -1639,12 +1660,12 @@ function stockTable(rows, showAll, opts) {
       : tr({ id: 'Saran Order', en: 'Suggested Order', zh: '建议订购量' }),
   ];
   const rShift = pick ? 1 : 0;
-  return h('div.card', h('div.tbl-wrap', h('table.tbl', [
+  return h('div.card', [h('div.tbl-wrap', h('table.tbl', [
     h('thead', h('tr', [
       pick ? h('th', { style: { width: '34px' } }) : null,
       ...head.map((c, i) => h('th' + (i >= 3 && i !== 8 ? '.r' : ''), c)),
     ])),
-    h('tbody', rows.slice(0, 400).map(r => h('tr', {
+    h('tbody', hal.items.map(r => h('tr', {
       style: r.missing ? { opacity: '.55' } : {},
     }, [
       pick ? h('td', h('input', {
@@ -1709,11 +1730,7 @@ function stockTable(rows, showAll, opts) {
           }))
         : h('td.mono.r', { style: { fontWeight: r.suggestedQty ? 700 : 400 } }, r.suggestedQty ? num(r.suggestedQty) : '—'),
     ]))),
-  ])), rows.length > 400 ? h('div', { style: { padding: '10px 16px', fontSize: '10.5px', color: 'var(--text-3)' } }, tr({
-    id: `Menampilkan 400 dari ${num(rows.length)} baris — pakai pencarian atau filter status untuk mempersempit. Export Excel tetap berisi semuanya.`,
-    en: `Showing 400 of ${num(rows.length)} rows — use search or the status filter to narrow it down. The Excel export still contains everything.`,
-    zh: `显示 ${num(rows.length)} 行中的 400 行 — 请使用搜索或状态筛选缩小范围。导出的 Excel 仍包含全部内容。`,
-  })) : null);
+  ])), barisPager(hal, 'lsPage', 'lsSize')]);
 }
 
 function uploadsTab(st) {

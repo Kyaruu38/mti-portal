@@ -1,7 +1,7 @@
 import { h, pickFiles } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, icon, dropzone, modal } from '../ui/components.js';
+import { card, badge, btn, icon, dropzone, modal, pager, pageSlice, PAGE_DEFAULT } from '../ui/components.js';
 import { extractArchive } from '../parsers/archive.js';
 import { parsePpkekPdf, parseSppbPdf } from '../parsers/ppkekPdf.js';
 import { uploadToDrive, ppkekFolder } from '../core/drive.js';
@@ -240,6 +240,11 @@ function registerTable(st, canWrite) {
     const va = isNaN(ta) ? -Infinity : ta, vb = isNaN(tb) ? -Infinity : tb;
     return vb - va || a[1] - b[1];
   }).map(x => x[0]);
+  // Paginasi — alasannya di ui/components.js. Register ini tumbuh terus dan
+  // tidak pernah menyusut, jadi ongkosnya cuma naik seiring waktu.
+  const size = st.ui.pkSize === 0 ? 0 : (Number(st.ui.pkSize) || PAGE_DEFAULT);
+  const hal = pageSlice(rows, st.ui.pkPage || 1, size);
+  hal.size = size;
   // The pencil marks mean "you can edit this". Strip them when the cells are
   // read-only, otherwise the header promises an affordance the row doesn't have.
   // Translated head-word + the ' ✎' suffix appended separately, so the strip
@@ -263,7 +268,7 @@ function registerTable(st, canWrite) {
     .map(c => (canWrite ? c : c.replace(' ✎', '')))
     // 3=Valuta, 4=Kurs, 5=IDR — all numeric, all right-aligned.
     .map((c, i) => h('th' + (i >= 3 && i <= 5 ? '.r' : ''), { style: /✎/.test(c) ? { color: 'var(--accent-tx)' } : {} }, c))));
-  const body = h('tbody', rows.map(r => h('tr', {
+  const body = h('tbody', hal.items.map(r => h('tr', {
     // Clicking a row pulls it back up into the parse panel, so the documents
     // attached to it (and their Drive links) are reachable again after the
     // import that created it has scrolled away. Editable cells stop the event
@@ -327,6 +332,7 @@ function registerTable(st, canWrite) {
     // than the viewport pushed the page itself into a scroll the wheel could not
     // reach from inside the table. Bounded here so the wheel scrolls the rows.
     h('div.tbl-wrap', { style: { maxHeight: '58vh', overflowY: 'auto' } }, h('table.tbl', [head, body])),
+    pager(hal, { onPage: n => setUI({ pkPage: n }), onSize: n => setUI({ pkSize: n, pkPage: 1 }) }),
     h('div.tbl-foot', t('pk_manual_note')),
   ]);
 }

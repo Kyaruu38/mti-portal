@@ -256,3 +256,88 @@ export function pageHeader(title, sub, actions) {
     actions ? h('div.row.gap8.wrap', actions) : null,
   ]);
 }
+
+// ---------------------------------------------------------------------------
+// PAGINASI — dipakai semua tabel panjang di portal
+// ---------------------------------------------------------------------------
+// KENAPA INI ADA
+//
+// core/dom.js mount() tidak membandingkan apa pun: setiap setState membuang
+// seluruh isi layar lalu membangunnya lagi dari nol. Jadi ongkos SETIAP klik —
+// ganti bahasa, pindah tab, menekan tombol apa pun — sebanding dengan jumlah
+// baris yang sedang tampil, bukan dengan besarnya perubahan.
+//
+// Diukur di layar Stok Label dengan data asli, 974 SKU:
+//
+//     400 baris tampil  →  5.311 elemen  →  291 ms
+//     200 baris         →  2.684 elemen  →  157 ms
+//     100 baris         →  1.411 elemen  →   88 ms
+//      10 baris         →     ±220 elemen →  ±35 ms
+//       0 baris         →      75 elemen  →   30 ms
+//
+// Garis lurus. Tabelnya adalah SELURUH ongkosnya — lima kartu angka, tiga kotak
+// unggah, enam tab, dan semua spanduk peringatan digabung cuma 30 ms.
+//
+// Batas 400 yang lama dipilih supaya "hampir semua muat". Yang benar-benar
+// terjadi: hampir tidak ada yang menggulir sampai baris ke-400, tapi SEMUA
+// ORANG membayar ongkosnya di setiap klik, di setiap layar, sepanjang hari.
+//
+// Sepuluh baris adalah bawaannya, dan yang butuh lebih memilih sendiri. Ongkos
+// besar tetap tersedia — tapi jadi keputusan orangnya, bukan pajak yang
+// ditagihkan diam-diam.
+export const PAGE_SIZES = [10, 20, 50, 100];
+export const PAGE_DEFAULT = 10;
+
+// Potong daftar untuk halaman yang sedang dibuka.
+//
+// Halaman dijepit ke rentang yang masih ada: menyaring 900 baris menjadi 3
+// sementara orangnya sedang di halaman 40 harus menampilkan ketiga baris itu,
+// bukan halaman kosong yang terlihat seperti "tidak ada hasil".
+export function pageSlice(rows, page, size) {
+  const n = rows.length;
+  if (!size || size >= n) return { items: rows, page: 1, pages: 1, from: n ? 1 : 0, to: n, total: n };
+  const pages = Math.max(1, Math.ceil(n / size));
+  const p = Math.min(Math.max(1, Number(page) || 1), pages);
+  const from = (p - 1) * size;
+  return { items: rows.slice(from, from + size), page: p, pages, from: from + 1, to: Math.min(from + size, n), total: n };
+}
+
+// info = hasil pageSlice(). onPage(n) dan onSize(n) yang menyimpan pilihannya.
+export function pager(info, { onPage, onSize, note } = {}) {
+  const { page, pages, from, to, total } = info;
+  const nomor = h('span.mono', { style: { fontSize: '11.5px', color: 'var(--text-2)' } },
+    total ? tr({
+      id: `${from}–${to} dari ${total}`,
+      en: `${from}–${to} of ${total}`,
+      zh: `${total} 中的 ${from}–${to}`,
+    }) : tr({ id: 'kosong', en: 'empty', zh: '空' }));
+
+  const lompat = (ke, label, mati) => h('button.btn.btn-sm', {
+    disabled: mati, style: mati ? { opacity: '.35', cursor: 'not-allowed' } : {},
+    onClick: () => { if (!mati && onPage) onPage(ke); },
+  }, label);
+
+  return h('div.tbl-foot', h('div.row.gap8.wrap', { style: { alignItems: 'center' } }, [
+    h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
+      id: 'Tampilkan', en: 'Show', zh: '显示',
+    })),
+    // <select> biasa, bukan tombol-tombol: empat pilihan yang saling meniadakan
+    // memang bentuknya begini, dan dia tidak ikut melebar di layar sempit.
+    h('select.input', {
+      style: { width: 'auto', padding: '4px 8px', fontSize: '11.5px' },
+      onChange: e => onSize && onSize(Number(e.target.value)),
+    }, [
+      ...PAGE_SIZES.map(n => h('option', { value: String(n), selected: info.size === n }, String(n))),
+      h('option', { value: '0', selected: !info.size }, tr({ id: 'Semua', en: 'All', zh: '全部' })),
+    ]),
+    nomor,
+    pages > 1 ? h('div.row.gap8', { style: { marginLeft: '4px' } }, [
+      lompat(1, '«', page <= 1),
+      lompat(page - 1, '‹', page <= 1),
+      h('span.mono', { style: { fontSize: '11.5px', minWidth: '54px', textAlign: 'center' } }, `${page} / ${pages}`),
+      lompat(page + 1, '›', page >= pages),
+      lompat(pages, '»', page >= pages),
+    ]) : null,
+    note ? h('span', { style: { fontSize: '10px', color: 'var(--text-3)' } }, note) : null,
+  ]));
+}
