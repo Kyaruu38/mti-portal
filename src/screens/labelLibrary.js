@@ -262,8 +262,8 @@ function card(d) {
         en: 'label artwork · 79×254 mm',
         zh: '标签图稿 · 79×254 mm',
       }))])),
-    h('div.mono', { style: { fontSize: '11.8px', fontWeight: 700, color: 'var(--text)', marginTop: '9px' } }, d.erp),
-    h('div.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, d.spec),
+    h('div.mono', { style: { fontSize: '13px', fontWeight: 700, color: 'var(--text)', marginTop: '11px' } }, d.erp),
+    h('div.mono', { style: { fontSize: '11px', color: 'var(--text-3)', lineHeight: 1.45 } }, d.spec),
     h('div.row.gap8', { style: { marginTop: '7px' } }, [
       badge(d.brand, brandTone(d.brand)),
       h('span', { style: { fontSize: '10px', color: 'var(--text-3)' } }, d.market),
