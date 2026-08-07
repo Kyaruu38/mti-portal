@@ -30,15 +30,15 @@ export const USERS = {
 //  financemti = Finance dashboard only
 //  sona       = Label Request + Label Stock (weekly Excel upload) only
 export const ACCESS = {
-  wilbert: ['dashboard', 'approval', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'finance', 'master-data', 'reports'],
-  cania:   ['dashboard', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'master-data', 'reports'],
-  visca:   ['dashboard', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'master-data', 'reports'],
+  wilbert: ['dashboard', 'approval', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports'],
+  cania:   ['dashboard', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
+  visca:   ['dashboard', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
   // 'finance' added 31 Jul 2026 so sekar can post the transfer proof. Finance
   // shares proofs into a group chat rather than entering them one by one, so
   // the person who actually transcribes them is sekar. She gets the SCREEN, not
   // finance's decisions: financeReceive stays finance-only, so nothing can be
   // paid until finance has signed off the 4-point document checklist.
-  sekar:   ['dashboard', 'ppkek', 'payment', 'finance', 'reports'],
+  sekar:   ['dashboard', 'ppkek', 'payment', 'prf', 'finance', 'reports'],
   financemti: ['dashboard', 'finance'],
   // sona owns the weekly label-stock routine (the workbook's own Instructions
   // sheet says as much) and raises label requests. Nothing else — deliberately
@@ -54,7 +54,7 @@ export const ACCESS = {
   // what forced the real gates to exist (sjWrite / ppkekWrite / poCreate /
   // designWrite / labelParse below), and those gates now protect every role,
   // not just this one.
-  cenjc:   ['dashboard', 'approval', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'finance', 'master-data', 'reports'],
+  cenjc:   ['dashboard', 'approval', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports'],
 };
 
 // Fine-grained capabilities (used to hide buttons + enforced by RLS).

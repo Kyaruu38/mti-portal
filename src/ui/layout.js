@@ -43,6 +43,7 @@ const NAV = [
   { label: 'nav_compliance', items: [{ id: 'ppkek', t: 's_ppkek', ic: 'box' }] },
   { label: 'nav_finance', items: [
     { id: 'payment', t: 's_payment', ic: 'card' },
+    { id: 'prf', t: 's_prf', ic: 'file' },
     { id: 'finance', t: 's_finance', ic: 'dollar' },
   ] },
   { label: 'nav_system', items: [

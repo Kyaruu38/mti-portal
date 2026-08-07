@@ -62,6 +62,7 @@ export const DICT = {
   s_converter: { id: 'PO Converter', en: 'PO Converter', zh: '采购单转换' },
   s_ppkek: { id: 'PPKEK', en: 'PPKEK', zh: '报关 PPKEK' },
   s_payment: { id: 'Payment', en: 'Payment', zh: '付款' },
+  s_prf: { id: 'PRF', en: 'PRF', zh: '付款申请单' },
   s_finance: { id: 'Finance Dashboard', en: 'Finance Dashboard', zh: '财务仪表盘' },
   s_master: { id: 'Master Data', en: 'Master Data', zh: '主数据' },
   s_reports: { id: 'Reports', en: 'Reports', zh: '报表' },

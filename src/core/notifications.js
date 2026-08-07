@@ -36,7 +36,10 @@ export function unreadCount(st, user) {
 // Which screen a notification row should navigate to on click.
 export function notifTargetScreen(n, user) {
   if (n.entity === 'po') return user.role === 'wilbert' ? 'approval' : 'label-request';
-  if (n.entity === 'prf') return user.role === 'financemti' ? 'finance' : 'payment';
+  // Diantar ke layar PRF-nya sendiri, bukan ke Payment yang PRF-nya ada di
+  // bagian bawah. Lonceng yang mendarat di layar yang salah membuat orangnya
+  // mencari sendiri — dan itu persis yang seharusnya dihemat oleh lonceng.
+  if (n.entity === 'prf') return user.role === 'financemti' ? 'finance' : 'prf';
   if (n.entity === 'invoice') return 'finance';
   return null;
 }

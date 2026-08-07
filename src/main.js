@@ -49,6 +49,9 @@ const LAZY = {
   approval:         () => import('./screens/approval.js').then(m => m.approvalScreen),
   ppkek:            () => import('./screens/ppkek.js').then(m => m.ppkekScreen),
   payment:          () => import('./screens/payment.js').then(m => m.paymentScreen),
+  // Modul yang SAMA dengan 'payment' — import() menyimpan hasilnya, jadi
+  // berkasnya tetap terunduh sekali walaupun dipetakan dua kali.
+  prf:              () => import('./screens/payment.js').then(m => m.prfScreen),
   finance:          () => import('./screens/finance.js').then(m => m.financeScreen),
   'master-data':    () => import('./screens/masterData.js').then(m => m.masterDataScreen),
   reports:          () => import('./screens/reports.js').then(m => m.reportsScreen),

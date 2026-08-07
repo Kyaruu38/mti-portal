@@ -54,19 +54,15 @@ export function paymentScreen() {
   // land in the PRF-only branch. It must come first, because it is the
   // narrowest case.
   if (!canIntake && !canPrf) {
-    return h('div.stack', [
-      observeOnlyNote(),
-      prfTrackingCard(st, true),
-      invoiceTable(st, { readonly: true }),
-    ]);
+    return h('div.stack', [observeOnlyNote(), invoiceTable(st, { readonly: true })]);
   }
 
+  // Akun yang cuma boleh membuat PRF tidak punya urusan di layar ini sama
+  // sekali. Diarahkan, bukan diberi layar setengah kosong.
   if (!canIntake && canPrf) {
-    return h('div.stack', [
-      prfOnlyNote(),
-      prfBuilder(st),
-      ui.prfModal ? prfModal() : null,
-    ]);
+    return h('div.stack', [prfOnlyNote(), tautanKeLayar('prf', tr({
+      id: 'Buka layar PRF →', en: 'Open the PRF screen →', zh: '打开付款申请单页面 →',
+    }))]);
   }
 
   // Faktur reminder ONLY when linked PO has PPN=Dibayar (paid) and faktur missing.
@@ -115,56 +111,77 @@ export function paymentScreen() {
     })),
   ])]);
 
-  // DUA PEKERJAAN, DUA TAB — BUKAN SATU HALAMAN SEPANJANG DUA LAYAR
-  // -------------------------------------------------------------------------
-  // Layar ini menumpuk lima hal: kotak jatuh invoice, bagan alur status, tabel
-  // Invoice Masuk (137 baris), PRF Builder, dan Progress PRF (136 baris).
-  // Itu sebenarnya dua pekerjaan yang berbeda — MENGURUS INVOICE dan MEMBUAT
-  // LALU MEMANTAU PRF — dan yang kedua bahkan tidak bisa dimulai sebelum yang
-  // pertama selesai.
-  //
-  // TAB, BUKAN DUA MENU DI SIDEBAR, dan alasannya bukan selera:
-  //   * orang yang mengerjakannya SAMA. cania, visca, sekar, dan wilbert
-  //     semuanya punya paymentWrite DAN prfCreate. Menu terpisah baru berguna
-  //     kalau dua pekerjaan itu dipegang dua orang berbeda — di sini tidak.
-  //   * sidebar sudah 13 menu. Menambah dua lagi memindahkan masalahnya, bukan
-  //     menghilangkannya.
-  //   * cuma tab yang aktif yang digambar. Karena mount() membangun ulang
-  //     seluruh layar setiap klik, itu berarti tabnya IKUT membuat layar ini
-  //     lebih ringan — bukan cuma lebih rapi.
-  //
-  // Urutannya Invoice dulu baru PRF, karena memang itu urutan kerjanya: invoice
-  // masuk, naik status, baru bisa masuk PRF.
-  const tab = ui.payTab === 'prf' ? 'prf' : 'invoice';
-  const jml = st.prfs.filter(p => p.stage === 'Terbentuk' || p.stage === 'Diproses Wilbert').length;
-  const tabBar = h('div.row.gap8.wrap', [
-    h('button.btn' + (tab === 'invoice' ? '.btn-navy' : ''), { onClick: () => setUI({ payTab: 'invoice' }) },
-      tr({
-        id: `Invoice · ${st.invoices.length}`,
-        en: `Invoices · ${st.invoices.length}`,
-        zh: `发票 · ${st.invoices.length}`,
-      })),
-    h('button.btn' + (tab === 'prf' ? '.btn-navy' : ''), { onClick: () => setUI({ payTab: 'prf' }) },
-      tr({
-        id: `PRF · ${st.prfs.length}${jml ? ` · ${jml} jalan` : ''}`,
-        en: `PRF · ${st.prfs.length}${jml ? ` · ${jml} in flight` : ''}`,
-        zh: `付款申请单 · ${st.prfs.length}${jml ? ` · ${jml} 进行中` : ''}`,
-      })),
-  ]);
-
   return h('div.stack', [
-    // Peringatan faktur pajak SENGAJA di luar tab, selalu terlihat. Dia soal
-    // dokumen yang hilang dan tenggatnya jalan terus — menyembunyikannya di
-    // balik tab yang kebetulan tidak dibuka sama saja dengan meniadakannya.
     ...banner,
-    tabBar,
-    ...(tab === 'invoice'
-      ? [h('div.grid', { style: { gridTemplateColumns: '1fr 1.6fr' } }, [dz, flow]), invoiceTable(st)]
-      : [prfBuilder(st), prfTrackingCard(st, readonly)]),
-    ui.prfModal ? prfModal() : null,
+    h('div.grid', { style: { gridTemplateColumns: '1fr 1.6fr' } }, [dz, flow]),
+    invoiceTable(st),
+    // Jembatan ke langkah berikutnya. Invoice yang sudah naik ke tahap 2 tidak
+    // bisa diapa-apakan lagi di sini — yang berikutnya terjadi di layar PRF,
+    // dan tanpa tautan ini orangnya harus tahu sendiri untuk pindah ke sana.
+    tautanKeLayar('prf', tr({
+      id: `Lanjut ke PRF → (${st.prfs.length} PRF)`,
+      en: `On to PRF → (${st.prfs.length} PRFs)`,
+      zh: `继续到付款申请单 →（${st.prfs.length} 张）`,
+    })),
     ui.invoiceModal ? invoiceModal() : null,
     ui.fakturFor ? fakturModal(st) : null,
   ]);
+}
+
+// ===========================================================================
+// LAYAR PRF — dulu separuh bawah layar Payment
+// ===========================================================================
+// Awalnya dijadikan TAB di dalam Payment, dengan alasan orang yang mengerjakan
+// keduanya sama. Alasan itu benar tapi tidak cukup: dua tombol kecil di pojok
+// kiri atas TIDAK TERBACA sebagai tab — Kyaru melihatnya dan bilang "ini kayaknya
+// nggak terlalu noticeable", dan dia benar. Fitur yang tidak ditemukan sama saja
+// dengan fitur yang tidak ada.
+//
+// Jadi PRF naik ke sidebar. Yang berubah bukan cuma letaknya:
+//   * PRF adalah TUJUAN. sekar datang ke portal untuk "ngurus PRF", bukan untuk
+//     "membuka Payment lalu klik tab". Menu menyebut pekerjaannya dengan nama
+//     pekerjaannya.
+//   * lonceng pemberitahuan sekarang bisa mengantar tepat ke PRF-nya, bukan ke
+//     layar yang PRF-nya ada di bagian bawah.
+//   * cuma satu paruh yang digambar tiap kali. Karena mount() membangun ulang
+//     seluruh layar setiap klik, memisahkan keduanya membuat dua-duanya ringan.
+//
+// SATU BERKAS, DUA LAYAR — disengaja. main.js memetakan 'payment' dan 'prf' ke
+// modul yang sama, jadi berkasnya terunduh sekali. Memecahnya jadi dua berkas
+// berarti prf.js harus mengimpor payment.js (prfBuilder, invoiceTable, dan
+// belasan penolong lain hidup di sini), dan layar yang mengimpor layar lain
+// adalah persis yang membuat satu berkas terunduh dua kali.
+export function prfScreen() {
+  const st = getState(); const ui = st.ui;
+  const readonly = can(st.user.role, 'paymentReadonly');
+  const canPrf = can(st.user.role, 'prfCreate');
+  const canLihat = canPrf || can(st.user.role, 'prfReceive') || can(st.user.role, 'paymentWrite');
+
+  if (!canLihat) {
+    return h('div.stack', [observeOnlyNote(), prfTrackingCard(st, true)]);
+  }
+
+  return h('div.stack', [
+    // Balik ke Invoice. PRF lahir dari invoice, jadi "kenapa invoicenya tidak
+    // muncul di sini" adalah pertanyaan yang pasti terjadi — dan jawabannya
+    // selalu ada di layar sebelah.
+    tautanKeLayar('payment', tr({
+      id: `← Invoice Masuk (${st.invoices.length})`,
+      en: `← Incoming Invoices (${st.invoices.length})`,
+      zh: `← 进项发票（${st.invoices.length}）`,
+    })),
+    canPrf ? prfBuilder(st) : null,
+    prfTrackingCard(st, readonly),
+    ui.prfModal ? prfModal() : null,
+  ]);
+}
+
+// Tautan antar dua layar yang dulu satu. Bukan tombol besar: ini penunjuk
+// arah, bukan aksi.
+function tautanKeLayar(layar, teks) {
+  return h('div', { style: { padding: '2px 0' } },
+    h('a.link', { style: { fontSize: '12px', fontWeight: 700, cursor: 'pointer' },
+      onClick: () => setState({ screen: layar }) }, teks));
 }
 
 // READ-ONLY progress list of every PRF raised, for the intake side of the screen
