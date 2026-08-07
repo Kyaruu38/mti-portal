@@ -272,6 +272,24 @@ textarea.input { resize:vertical; }
 
 @media (prefers-reduced-motion: reduce) { .tepi-jalan { animation:none !important; } }
 
+/* PITA MEREK DI HALAMAN LOGIN — lihat catatan di screens/login.js soal kenapa
+   yang ini diam sementara pita layar boot berjalan.
+   Tidak ada satu pun animasi di sini, jadi tidak ada yang perlu dimatikan untuk
+   prefers-reduced-motion. */
+.pita-masuk { position:absolute; left:0; bottom:20px; width:100%; height:34px;
+  overflow:hidden; z-index:1; opacity:.5; pointer-events:none; user-select:none;
+  /* Kedua ujung dibuat memudar, bukan dipotong. Dipotong lurus di tepi layar,
+     logo terakhir terbaca seperti gambar yang gagal dimuat separuh. */
+  -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 14%,#000 86%,transparent 100%);
+          mask-image:linear-gradient(90deg,transparent 0,#000 14%,#000 86%,transparent 100%); }
+.pita-masuk-baris { display:flex; width:max-content; }
+.pita-masuk img { display:block; height:34px; width:auto; margin-right:12px; border-radius:5px; }
+
+/* Layar pendek: kartu login dan pita akan saling tindih, dan yang kalah harus
+   pitanya — dia hiasan, kartunya pekerjaan. Disembunyikan, bukan dikecilkan:
+   pita setinggi 20px isinya cuma logo yang tidak terbaca. */
+@media (max-height: 640px) { .pita-masuk { display:none; } }
+
 /* Lencana merek di Design Library. Warnanya disuntik lewat --bc dari
    ui/brands.js — bukan ditulis penuh sebagai style inline, karena tema gelap
    butuh warna yang sama tapi lebih terang, dan style inline mengalahkan aturan
