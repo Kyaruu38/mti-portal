@@ -115,12 +115,52 @@ export function paymentScreen() {
     })),
   ])]);
 
+  // DUA PEKERJAAN, DUA TAB — BUKAN SATU HALAMAN SEPANJANG DUA LAYAR
+  // -------------------------------------------------------------------------
+  // Layar ini menumpuk lima hal: kotak jatuh invoice, bagan alur status, tabel
+  // Invoice Masuk (137 baris), PRF Builder, dan Progress PRF (136 baris).
+  // Itu sebenarnya dua pekerjaan yang berbeda — MENGURUS INVOICE dan MEMBUAT
+  // LALU MEMANTAU PRF — dan yang kedua bahkan tidak bisa dimulai sebelum yang
+  // pertama selesai.
+  //
+  // TAB, BUKAN DUA MENU DI SIDEBAR, dan alasannya bukan selera:
+  //   * orang yang mengerjakannya SAMA. cania, visca, sekar, dan wilbert
+  //     semuanya punya paymentWrite DAN prfCreate. Menu terpisah baru berguna
+  //     kalau dua pekerjaan itu dipegang dua orang berbeda — di sini tidak.
+  //   * sidebar sudah 13 menu. Menambah dua lagi memindahkan masalahnya, bukan
+  //     menghilangkannya.
+  //   * cuma tab yang aktif yang digambar. Karena mount() membangun ulang
+  //     seluruh layar setiap klik, itu berarti tabnya IKUT membuat layar ini
+  //     lebih ringan — bukan cuma lebih rapi.
+  //
+  // Urutannya Invoice dulu baru PRF, karena memang itu urutan kerjanya: invoice
+  // masuk, naik status, baru bisa masuk PRF.
+  const tab = ui.payTab === 'prf' ? 'prf' : 'invoice';
+  const jml = st.prfs.filter(p => p.stage === 'Terbentuk' || p.stage === 'Diproses Wilbert').length;
+  const tabBar = h('div.row.gap8.wrap', [
+    h('button.btn' + (tab === 'invoice' ? '.btn-navy' : ''), { onClick: () => setUI({ payTab: 'invoice' }) },
+      tr({
+        id: `Invoice · ${st.invoices.length}`,
+        en: `Invoices · ${st.invoices.length}`,
+        zh: `发票 · ${st.invoices.length}`,
+      })),
+    h('button.btn' + (tab === 'prf' ? '.btn-navy' : ''), { onClick: () => setUI({ payTab: 'prf' }) },
+      tr({
+        id: `PRF · ${st.prfs.length}${jml ? ` · ${jml} jalan` : ''}`,
+        en: `PRF · ${st.prfs.length}${jml ? ` · ${jml} in flight` : ''}`,
+        zh: `付款申请单 · ${st.prfs.length}${jml ? ` · ${jml} 进行中` : ''}`,
+      })),
+  ]);
+
   return h('div.stack', [
+    // Peringatan faktur pajak SENGAJA di luar tab, selalu terlihat. Dia soal
+    // dokumen yang hilang dan tenggatnya jalan terus — menyembunyikannya di
+    // balik tab yang kebetulan tidak dibuka sama saja dengan meniadakannya.
     ...banner,
-    h('div.grid', { style: { gridTemplateColumns: '1fr 1.6fr' } }, [dz, flow]),
-    invoiceTable(st),
-    prfBuilder(st),
-    prfTrackingCard(st, readonly),
+    tabBar,
+    ...(tab === 'invoice'
+      ? [h('div.grid', { style: { gridTemplateColumns: '1fr 1.6fr' } }, [dz, flow]), invoiceTable(st)]
+      : [prfBuilder(st), prfTrackingCard(st, readonly)]),
     ui.prfModal ? prfModal() : null,
     ui.invoiceModal ? invoiceModal() : null,
     ui.fakturFor ? fakturModal(st) : null,
