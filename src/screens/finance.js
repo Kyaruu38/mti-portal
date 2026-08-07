@@ -1,8 +1,8 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, icon, dropzone, modal, checkRow, driveLink, statusTone } from '../ui/components.js';
-import { money, num, fmtDate, fmtDateTime, daysUntil, similarity, normalize, sumByCurrency, moneyMulti } from '../core/format.js';
+import { card, badge, btn, icon, dropzone, modal, checkRow, driveLink, statusTone, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
+import { money, num, fmtDate, fmtDateTime, daysUntil, similarity, normalize, sumByCurrency, moneyMulti, CURRENCIES } from '../core/format.js';
 import { parsePaymentProof } from '../parsers/bankProof.js';
 import { parseNumber } from '../parsers/numbers.js';
 import { uploadToDrive } from '../core/drive.js';
@@ -23,6 +23,35 @@ const STAGE_TEXT = {
 };
 function stageLabel(s) { return STAGE_TEXT[s] ? t(STAGE_TEXT[s]) : s; }
 
+// Kolom Kelengkapan menulis hitungan centangnya juga ("Diterima ✓ 4/4"), tapi
+// yang membedakan barisnya cuma dua keadaan ini. Kalau hitungannya ikut jadi
+// opsi, dropdownnya berisi lima baris yang menanyakan hal yang sama — jadi yang
+// disaring keadaannya, bukan angkanya.
+const kelengkapanTeks = p => (p.stage === 'Diterima Finance' || p.stage === 'Paid')
+  ? tr({ id: 'Diterima', en: 'Received', zh: '已接收' })
+  : tr({ id: 'Menunggu checklist', en: 'Awaiting checklist', zh: '等待单据核对' });
+
+// Kotak-kotak jendela saring "PRF Masuk". Isinya mengikuti kolom yang benar-benar
+// ada di tabelnya — menyaring lewat kolom yang tidak kelihatan membuat baris
+// menghilang tanpa ada yang bisa menunjuk sebabnya.
+//
+// Opsi "Dari" diambil dari PRF yang BENAR-BENAR ADA, bukan dari daftar pengguna
+// portal: yang pernah mengirim PRF ke Finance cuma segelintir dari daftar itu,
+// dan setiap nama sisanya adalah pilihan yang pasti berakhir nol baris.
+const MEDAN_PRF_MASUK = (semua) => [
+  { kunci: 'no', label: tr({ id: 'PRF No', en: 'PRF No', zh: '付款申请单号' }), tipe: 'teks', mono: true, ambil: r => r.no },
+  { kunci: 'by', label: tr({ id: 'Dari', en: 'From', zh: '来自' }), tipe: 'pilih', opsi: [...new Set((semua || []).map(p => p.by).filter(Boolean))].sort(), ambil: r => r.by },
+  { kunci: 'supplier', label: t('col_supplier'), tipe: 'teks', ambil: r => r.supplier },
+  { kunci: 'ccy', label: tr({ id: 'Ccy', en: 'Ccy', zh: '币种' }), tipe: 'pilih', opsi: CURRENCIES, ambil: r => r.currency },
+  // Opsi memakai teks yang TERBACA di lencananya, bukan nama stage internalnya:
+  // yang memilih di sini sedang menunjuk kolom yang dia lihat.
+  {
+    kunci: 'lengkap', label: tr({ id: 'Kelengkapan', en: 'Completeness', zh: '齐全度' }), tipe: 'pilih',
+    opsi: [kelengkapanTeks({ stage: 'Diterima Finance' }), kelengkapanTeks({ stage: 'Diproses Wilbert' })],
+    ambil: kelengkapanTeks,
+  },
+];
+
 export function financeScreen() {
   const st = getState(); const ui = st.ui;
   const canReceive = can(st.user.role, 'financeReceive');
@@ -39,30 +68,47 @@ export function financeScreen() {
     })]),
   ]) : null;
 
+  const semuaPrf = st.prfs;
+  const medanPrf = MEDAN_PRF_MASUK(semuaPrf);
+  const nilaiPrf = nilaiFilter('fin-prf');
+  const prfTersaring = saring(semuaPrf, medanPrf, nilaiPrf);
+  // Judul kolomnya dipegang di satu tempat supaya colspan baris "tidak ada yang
+  // cocok" di bawah ikut benar sendiri kalau kolomnya bertambah.
+  const kepalaPrf = [
+    tr({ id: 'PRF No', en: 'PRF No', zh: '付款申请单号' }),
+    tr({ id: 'Dari', en: 'From', zh: '来自' }),
+    t('col_supplier'), t('col_amount'),
+    tr({ id: 'Ccy', en: 'Ccy', zh: '币种' }),
+    tr({ id: 'Kelengkapan', en: 'Completeness', zh: '齐全度' }),
+    t('col_action'),
+  ];
   const prfIn = card([
-    h('div.card-head', [h('div.card-title', t('fn_prf_in')), badge(String(st.prfs.filter(p => p.stage === 'Diproses Wilbert' || p.stage === 'Diterima Finance').length), 'accent')]),
+    h('div.card-head', [
+      h('div.card-title', t('fn_prf_in')),
+      badge(String(st.prfs.filter(p => p.stage === 'Diproses Wilbert' || p.stage === 'Diterima Finance').length), 'accent'),
+      hitunganSaring(prfTersaring.length, semuaPrf.length, { id: 'PRF', en: `PRF${semuaPrf.length === 1 ? '' : 's'}`, zh: '张' }),
+      // Daftar ini tidak berhalaman, jadi tanpa kunciHalaman — tidak ada nomor
+      // halaman yang bisa tertinggal di luar hasil saringannya.
+      tombolFilter({ id: 'fin-prf', medan: medanPrf, judul: t('fn_prf_in') }),
+    ]),
     h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', [
-        tr({ id: 'PRF No', en: 'PRF No', zh: '付款申请单号' }),
-        tr({ id: 'Dari', en: 'From', zh: '来自' }),
-        t('col_supplier'), t('col_amount'),
-        tr({ id: 'Ccy', en: 'Ccy', zh: '币种' }),
-        tr({ id: 'Kelengkapan', en: 'Completeness', zh: '齐全度' }),
-        t('col_action'),
-      ].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c)))),
-      h('tbody', st.prfs.map(p => {
+      h('thead', h('tr', kepalaPrf.map((c, i) => h('th' + (i === 3 ? '.r' : ''), c)))),
+      h('tbody', prfTersaring.length ? prfTersaring.map(p => {
         const done = Object.values(p.receiveChecklist || {}).filter(Boolean).length;
         const received = p.stage === 'Diterima Finance' || p.stage === 'Paid';
         return h('tr', [
           h('td.mono.cell-strong', p.no), h('td', p.by), h('td', p.supplier),
           h('td.mono.r', num(p.amount, p.currency === 'USD' ? 2 : 0)),
           h('td', badge(p.currency, p.currency === 'USD' ? 'accent' : 'navy')),
+          // Kata di lencananya diambil dari kelengkapanTeks() yang sama dengan
+          // yang mengisi dropdown saringnya, supaya keduanya tidak bisa lagi
+          // berbunyi beda setelah salah satunya diedit sendirian.
           h('td', received
-            ? badge(tr({ id: `Diterima ✓ ${done}/4`, en: `Received ✓ ${done}/4`, zh: `已接收 ✓ ${done}/4` }), 'green')
-            : badge(tr({ id: 'Menunggu checklist', en: 'Awaiting checklist', zh: '等待单据核对' }), 'amber')),
+            ? badge(`${kelengkapanTeks(p)} ✓ ${done}/4`, 'green')
+            : badge(kelengkapanTeks(p), 'amber')),
           h('td', p.stage === 'Paid' ? badge(stageLabel('Paid'), 'green') : (received ? h('span.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } }, fmtDateTime(p.createdAt)) : (canReceive ? btn(t('fn_receive'), { sm: true, variant: 'primary', onClick: () => setUI({ receiveModal: p.id }) }) : badge(tr({ id: 'Menunggu Finance', en: 'Awaiting Finance', zh: '等待财务' }), 'amber')))),
         ]);
-      })),
+      }) : barisTakCocok(kepalaPrf.length, { id: 'fin-prf', adaFilter: jumlahFilterAktif(nilaiPrf) > 0 })),
     ])),
   ]);
 
@@ -364,19 +410,49 @@ async function confirmPaid(m) {
   });
 }
 
+// Kotak-kotak jendela saring Payment History.
+//
+// Opsi Metode datang dari pembayaran yang sudah tercatat, bukan dari daftar
+// baku: isinya label template bank yang kebaca dari buktinya (dan 'transfer'
+// kalau tidak ada satu pun yang cocok), jadi daftar bakunya memang tidak ada di
+// mana pun — satu-satunya sumber yang jujur adalah riwayatnya sendiri.
+//
+// Valuta ikut disaring walaupun tidak punya kolom sendiri: money() menulis
+// kodenya di depan nominal, jadi yang dipilih di sini tetap terbaca di layar.
+const MEDAN_BAYAR = (semua) => [
+  { kunci: 'tgl', label: t('col_date'), tipe: 'tanggal', ambil: r => r.date },
+  { kunci: 'prf', label: 'PRF', tipe: 'teks', mono: true, ambil: r => r.prf },
+  { kunci: 'supplier', label: t('col_supplier'), tipe: 'teks', ambil: r => r.supplier },
+  { kunci: 'ccy', label: tr({ id: 'Valuta', en: 'Currency', zh: '币种' }), tipe: 'pilih', opsi: CURRENCIES, ambil: r => r.currency },
+  { kunci: 'metode', label: tr({ id: 'Metode', en: 'Method', zh: '方式' }), tipe: 'pilih', opsi: [...new Set((semua || []).map(p => p.method).filter(Boolean))].sort(), ambil: r => r.method },
+];
+
 function historyCard(st) {
+  const semua = st.payments;
+  const medan = MEDAN_BAYAR(semua);
+  const nilai = nilaiFilter('fin-bayar');
+  const tersaring = saring(semua, medan, nilai);
+  const kepala = [
+    t('col_date'), 'PRF', t('col_supplier'), t('col_amount'),
+    tr({ id: 'Metode', en: 'Method', zh: '方式' }),
+    tr({ id: 'Bukti', en: 'Proof', zh: '凭证' }),
+  ];
   return card([
-    h('div.card-head', [h('div.card-title', t('fn_history')), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({ id: 'bukti tersimpan di Drive', en: 'proofs stored on Drive', zh: '凭证保存在 Drive' }))]),
+    h('div.card-head', [
+      h('div.card-title', t('fn_history')),
+      hitunganSaring(tersaring.length, semua.length, {
+        id: 'pembayaran', en: `payment${semua.length === 1 ? '' : 's'}`, zh: '笔付款',
+      }),
+      // Tanpa kunciHalaman: riwayat ini tidak berhalaman.
+      tombolFilter({ id: 'fin-bayar', medan, judul: t('fn_history') }),
+      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({ id: 'bukti tersimpan di Drive', en: 'proofs stored on Drive', zh: '凭证保存在 Drive' })),
+    ]),
     h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', [
-        t('col_date'), 'PRF', t('col_supplier'), t('col_amount'),
-        tr({ id: 'Metode', en: 'Method', zh: '方式' }),
-        tr({ id: 'Bukti', en: 'Proof', zh: '凭证' }),
-      ].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c)))),
-      h('tbody', st.payments.map(p => h('tr', [
+      h('thead', h('tr', kepala.map((c, i) => h('th' + (i === 3 ? '.r' : ''), c)))),
+      h('tbody', tersaring.length ? tersaring.map(p => h('tr', [
         h('td.mono', fmtDate(p.date)), h('td.mono.cell-strong', p.prf), h('td', p.supplier),
         h('td.mono.r', money(p.amount, p.currency)), h('td', p.method), h('td', driveLink(p.driveUrl)),
-      ]))),
+      ])) : barisTakCocok(kepala.length, { id: 'fin-bayar', adaFilter: jumlahFilterAktif(nilai) > 0 })),
     ])),
   ]);
 }

@@ -2,7 +2,7 @@ import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
 import { can } from '../auth/roles.js';
-import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField, searchInput } from '../ui/components.js';
+import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
 import { parseZcPo } from '../parsers/zcPoPdf.js';
 import { money, num, ppnFor, ppnModeFromForm } from '../core/format.js';
 import { insertPO, newLineId, duplicatePoNumber } from '../core/posApi.js';
@@ -312,15 +312,51 @@ async function openPoPdf(po) {
   w.onload = () => { w.focus(); };
 }
 
+// Kotak-kotak di jendela saring PO Jalan — satu per kolom yang tampil.
+//
+// MENGGANTIKAN KOTAK CARI YANG DULU ADA DI ATAS TABEL. Kotak itu menyapu empat
+// medan sekaligus dalam satu kata, jadi 'cania' menemukan PO yang dibuat cania
+// DAN PO ke supplier yang kebetulan mengandung huruf itu, bercampur tanpa cara
+// memisahkannya. Dipecah per kolom, yang mencari bisa bilang mana yang dia
+// maksud.
+//
+// Opsi status diambil dari status yang BENAR-BENAR ADA di daftarnya, bukan dari
+// RUNNING: kalau tidak ada satu pun PO 'Diterima Purchasing' hari ini, pilihan
+// itu cuma jalan menuju daftar kosong.
+const MEDAN_PO_JALAN = (rows) => [
+  // Nomor kontrak ikut dicari walau kolomnya menampilkan p.no saja. Kotak teks
+  // hanya bisa MELONGGARKAN dengan tambahan ini — baris yang nomornya cocok
+  // secara kasat mata tetap ikut — sementara nomor kontrak adalah identitas
+  // yang dipegang supplier, dan itu yang sering ada di tangan orang.
+  { kunci: 'no', label: tr({ id: 'No. PO', en: 'PO No.', zh: '采购单号' }), tipe: 'teks', mono: true, ambil: r => `${r.no || ''} ${r.contract || ''}` },
+  { kunci: 'supplier', label: tr({ id: 'Supplier', en: 'Supplier', zh: '供应商' }), tipe: 'teks', ambil: r => r.supplier },
+  // Nilainya dicocokkan ke teks yang TERBACA di kolomnya ('USD 12,340.00'),
+  // bukan ke angka mentahnya — supaya 'usd' menyaring per valuta dan potongan
+  // angka bisa diketik persis seperti yang terlihat, koma dan semuanya.
+  { kunci: 'nilai', label: tr({ id: 'Nilai', en: 'Value', zh: '金额' }), tipe: 'teks', mono: true, ambil: r => money(r.subtotal + ppnFor(r.subtotal, r.ppnMode), r.currency) },
+  { kunci: 'by', label: tr({ id: 'Dibuat oleh', en: 'Raised by', zh: '制单人' }), tipe: 'teks', ambil: r => r.by },
+  { kunci: 'tgl', label: tr({ id: 'Tanggal', en: 'Date', zh: '日期' }), tipe: 'tanggal', ambil: r => r.createdAt },
+  { kunci: 'status', label: tr({ id: 'Status', en: 'Status', zh: '状态' }), tipe: 'pilih', opsi: [...new Set(rows.map(r => r.status).filter(Boolean))].sort(), ambil: r => r.status },
+];
+
 function runningPoCard(st) {
-  const q = (st.ui.cvQ || '').toLowerCase();
   const all = (st.pos || []).filter(p => RUNNING.includes(p.status));
-  const rows = all
-    .filter(p => !q || `${p.no} ${p.contract || ''} ${p.supplier || ''} ${p.by || ''}`.toLowerCase().includes(q))
+  const medan = MEDAN_PO_JALAN(all);
+  const nilai = nilaiFilter('cv-po');
+  const tersaring = saring(all, medan, nilai);
+  // Disaring dulu, diurut, baru dipotong 60. Memotong lebih dulu akan menyembunyikan
+  // PO ke-61 dari saringan yang justru dibuat untuk menemukannya.
+  const rows = tersaring
+    .slice()
     .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
     .slice(0, 60);
 
+  // Tetap dihitung dari `all`: berapa PO yang menunggu approval adalah fakta
+  // tentang pekerjaannya, bukan tentang apa yang sedang dilihat. Angka yang
+  // ikut mengecil waktu orang menyaring akan terbaca sebagai antrean yang
+  // berkurang.
   const waiting = all.filter(p => p.status === 'Menunggu Approval').length;
+  const judul = tr({ id: 'PO Jalan', en: 'POs in Flight', zh: '进行中的采购单' });
 
   const head = [
     tr({ id: 'No. PO', en: 'PO No.', zh: '采购单号' }),
@@ -334,7 +370,7 @@ function runningPoCard(st) {
 
   return card([
     h('div.card-pad', { style: { paddingBottom: '8px' } }, h('div.row.gap12.wrap', { style: { alignItems: 'center' } }, [
-      h('div.card-title', tr({ id: 'PO Jalan', en: 'POs in Flight', zh: '进行中的采购单' })),
+      h('div.card-title', judul),
       badge(String(all.length), all.length ? 'blue' : 'gray'),
       waiting
         ? badge(tr({
@@ -343,41 +379,35 @@ function runningPoCard(st) {
             zh: `${waiting} 个待审批`,
           }), 'amber', { iconName: 'clock' })
         : null,
-      h('div.mla', searchInput({
-        id: 'cv-q',
-        placeholder: tr({ id: 'Cari no PO / supplier…', en: 'Search PO no / supplier…', zh: '搜索采购单号 / 供应商…' }),
-        value: st.ui.cvQ || '', onChange: v => setUI({ cvQ: v }),
-      })),
+      hitunganSaring(tersaring.length, all.length, { id: 'PO', en: 'PO', zh: '个采购单' }),
+      h('div.mla', tombolFilter({ id: 'cv-po', medan, judul })),
     ])),
-    rows.length
-      ? h('div.tbl-wrap', h('table.tbl', [
-          h('thead', h('tr', head.map((c, i) => h('th' + (i === 2 ? '.r' : ''), c)))),
-          h('tbody', rows.map(p => h('tr', [
-            h('td.mono.cell-strong', { style: { fontSize: '11.5px' } }, p.no),
-            h('td', { style: { fontSize: '11.5px', maxWidth: '260px' } }, p.supplier || '—'),
-            h('td.mono.r', { style: { fontSize: '11.5px' } }, money(p.subtotal + ppnFor(p.subtotal, p.ppnMode), p.currency)),
-            h('td', { style: { fontSize: '11px', color: 'var(--text-3)' } }, p.by || '—'),
-            h('td.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, fmtDate(p.createdAt)),
-            h('td', badge(p.status, DONE_TONE[p.status] || 'blue')),
-            // Sengaja tidak dibedakan Approved atau belum: cania dan visca harus
-            // bisa melihat PDF-nya sebelum ada tanda tangan dan cap, karena itu
-            // satu-satunya cara memeriksa apa yang mereka ketik sebelum dikirim.
-            h('td.r', btn(p.status === 'Approved'
-              ? tr({ id: 'PDF', en: 'PDF', zh: 'PDF' })
-              : tr({ id: 'PDF draft', en: 'Draft PDF', zh: 'PDF 草稿' }), {
-              sm: true, iconName: 'download', onClick: () => openPoPdf(p),
-            })),
-          ]))),
-        ]))
-      : h('div.card-pad', { style: { fontSize: '12px', color: 'var(--text-3)' } }, tr({
-          id: all.length ? 'Tidak ada yang cocok dengan pencarian.' : 'Tidak ada PO yang sedang jalan.',
-          en: all.length ? 'Nothing matches that search.' : 'No POs in flight.',
-          zh: all.length ? '没有符合搜索条件的结果。' : '没有进行中的采购单。',
+    h('div.tbl-wrap', h('table.tbl', [
+      h('thead', h('tr', head.map((c, i) => h('th' + (i === 2 ? '.r' : ''), c)))),
+      h('tbody', rows.length ? rows.map(p => h('tr', [
+        h('td.mono.cell-strong', { style: { fontSize: '11.5px' } }, p.no),
+        h('td', { style: { fontSize: '11.5px', maxWidth: '260px' } }, p.supplier || '—'),
+        h('td.mono.r', { style: { fontSize: '11.5px' } }, money(p.subtotal + ppnFor(p.subtotal, p.ppnMode), p.currency)),
+        h('td', { style: { fontSize: '11px', color: 'var(--text-3)' } }, p.by || '—'),
+        h('td.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, fmtDate(p.createdAt)),
+        h('td', badge(p.status, DONE_TONE[p.status] || 'blue')),
+        // Sengaja tidak dibedakan Approved atau belum: cania dan visca harus
+        // bisa melihat PDF-nya sebelum ada tanda tangan dan cap, karena itu
+        // satu-satunya cara memeriksa apa yang mereka ketik sebelum dikirim.
+        h('td.r', btn(p.status === 'Approved'
+          ? tr({ id: 'PDF', en: 'PDF', zh: 'PDF' })
+          : tr({ id: 'PDF draft', en: 'Draft PDF', zh: 'PDF 草稿' }), {
+          sm: true, iconName: 'download', onClick: () => openPoPdf(p),
         })),
-    all.length > 60 ? h('div.card-pad', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, tr({
-      id: `Menampilkan 60 dari ${all.length} — pakai pencarian untuk mempersempit.`,
-      en: `Showing 60 of ${all.length} — use the search to narrow it down.`,
-      zh: `显示 ${all.length} 个中的 60 个 — 请使用搜索缩小范围。`,
+      ])) : barisTakCocok(head.length, { id: 'cv-po', adaFilter: jumlahFilterAktif(nilai) > 0 })),
+    ])),
+    // Dihitung dari yang tersaring, bukan dari `all`: sesudah menyaring jadi 12
+    // baris, catatan "menampilkan 60 dari 300" cuma membicarakan daftar yang
+    // sudah tidak ada di layar.
+    tersaring.length > 60 ? h('div.card-pad', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, tr({
+      id: `Menampilkan 60 dari ${tersaring.length} — pakai saringan untuk mempersempit.`,
+      en: `Showing 60 of ${tersaring.length} — use the filter to narrow it down.`,
+      zh: `显示 ${tersaring.length} 个中的 60 个 — 请使用筛选缩小范围。`,
     })) : null,
   ]);
 }

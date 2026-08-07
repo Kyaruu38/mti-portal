@@ -2,7 +2,7 @@ import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, logAudit } from '../core/store.js';
 import { blockWrite } from '../core/guard.js';
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, icon, modal, field, inputEl, selectEl } from '../ui/components.js';
+import { card, badge, btn, icon, modal, field, inputEl, selectEl, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring } from '../ui/components.js';
 import { money, num, fmtDate, ppnFor, poTermDays, isAdvanceTerm } from '../core/format.js';
 import { newLineId } from '../core/posApi.js';
 import { poDocument, ensureCap } from '../ui/documents.js';
@@ -38,9 +38,62 @@ const PO_STATUS_TEXT = {
 };
 function poStatusLabel(s) { return PO_STATUS_TEXT[s] ? tr(PO_STATUS_TEXT[s]) : s; }
 
+// Lencana status yang dipakai di rel kiri. Diangkat jadi fungsi sendiri karena
+// jendela saring harus menawarkan PERSIS teks yang terbaca di barisnya — dulu
+// teks ini dirakit langsung di dalam .map(), dan pilihan status yang bunyinya
+// beda sedikit dari lencananya terbaca seperti dua daftar yang berbeda.
+function labelAntrean(s) {
+  return s === 'Approved' ? t('ap_approved').split('—')[0]
+    : s === 'Rejected' ? poStatusLabel('Rejected')
+    : t('dash_awaiting_you');
+}
+
+// Kotak-kotak di jendela saring antrean approval — mengikuti apa yang benar-benar
+// tertulis di tiap baris rel kiri: nomor PO, supplier, siapa yang mengajukan,
+// lencana statusnya, dan tanggalnya. Nilai PO sengaja tidak diberi kotak: yang
+// membuka layar ini datang untuk memutuskan, bukan untuk mencari nominal.
+const MEDAN_ANTREAN = (rows) => [
+  { kunci: 'no', label: tr({ id: 'No. PO', en: 'PO No.', zh: '采购单号' }), tipe: 'teks', mono: true, ambil: r => r.no },
+  { kunci: 'supplier', label: t('col_supplier'), tipe: 'teks', ambil: r => r.supplier },
+  { kunci: 'by', label: tr({ id: 'Diajukan oleh', en: 'Submitted by', zh: '提交人' }), tipe: 'teks', ambil: r => r.by },
+  // Didedupe pada LABEL-nya, bukan pada status tersimpannya: dua status yang
+  // kebetulan dilukis dengan teks yang sama akan muncul dua kali di dropdown
+  // dan yang memilih salah satunya tidak akan pernah tahu bedanya apa.
+  { kunci: 'status', label: t('col_status'), tipe: 'pilih', opsi: [...new Set(rows.map(r => labelAntrean(r.status)).filter(Boolean))].sort(), ambil: r => labelAntrean(r.status) },
+  { kunci: 'tgl', label: t('col_date'), tipe: 'tanggal', ambil: r => r.createdAt },
+];
+
+// Padanan barisTakCocok() untuk daftar yang bukan tabel. Helper di components.js
+// menghasilkan <tr>, dan <tr> di luar <table> dibuang browser tanpa suara —
+// pesannya hilang persis di keadaan yang paling butuh pesan.
+function blokTakCocok(id, adaFilter, kosong) {
+  const bersihkan = () => {
+    const f = { ...(getState().ui.filters || {}) };
+    delete f[id];
+    setUI({ filters: f });
+  };
+  if (!adaFilter) return h('div', { style: { padding: '18px', fontSize: '12px', color: 'var(--text-3)' } }, kosong);
+  return h('div.stack', { style: { gap: '8px', alignItems: 'center', padding: '22px 16px', color: 'var(--text-3)' } }, [
+    h('div', { style: { fontSize: '12px', textAlign: 'center' } }, tr({
+      id: 'Tidak ada data yang cocok dengan saringannya',
+      en: 'No data matches the filter',
+      zh: '没有符合筛选条件的数据',
+    })),
+    h('button.btn.btn-sm', { onClick: bersihkan },
+      tr({ id: 'Bersihkan saringan', en: 'Clear filter', zh: '清除筛选' })),
+  ]);
+}
+
 export function approvalScreen() {
   const st = getState();
-  const list = st.pos.filter(p => p.status === 'Menunggu Approval' || p.status === 'Approved' || p.status === 'Rejected');
+  const semua = st.pos.filter(p => p.status === 'Menunggu Approval' || p.status === 'Approved' || p.status === 'Rejected');
+  const medanAntre = MEDAN_ANTREAN(semua);
+  const nilaiAntre = nilaiFilter('ap-antre');
+  const list = saring(semua, medanAntre, nilaiAntre);
+  // Yang dipilih otomatis mengikuti daftar TERSARING: sesudah menyaring, PO
+  // pertama yang terlihat itulah yang dimaksud orangnya. PO yang sudah dipilih
+  // sebelumnya tetap dicari ke st.pos, jadi menyaringnya keluar dari rel kiri
+  // tidak mengosongkan panel kanan yang sedang dibaca.
   const selId = st.ui.selPO || (list[0] && list[0].id);
   const po = st.pos.find(p => p.id === selId) || list[0];
   const isWilbert = can(st.user.role, 'approve');
@@ -170,11 +223,19 @@ export function approvalScreen() {
   };
 
   const listPanel = card([
-    h('div.card-head', [h('div.card-title', t('ap_pending')), badge(String(st.pos.filter(p => p.status === 'Menunggu Approval').length), 'accent')]),
+    h('div.card-head', [
+      h('div.card-title', t('ap_pending')),
+      // Lencana ini tetap membaca st.pos langsung. Berapa PO yang menunggu
+      // adalah beban kerjanya, bukan isi layarnya — angka yang ikut turun waktu
+      // orang menyaring akan terbaca sebagai antrean yang sudah berkurang.
+      badge(String(st.pos.filter(p => p.status === 'Menunggu Approval').length), 'accent'),
+      hitunganSaring(list.length, semua.length, { id: 'PO', en: 'PO', zh: '个采购单' }),
+      tombolFilter({ id: 'ap-antre', medan: medanAntre, judul: t('ap_pending') }),
+    ]),
     ...list.map(p => {
       const active = p.id === po.id;
       const tone = p.status === 'Approved' ? 'green' : p.status === 'Rejected' ? 'red' : 'amber';
-      const label = p.status === 'Approved' ? t('ap_approved').split('—')[0] : p.status === 'Rejected' ? poStatusLabel('Rejected') : t('dash_awaiting_you');
+      const label = labelAntrean(p.status);
       return h('div', {
         style: { padding: '12px 16px', borderBottom: '1px solid var(--border)', cursor: 'pointer', background: active ? 'var(--sel-row)' : 'transparent', borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent' },
         onClick: () => setUI({ selPO: p.id, rejectOpen: false }),
@@ -185,7 +246,7 @@ export function approvalScreen() {
         h('div', { style: { fontSize: '10px', color: 'var(--text-3)', marginTop: '4px' } }, `${t('ap_submitted_by')} ${p.by}`),
       ]);
     }),
-    list.length ? null : h('div', { style: { padding: '18px', fontSize: '12px', color: 'var(--text-3)' } }, '—'),
+    list.length ? null : blokTakCocok('ap-antre', jumlahFilterAktif(nilaiAntre) > 0, '—'),
   ]);
 
   if (!po) return h('div.stack', [listPanel, st.ui.poEdit ? poEditModal() : null]);

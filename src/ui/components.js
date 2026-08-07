@@ -1,7 +1,7 @@
 // Reusable UI building blocks (built on the h() hyperscript).
 import { h, svg, wireDrop } from '../core/dom.js';
 import { ICONS } from '../core/icons.js';
-import { setState, getState } from '../core/store.js';
+import { setState, setUI, getState } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
 
 export function icon(name, size = 15, extra) { return svg(ICONS[name] || '', size, extra); }
@@ -340,4 +340,263 @@ export function pager(info, { onPage, onSize, note } = {}) {
     ]) : null,
     note ? h('span', { style: { fontSize: '10px', color: 'var(--text-3)' } }, note) : null,
   ]));
+}
+
+// ===========================================================================
+// PENYARING PER DAFTAR — tombol corong + jendela isian
+// ===========================================================================
+//
+// BENTUKNYA: satu tombol corong kecil di samping judul daftar. Diklik, muncul
+// jendela berisi satu kotak per kolom — supplier, tanggal, nomor dokumen, item,
+// status. Yang mengisi memilih sendiri kotak mana yang dipakai; yang dikosongkan
+// tidak ikut menyaring.
+//
+// KENAPA JENDELA, BUKAN DERETAN KOTAK DI ATAS TABEL
+// Lima kotak yang selalu kelihatan memakan tinggi layar yang sama di setiap
+// daftar, setiap hari, padahal sebagian besar waktu tidak ada yang menyaring.
+// Ditaruh di balik satu tombol, ongkosnya cuma satu klik dan cuma dibayar oleh
+// yang memang sedang mencari.
+//
+// KENAPA DRAFT-NYA DI LUAR STATE — INI YANG PALING PENTING
+// mount() membangun ulang seluruh layar setiap setUI(). Kalau tiap ketikan
+// masuk ke state, jendelanya ikut dibangun ulang di tengah orang mengetik:
+// fokus lepas, dan huruf berikutnya jatuh ke mana-mana. Jadi ketikan disimpan
+// di DRAF di bawah ini — di luar state, tidak memicu render apa pun — dan baru
+// masuk ke state sekali, waktu tombol Terapkan ditekan.
+//
+// Draf disimpan per-id di tingkat modul, BUKAN sebagai variabel lokal di dalam
+// fungsi jendelanya. Kalau lokal, render ulang yang datang dari mana saja
+// (lonceng notifikasi, pemeriksa versi, rekan yang menyimpan data) akan
+// membuat ulang jendelanya dan mengembalikan semua kotak ke isi lamanya —
+// tanpa satu pun tanda bahwa ketikan orangnya barusan hilang.
+const DRAF = new Map();
+
+// Nilai penyaring yang SEDANG BERLAKU untuk satu daftar.
+export function nilaiFilter(id) { return (getState().ui.filters || {})[id] || {}; }
+
+// Berapa kotak yang benar-benar diisi. Dipakai buat angka di tombol corong —
+// tanpa itu, daftar yang tinggal 3 baris dari 137 terlihat seperti daftar yang
+// memang cuma punya 3 baris.
+export function jumlahFilterAktif(nilai) {
+  let n = 0;
+  for (const v of Object.values(nilai || {})) {
+    if (v == null) continue;
+    if (typeof v === 'object') { if (v.dari || v.sampai) n++; }
+    else if (String(v).trim()) n++;
+  }
+  return n;
+}
+
+const rapikan = s => String(s == null ? '' : s).toLowerCase().replace(/\s+/g, ' ').trim();
+
+// Tanggal datang dalam beberapa bentuk: ISO penuh dari Supabase
+// ('2026-04-03T00:00:00.000Z'), 'YYYY-MM-DD' dari <input type=date>, dan
+// sesekali 'DD/MM/YYYY' dari berkas Excel. Semuanya diperas jadi 'YYYY-MM-DD'
+// supaya perbandingannya cukup perbandingan teks biasa — tidak ada zona waktu
+// yang bisa menggeser tanggal sehari, yang justru paling sering terjadi persis
+// di batas rentang yang sedang dicari orang.
+function tanggalKunci(v) {
+  if (!v) return '';
+  if (v instanceof Date) return isNaN(v) ? '' : v.toISOString().slice(0, 10);
+  const s = String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
+  if (m) return `${m[3]}-${String(m[2]).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`;
+  const d = new Date(s);
+  return isNaN(d) ? '' : d.toISOString().slice(0, 10);
+}
+
+// Satu kotak teks boleh berisi beberapa kata: SEMUA kata harus ada, urutannya
+// bebas. 'haichao 0206' menemukan baris Haichao yang PO-nya 26ID0206 walaupun
+// dua kata itu duduk di ujung baris yang berjauhan.
+function cocokTeks(isi, cari) {
+  const a = rapikan(isi);
+  return rapikan(cari).split(' ').filter(Boolean).every(k => a.includes(k));
+}
+
+// medan: [{ kunci, label, tipe:'teks'|'tanggal'|'pilih', ambil(row), opsi? }]
+// Baris lolos hanya kalau SEMUA kotak yang diisi cocok — bukan salah satu.
+// Menggabungkan dengan "atau" akan membuat menambah kotak justru memperbanyak
+// hasil, yang berlawanan dengan arti kata menyaring.
+export function saring(rows, medan, nilai) {
+  const aktif = (medan || []).filter(m => {
+    const v = (nilai || {})[m.kunci];
+    if (v == null) return false;
+    return m.tipe === 'tanggal' ? !!(v.dari || v.sampai) : !!String(v).trim();
+  });
+  if (!aktif.length) return rows;
+  return rows.filter(row => aktif.every(m => {
+    const v = nilai[m.kunci];
+    const isi = m.ambil ? m.ambil(row) : row[m.kunci];
+    if (m.tipe === 'tanggal') {
+      const k = tanggalKunci(isi);
+      if (!k) return false;
+      if (v.dari && k < v.dari) return false;
+      if (v.sampai && k > v.sampai) return false;
+      return true;
+    }
+    if (m.tipe === 'pilih') return rapikan(isi) === rapikan(v);
+    return cocokTeks(isi, v);
+  }));
+}
+
+// Tombol corong + jendelanya. Ditaruh di samping judul daftar.
+//
+// kunciHalaman: nama kunci nomor halaman daftar ini (mis. 'invPage'). Wajib
+// diisi kalau daftarnya berhalaman — menyaring 137 baris jadi 3 sementara
+// orangnya sedang di halaman 12 akan menampilkan halaman kosong yang terbaca
+// persis seperti "tidak ada hasil".
+export function tombolFilter({ id, medan, judul, kunciHalaman }) {
+  const st = getState();
+  const berlaku = nilaiFilter(id);
+  const terbuka = st.ui.filterOpen === id;
+  const jml = jumlahFilterAktif(berlaku);
+
+  const buka = () => { DRAF.set(id, { ...berlaku }); setUI({ filterOpen: id }); };
+  const tutup = () => { DRAF.delete(id); setUI({ filterOpen: null }); };
+  const simpan = (nilai) => {
+    DRAF.delete(id);
+    const patch = {
+      filters: { ...(getState().ui.filters || {}), [id]: nilai },
+      filterOpen: null,
+    };
+    if (kunciHalaman) patch[kunciHalaman] = 1;
+    setUI(patch);
+  };
+
+  const tombol = iconBtn('filter', {
+    title: tr({ id: 'Saring daftar', en: 'Filter list', zh: '筛选列表' }),
+    badge: jml || null,
+    class: jml ? 'aktif' : null,
+    onClick: buka,
+  });
+
+  return h('span', { style: { display: 'inline-flex', position: 'relative' } }, [
+    tombol,
+    terbuka ? jendelaFilter({ id, medan, judul, tutup, simpan }) : null,
+  ]);
+}
+
+function jendelaFilter({ id, medan, judul, tutup, simpan }) {
+  const draf = DRAF.get(id) || {};
+
+  const kotak = (m) => {
+    if (m.tipe === 'tanggal') {
+      const v = draf[m.kunci] || {};
+      // KOTAK TANGGAL YANG BENAR-BENAR KOSONG.
+      //
+      // <input type="date"> yang kosong TIDAK bisa dibikin polos: browser selalu
+      // menulis 'mm/dd/yyyy' di dalamnya, itu bagian dari kontrolnya sendiri dan
+      // placeholder tidak berpengaruh sama sekali. Yang terlihat orang bukan
+      // kotak kosong, tapi kotak yang seolah sudah ada isinya.
+      //
+      // Jadi kotaknya lahir sebagai type="text" — polos, benar-benar kosong —
+      // lalu berubah jadi type="date" begitu diklik, supaya pemilih tanggal
+      // bawaan browser tetap muncul. Kalau ditinggal dalam keadaan kosong, dia
+      // balik jadi text. Yang sudah ada tanggalnya tetap type="date" supaya
+      // tampil sebagai tanggal, bukan sebagai teks mentah.
+      const satu = (bagian, label) => {
+        const isi = v[bagian] || '';
+        const inp = h('input.input', { type: isi ? 'date' : 'text', value: isi, autocomplete: 'off' });
+        inp.addEventListener('focus', () => { if (inp.type !== 'date') inp.type = 'date'; });
+        inp.addEventListener('blur', () => { if (!inp.value) inp.type = 'text'; });
+        inp.addEventListener('input', () => {
+          const lama = draf[m.kunci] || {};
+          draf[m.kunci] = { ...lama, [bagian]: inp.value };
+        });
+        return h('div', { style: { flex: 1 } }, [
+          h('div', { style: { fontSize: '10px', color: 'var(--text-3)', marginBottom: '3px' } }, label),
+          inp,
+        ]);
+      };
+      return field(m.label, h('div.row.gap8', [
+        satu('dari', tr({ id: 'Dari', en: 'From', zh: '从' })),
+        satu('sampai', tr({ id: 'Sampai', en: 'To', zh: '到' })),
+      ]));
+    }
+    if (m.tipe === 'pilih') {
+      return field(m.label, h('select.input', {
+        onChange: e => { draf[m.kunci] = e.target.value; },
+      }, [
+        h('option', { value: '', selected: !draf[m.kunci] }, tr({ id: 'Semua', en: 'All', zh: '全部' })),
+        ...(m.opsi || []).map(o => h('option', { value: o, selected: rapikan(draf[m.kunci]) === rapikan(o) }, o)),
+      ]));
+    }
+    // TANPA placeholder. Contoh abu-abu di dalam kotak ('haichao', '26ID0206')
+    // terbaca sebagai isi yang sudah ada, bukan sebagai contoh — dan yang
+    // membacanya begitu akan menekan Terapkan mengira sedang menyaring. Judul
+    // kotaknya sudah bilang isinya apa; kotaknya sendiri kosong.
+    return field(m.label, h('input.input' + (m.mono ? '.mono' : ''), {
+      value: draf[m.kunci] || '', autocomplete: 'off',
+      // Sengaja TIDAK memanggil setUI: lihat catatan DRAF di atas.
+      onInput: e => { draf[m.kunci] = e.target.value; },
+      onKeydown: e => { if (e.key === 'Enter') simpan({ ...draf }); },
+    }));
+  };
+
+  return modal({
+    title: judul || tr({ id: 'Saring daftar', en: 'Filter list', zh: '筛选列表' }),
+    subtitle: tr({
+      id: 'Isi yang perlu saja — yang dikosongkan tidak ikut menyaring',
+      en: 'Fill only what you need — empty boxes do not filter',
+      zh: '只填需要的项 — 留空的不参与筛选',
+    }),
+    width: 460, onClose: tutup,
+    body: h('div.stack', { style: { gap: '11px' } }, (medan || []).map(kotak)),
+    footer: h('div.row.gap8', { style: { justifyContent: 'flex-end', width: '100%' } }, [
+      btn(tr({ id: 'Bersihkan', en: 'Clear', zh: '清除' }), { onClick: () => simpan({}) }),
+      btn(tr({ id: 'Terapkan', en: 'Apply', zh: '应用' }), { variant: 'primary', onClick: () => simpan({ ...draf }) }),
+    ]),
+  });
+}
+
+// Baris "tidak ada yang cocok" DI DALAM tabelnya.
+//
+// Tabel yang mendadak kosong tanpa keterangan terbaca sebagai portal rusak,
+// bukan sebagai penyaring yang terlalu sempit — dan yang membacanya begitu akan
+// memuat ulang halaman, bukan melonggarkan pencariannya. Jadi pesannya duduk
+// persis di tempat datanya seharusnya, lengkap dengan jalan keluarnya.
+export function barisTakCocok(jumlahKolom, { id, adaFilter = true } = {}) {
+  const bersihkan = () => {
+    const f = { ...(getState().ui.filters || {}) };
+    delete f[id];
+    setUI({ filters: f });
+  };
+  return h('tr', h('td', {
+    colspan: jumlahKolom,
+    style: { textAlign: 'center', padding: '30px 16px', color: 'var(--text-3)' },
+  }, h('div.stack', { style: { gap: '8px', alignItems: 'center' } }, [
+    h('div', { style: { fontSize: '12.5px' } }, adaFilter
+      ? tr({
+          id: 'Tidak ada data yang cocok dengan saringannya',
+          en: 'No data matches the filter',
+          zh: '没有符合筛选条件的数据',
+        })
+      : tr({ id: 'Belum ada data', en: 'No data yet', zh: '暂无数据' })),
+    adaFilter && id
+      ? h('button.btn.btn-sm', { onClick: bersihkan },
+          tr({ id: 'Bersihkan saringan', en: 'Clear filter', zh: '清除筛选' }))
+      : null,
+  ])));
+}
+
+// Angka di samping judul daftar: "137 invoice" biasanya, "23 dari 137 invoice"
+// begitu ada saringan yang menyala.
+//
+// Bentuk "X dari Y" itu bukan hiasan. Daftar yang tersaring jadi 3 baris
+// TERLIHAT PERSIS SAMA dengan daftar yang memang cuma punya 3 baris — dan yang
+// membacanya sebagai yang kedua akan menyimpulkan datanya hilang. Angka
+// pembanding di sebelahnya menjawab pertanyaan itu sebelum sempat ditanyakan.
+export function hitunganSaring(tampil, total, kata) {
+  const teks = tampil === total
+    ? tr({ id: `${total} ${kata.id}`, en: `${total} ${kata.en}`, zh: `${total} ${kata.zh}` })
+    : tr({
+        id: `${tampil} dari ${total} ${kata.id}`,
+        en: `${tampil} of ${total} ${kata.en}`,
+        zh: `${total} 中的 ${tampil} ${kata.zh}`,
+      });
+  return h('span', {
+    style: { fontSize: '11px', color: tampil === total ? 'var(--text-3)' : 'var(--accent)' },
+  }, teks);
 }

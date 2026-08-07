@@ -1,7 +1,7 @@
 import { h, pickFiles } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, icon, dropzone, modal, pager, pageSlice, PAGE_DEFAULT } from '../ui/components.js';
+import { card, badge, btn, icon, dropzone, modal, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
 import { extractArchive } from '../parsers/archive.js';
 import { parsePpkekPdf, parseSppbPdf } from '../parsers/ppkekPdf.js';
 import { uploadToDrive, ppkekFolder } from '../core/drive.js';
@@ -230,6 +230,36 @@ function parsedInfo(p) {
 }
 function kv(l, v) { return h('div', [h('div', { style: { fontSize: '9.5px', fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--text-3)' } }, l), h('div.mono', { style: { fontSize: '12px', marginTop: '2px', color: 'var(--text)' } }, v)]); }
 
+// Kolom Valuta menuliskan 'USD' sebagai isian terakhir waktu dokumennya tidak
+// menyebut valutanya tapi nominalnya terbaca. Penyaringnya harus membaca kolom
+// itu persis seperti yang tertulis di layar — kalau dia membaca r.valuta mentah,
+// baris yang jelas-jelas berbunyi "USD 1.200" tidak ikut waktu USD dipilih.
+const valutaTampil = r => r.valuta || (r.usd ? 'USD' : '');
+
+// Kotak-kotak jendela saring Register PPKEK. Isinya mengikuti kolom yang
+// benar-benar ada di tabelnya.
+//
+// Valuta dan Jalur opsinya diambil dari register yang BENAR-BENAR ADA, bukan
+// dari daftar valuta portal: register ini cuma pernah berisi dokumen USD dan
+// CNY, dan setiap valuta lain di dropdown adalah pilihan yang tidak mungkin
+// menghasilkan satu baris pun. Status sebaliknya memang himpunan tetap — tiga
+// itu saja yang bisa dipilih di kolomnya — jadi ketiganya selalu ditawarkan,
+// termasuk yang kebetulan belum dipakai satu baris pun.
+const MEDAN_REGISTER = (semua) => [
+  { kunci: 'nopen', label: tr({ id: 'Nopen', en: 'Nopen', zh: '报关单号' }), tipe: 'teks', mono: true, ambil: r => r.nopen },
+  { kunci: 'tgl', label: tr({ id: 'Tanggal', en: 'Date', zh: '日期' }), tipe: 'tanggal', ambil: r => r.date },
+  { kunci: 'supplier', label: tr({ id: 'Supplier', en: 'Supplier', zh: '供应商' }), tipe: 'teks', ambil: r => r.supplier },
+  { kunci: 'valuta', label: tr({ id: 'Valuta', en: 'Currency', zh: '外币' }), tipe: 'pilih', opsi: [...new Set((semua || []).map(valutaTampil).filter(Boolean))].sort(), ambil: valutaTampil },
+  { kunci: 'jalur', label: tr({ id: 'Jalur', en: 'Lane', zh: '通道' }), tipe: 'pilih', opsi: [...new Set((semua || []).map(r => r.jalur).filter(Boolean))].sort(), ambil: r => r.jalur },
+  { kunci: 'so', label: 'SO', tipe: 'teks', mono: true, ambil: r => r.so },
+  { kunci: 'po', label: 'PO ERP INA', tipe: 'teks', mono: true, ambil: r => r.poErpIna },
+  // Status memakai teks yang TERBACA di kolomnya, bukan kode simpanannya:
+  // dropdown dan kolomnya harus berbunyi sama. Baris yang statusnya belum
+  // pernah diisi sengaja mengembalikan kosong — di kolomnya baris itu memang
+  // '—', bukan Open, dan tidak boleh ikut terjaring waktu Open dipilih.
+  { kunci: 'status', label: tr({ id: 'Status', en: 'Status', zh: '状态' }), tipe: 'pilih', opsi: ['Open', 'Costed', 'Closed'].map(statusLabel), ambil: r => (r.status ? statusLabel(r.status) : '') },
+];
+
 function registerTable(st, canWrite) {
   // NEWEST FIRST, and by the date on the document — not by whatever order the
   // server happened to return. A register is read top-down to answer "what just
@@ -240,16 +270,24 @@ function registerTable(st, canWrite) {
     const va = isNaN(ta) ? -Infinity : ta, vb = isNaN(tb) ? -Infinity : tb;
     return vb - va || a[1] - b[1];
   }).map(x => x[0]);
+  const medan = MEDAN_REGISTER(rows);
+  const nilai = nilaiFilter('pkk');
+  const tersaring = saring(rows, medan, nilai);
   // Paginasi — alasannya di ui/components.js. Register ini tumbuh terus dan
   // tidak pernah menyusut, jadi ongkosnya cuma naik seiring waktu.
+  // Dipotong dari hasil SARINGANNYA, bukan dari seluruh register: kalau
+  // dipotong dari seluruhnya, hasil yang tinggal tiga baris bisa jatuh di
+  // halaman yang sedang tidak dibuka dan terbaca sebagai "tidak ada hasil".
   const size = st.ui.pkSize === 0 ? 0 : (Number(st.ui.pkSize) || PAGE_DEFAULT);
-  const hal = pageSlice(rows, st.ui.pkPage || 1, size);
+  const hal = pageSlice(tersaring, st.ui.pkPage || 1, size);
   hal.size = size;
   // The pencil marks mean "you can edit this". Strip them when the cells are
   // read-only, otherwise the header promises an affordance the row doesn't have.
   // Translated head-word + the ' ✎' suffix appended separately, so the strip
   // below (and the /✎/ colour test) keeps working in every language.
-  const head = h('thead', h('tr', [
+  // Judul kolomnya dipegang dulu di satu variabel supaya colspan baris "tidak
+  // ada yang cocok" di bawah ikut benar sendiri kalau kolomnya bertambah.
+  const kepala = [
     tr({ id: 'Nopen', en: 'Nopen', zh: '报关单号' }),
     tr({ id: 'Tanggal', en: 'Date', zh: '日期' }),
     tr({ id: 'Supplier', en: 'Supplier', zh: '供应商' }),
@@ -264,11 +302,11 @@ function registerTable(st, canWrite) {
     tr({ id: 'Costing', en: 'Costing', zh: '成本核算' }) + ' ✎',
     'PO ERP INA ✎',
     tr({ id: 'Status', en: 'Status', zh: '状态' }) + ' ✎',
-  ]
-    .map(c => (canWrite ? c : c.replace(' ✎', '')))
+  ].map(c => (canWrite ? c : c.replace(' ✎', '')));
+  const head = h('thead', h('tr', kepala
     // 3=Valuta, 4=Kurs, 5=IDR — all numeric, all right-aligned.
     .map((c, i) => h('th' + (i >= 3 && i <= 5 ? '.r' : ''), { style: /✎/.test(c) ? { color: 'var(--accent-tx)' } : {} }, c))));
-  const body = h('tbody', hal.items.map(r => h('tr', {
+  const body = h('tbody', hal.items.length ? hal.items.map(r => h('tr', {
     // Clicking a row pulls it back up into the parse panel, so the documents
     // attached to it (and their Drive links) are reachable again after the
     // import that created it has scrolled away. Editable cells stop the event
@@ -312,15 +350,17 @@ function registerTable(st, canWrite) {
     h('td', canWrite ? statusSelect(r) : (r.status
       ? badge(statusLabel(r.status), r.status === 'Closed' ? 'green' : r.status === 'Costed' ? 'blue' : 'gray')
       : h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, '—'))),
-  ])));
+  ])) : barisTakCocok(kepala.length, { id: 'pkk', adaFilter: jumlahFilterAktif(nilai) > 0 }));
   return h('div.card', [
     h('div.card-head', [
       h('div.card-title', `${t('pk_register')} — ${new Date().getFullYear()}`),
-      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, [h('span.mono', String(rows.length)), tr({
-        id: ' dokumen',
-        en: ` document${rows.length === 1 ? '' : 's'}`,
-        zh: ' 份单据',
-      })]),
+      hitunganSaring(tersaring.length, rows.length, {
+        id: 'dokumen', en: `document${rows.length === 1 ? '' : 's'}`, zh: '份单据',
+      }),
+      // Register ini berhalaman, jadi kunciHalaman wajib: menyaring 400 baris
+      // jadi tiga sementara orangnya sedang di halaman 9 akan menampilkan
+      // halaman kosong yang terbaca persis seperti "tidak ada hasil".
+      tombolFilter({ id: 'pkk', medan, judul: t('pk_register'), kunciHalaman: 'pkPage' }),
       h('div.mla.row.gap8', [
         btn(t('pk_export'), { iconName: 'download', onClick: () => exportRegister() }),
         canWrite
@@ -332,7 +372,10 @@ function registerTable(st, canWrite) {
     // than the viewport pushed the page itself into a scroll the wheel could not
     // reach from inside the table. Bounded here so the wheel scrolls the rows.
     h('div.tbl-wrap', { style: { maxHeight: '58vh', overflowY: 'auto' } }, h('table.tbl', [head, body])),
-    pager(hal, { onPage: n => setUI({ pkPage: n }), onSize: n => setUI({ pkSize: n, pkPage: 1 }) }),
+    // Pager disembunyikan waktu tidak ada hasil: "Tampilkan 10 · kosong" di
+    // bawah tabel yang sudah bilang tidak ada yang cocok cuma mengulang kabar
+    // buruk dengan angka.
+    tersaring.length ? pager(hal, { onPage: n => setUI({ pkPage: n }), onSize: n => setUI({ pkSize: n, pkPage: 1 }) }) : null,
     h('div.tbl-foot', t('pk_manual_note')),
   ]);
 }

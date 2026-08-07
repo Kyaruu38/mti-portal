@@ -33,4 +33,6 @@ export const ICONS = {
   moon: 'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z',
   clock: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20|M12 6v6l4 2',
   refresh: 'M21 12a9 9 0 1 1-2.64-6.36|M21 3v6h-6',
+  // Corong. Dipakai tombol penyaring di kepala tiap daftar.
+  filter: 'M22 3H2l8 9.46V19l4 2v-8.54z',
 };

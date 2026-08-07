@@ -1,7 +1,7 @@
 import { h, wireDrop, pickFiles } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField, searchInput } from '../ui/components.js';
+import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
 import { readWorkbook } from '../core/xlsx.js';
 import { parseLabelSheet } from '../parsers/excelLabels.js';
 import { money, num, ppnFor, ppnModeFromForm, fmtDateTime } from '../core/format.js';
@@ -245,12 +245,33 @@ function upsertItems(items) {
   }
 }
 
+// Kotak di jendela saring baris hasil baca Excel. Isinya persis kolom yang
+// tampil di tabelnya — Desain dan Flag sengaja tidak ikut karena keduanya
+// lencana hasil hitungan, bukan isi barisnya.
+//
+// Menggantikan kotak cari lama yang cuma menyapu spec + ERP + brand jadi satu
+// teks: yang mau memisahkan "semua 18PR di market Vietnam" dulu tidak punya
+// jalan, karena market dan PR tidak pernah ikut dicari.
+const MEDAN_BARIS = (rows) => [
+  { kunci: 'market', label: t('col_market'), tipe: 'pilih', opsi: [...new Set(rows.map(r => r.market).filter(Boolean))].sort(), ambil: r => r.market },
+  { kunci: 'spec', label: t('col_spec'), tipe: 'teks', mono: true, ambil: r => r.spec },
+  { kunci: 'erp', label: t('col_erp'), tipe: 'teks', mono: true, ambil: r => r.erp },
+  { kunci: 'brand', label: t('col_brand'), tipe: 'pilih', opsi: [...new Set(rows.map(r => r.brand).filter(Boolean))].sort(), ambil: r => r.brand },
+  { kunci: 'ttpr', label: 'TT·PR', tipe: 'teks', ambil: r => [r.ttl, r.pr].filter(Boolean).join('·') },
+  // Qty dicocokkan dalam DUA bentuk sekaligus: angka mentah dan angka
+  // berpemisah ribuan. Yang di layar tertulis '1,200' dan yang di kepala orang
+  // '1200' — kalau cuma satu yang disimpan, separuh yang mengetik dapat nol
+  // hasil untuk baris yang jelas-jelas sedang mereka lihat.
+  { kunci: 'qty', label: t('col_qty'), tipe: 'teks', ambil: r => `${r.qty == null ? '' : r.qty} ${num(r.qty)}` },
+];
+
 function step3() {
   const st = getState(); const ui = st.ui;
   const res = ui.labelResult; if (!res) { setUI({ labelStep: 1 }); return h('div'); }
   const sel = ui.labelSel || {};
-  const filter = (ui.labelFilter || '').toLowerCase();
-  const rows = res.items.filter(r => !filter || `${r.spec} ${r.erp} ${r.brand}`.toLowerCase().includes(filter));
+  const medan = MEDAN_BARIS(res.items);
+  const nilai = nilaiFilter('lr-baris');
+  const rows = saring(res.items, medan, nilai);
   const selCount = res.items.filter((_, i) => sel[i]).length;
   const noDesign = res.items.filter(r => !hasDesign(r)).length;
 
@@ -258,7 +279,6 @@ function step3() {
     badge(`${res.stats.total} ${t('lr_scanned')} · ${countOrders(res.items)} ${t('lr_orders')}`, 'accent'),
     badge(`${noDesign} ${t('lr_no_design')} · ${res.stats.newItems} ${t('lr_new_items')}`, 'gray'),
     h('div.mla.row.gap8', [
-      searchInput({ id: 'lr-filter', placeholder: tr({ id: 'Filter spec / ERP…', en: 'Filter spec / ERP…', zh: '筛选规格 / ERP…' }), onChange: v => setUI({ labelFilter: v }), value: ui.labelFilter || '' }),
       btn(t('lr_reparse'), { onClick: () => setUI({ labelStep: 2 }) }),
     ]),
   ]);
@@ -270,7 +290,7 @@ function step3() {
     h('th', t('col_market')), h('th', t('col_spec')), h('th', t('col_erp')), h('th', t('col_brand')),
     h('th', 'TT·PR'), h('th.r', t('col_qty')), h('th', t('col_design')), h('th', t('col_flags')),
   ]));
-  const body = h('tbody', rows.map((r) => {
+  const body = h('tbody', rows.length ? rows.map((r) => {
     const i = res.items.indexOf(r);
     const on = !!sel[i];
     const dz = hasDesign(r);
@@ -285,9 +305,15 @@ function step3() {
       h('td', dz ? badge(t('design_ok'), 'green', { iconName: 'check' }) : badge(t('design_no'), 'red')),
       h('td', r.isNew ? h('span.tag-new', t('new_item')) : null),
     ]);
-  }));
+  }) : barisTakCocok(9, { id: 'lr-baris', adaFilter: jumlahFilterAktif(nilai) > 0 }));
 
   const table = h('div.card', [
+    h('div.card-head', [
+      h('div.card-title', t('lr_step_preview')),
+      hitunganSaring(rows.length, res.items.length, { id: 'baris', en: `row${res.items.length === 1 ? '' : 's'}`, zh: '行' }),
+      // Tanpa kunciHalaman: tabel ini tidak berhalaman, semua baris digambar.
+      tombolFilter({ id: 'lr-baris', medan, judul: t('lr_step_preview') }),
+    ]),
     h('div.tbl-wrap', h('table.tbl', [thead, body])),
     h('div.tbl-foot', tr({
       id: `${rows.length}/${res.stats.total} · ${res.stats.skipped} ${t('lr_skipped')} · header baris ${res.stats.headerRow}`,
@@ -363,23 +389,62 @@ async function submitRequest() {
   });
 }
 
+// Kotak di jendela saring "Request Saya". Semua opsi dropdown diambil dari
+// permintaan yang BENAR-BENAR ada di daftarnya — daftar supplier lengkap dari
+// master data akan berisi nama yang nol hasilnya untuk sona.
+const MEDAN_LR_SAYA = (rows) => [
+  // Sumber dan Status memakai teks yang TERBACA di lencananya, bukan nilai
+  // mentah di database. Yang memilih di sini sedang menunjuk lencana yang dia
+  // lihat di kolomnya; kalau isinya kode internal, dua daftar yang sama
+  // terlihat beda.
+  { kunci: 'sumber', label: tr({ id: 'Sumber', en: 'Source', zh: '来源' }), tipe: 'pilih', opsi: [...new Set(rows.map(sumberTeks).filter(Boolean))].sort(), ambil: sumberTeks },
+  { kunci: 'file', label: tr({ id: 'File', en: 'File', zh: '文件' }), tipe: 'teks', mono: true, ambil: r => r.file },
+  { kunci: 'sheet', label: 'Sheet', tipe: 'teks', mono: true, ambil: r => r.sheet },
+  { kunci: 'qty', label: t('col_qty'), tipe: 'teks', ambil: r => String((r.rows || []).length) },
+  { kunci: 'at', label: tr({ id: 'Dikirim', en: 'Sent', zh: '发送时间' }), tipe: 'tanggal', ambil: r => r.at },
+  { kunci: 'supplier', label: t('col_supplier'), tipe: 'pilih', opsi: [...new Set(rows.map(r => r.supplier).filter(Boolean))].sort(), ambil: r => r.supplier },
+  { kunci: 'po', label: 'PO', tipe: 'teks', mono: true, ambil: r => r.poNo },
+  { kunci: 'status', label: t('col_status'), tipe: 'pilih', opsi: [...new Set(rows.map(r => statusText(r.status)).filter(Boolean))].sort(), ambil: r => statusText(r.status) },
+];
+
 // sona's own view. Without it, submitting is a one-way drop: she would have to
 // ask someone whether her request had been picked up, which is the question the
 // record exists to answer.
 function myRequests(st) {
   if (!can(st.user.role, 'labelRequestAsk')) return null;
-  const mine = (st.labelRequests || []).filter(r => r.by === st.user.username).slice(0, 8);
-  if (!mine.length) return null;
+  const semua = (st.labelRequests || []).filter(r => r.by === st.user.username);
+  // Dicek SEBELUM disaring. Kalau kartunya ikut hilang waktu saringan tidak
+  // menemukan apa-apa, tombol corongnya ikut hilang juga — dan saringan yang
+  // menyala jadi tidak ada lagi jalan untuk dimatikan.
+  if (!semua.length) return null;
+  const medan = MEDAN_LR_SAYA(semua);
+  const nilai = nilaiFilter('lr-saya');
+  const tersaring = saring(semua, medan, nilai);
+  // Potongan diam-diam yang sudah ada dari dulu: tabelnya cuma menggambar 8
+  // teratas. Dibiarkan, TAPI angka di kepala kartu dihitung dari daftar penuh —
+  // "8 dari 8" pada seseorang yang punya 23 permintaan adalah kabar yang salah,
+  // dan justru menyembunyikan bahwa ada yang tidak kelihatan.
+  const mine = tersaring.slice(0, 8);
   const tone = (x) => ({ 'Diminta': 'amber', 'PO Terbit': 'green', 'Ditolak': 'red' }[x] || 'gray');
   return h('div.card', [
-    h('div.card-head', [h('div.card-title', t('lr_my_reqs')), badge(String(mine.filter(r => r.status === 'Diminta').length), 'amber')]),
+    h('div.card-head', [
+      h('div.card-title', t('lr_my_reqs')),
+      // Dihitung dari daftar penuh, bukan dari yang tersaring: berapa
+      // permintaannya yang masih menggantung tidak berubah gara-gara dia
+      // menyaring kolom lain.
+      badge(String(semua.filter(r => r.status === 'Diminta').length), 'amber'),
+      hitunganSaring(tersaring.length, semua.length, {
+        id: `permintaan`, en: `request${semua.length === 1 ? '' : 's'}`, zh: `份申请`,
+      }),
+      tombolFilter({ id: 'lr-saya', medan, judul: t('lr_my_reqs') }),
+    ]),
     h('div.tbl-wrap', h('table.tbl', [
       h('thead', h('tr', [
         tr({ id: 'Sumber', en: 'Source', zh: '来源' }),
         tr({ id: 'File', en: 'File', zh: '文件' }), 'Sheet', t('col_qty'),
         tr({ id: 'Dikirim', en: 'Sent', zh: '发送时间' }), t('col_supplier'), 'PO', t('col_status'),
       ].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c)))),
-      h('tbody', mine.map(r => h('tr', [
+      h('tbody', mine.length ? mine.map(r => h('tr', [
         h('td', lencanaSumber(r)),
         h('td.mono', { style: { fontSize: '11px' } }, r.file || '—'),
         h('td.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } }, r.sheet || '—'),
@@ -388,20 +453,43 @@ function myRequests(st) {
         h('td', r.supplier || '—'),
         h('td.mono', { style: { fontSize: '11px' } }, r.poNo || '—'),
         h('td', badge(statusText(r.status), tone(r.status))),
-      ]))),
+      ])) : barisTakCocok(8, { id: 'lr-saya', adaFilter: jumlahFilterAktif(nilai) > 0 })),
     ])),
   ]);
 }
 
+// Kotak di jendela saring "Request Label Masuk". Status tidak ikut: daftar ini
+// sudah dikunci ke yang berstatus 'Diminta', jadi kotaknya cuma punya satu
+// pilihan dan tidak pernah membuang apa pun. Catatan portal juga tidak —
+// isinya lencana hasil pemeriksaan, bukan teks yang bisa diketik ulang.
+const MEDAN_LR_MASUK = (rows) => [
+  { kunci: 'by', label: t('lr_req_by'), tipe: 'teks', ambil: r => r.by },
+  { kunci: 'sumber', label: tr({ id: 'Sumber', en: 'Source', zh: '来源' }), tipe: 'pilih', opsi: [...new Set(rows.map(sumberTeks).filter(Boolean))].sort(), ambil: sumberTeks },
+  { kunci: 'file', label: tr({ id: 'File', en: 'File', zh: '文件' }), tipe: 'teks', mono: true, ambil: r => r.file },
+  { kunci: 'sheet', label: 'Sheet', tipe: 'teks', mono: true, ambil: r => r.sheet },
+  { kunci: 'qty', label: t('col_qty'), tipe: 'teks', ambil: r => String((r.rows || []).length) },
+  { kunci: 'at', label: tr({ id: 'Diminta', en: 'Requested', zh: '申请时间' }), tipe: 'tanggal', ambil: r => r.at },
+];
+
 // Purchasing's half: what is waiting, and how to pick it up.
 function incomingRequests(st) {
   const open = (st.labelRequests || []).filter(r => r.status === 'Diminta');
+  // Kartunya hilang cuma waktu memang tidak ada yang menunggu. Sesudah itu
+  // yang mengosongkan tabel adalah saringannya, dan itu harus terbaca sebagai
+  // saringan — lengkap dengan tombol untuk mematikannya.
   if (!can(st.user.role, 'labelRequestFill') || !open.length) return null;
+  const medan = MEDAN_LR_MASUK(open);
+  const nilai = nilaiFilter('lr-masuk');
+  const tersaring = saring(open, medan, nilai);
   return h('div.card', [
     h('div.card-head', [
       h('div.card-title', t('lr_incoming')),
       badge(String(open.length), 'accent'),
       h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, t('lr_incoming_sub')),
+      hitunganSaring(tersaring.length, open.length, {
+        id: `permintaan`, en: `request${open.length === 1 ? '' : 's'}`, zh: `份申请`,
+      }),
+      tombolFilter({ id: 'lr-masuk', medan, judul: t('lr_incoming') }),
     ]),
     h('div.tbl-wrap', h('table.tbl', [
       h('thead', h('tr', [
@@ -413,7 +501,7 @@ function incomingRequests(st) {
         tr({ id: 'Diminta', en: 'Requested', zh: '申请时间' }),
         t('col_action'),
       ].map((c, i) => h('th' + (i === 4 ? '.r' : ''), c)))),
-      h('tbody', open.map(r => h('tr', [
+      h('tbody', tersaring.length ? tersaring.map(r => h('tr', [
         h('td.cell-strong', r.by),
         h('td', lencanaSumber(r)),
         h('td.mono', { style: { fontSize: '11px' } }, r.file || '—'),
@@ -422,7 +510,7 @@ function incomingRequests(st) {
         h('td', catatanPortal(r)),
         h('td', { style: { fontSize: '11px', color: 'var(--text-3)' } }, fmtDateTime(r.at)),
         h('td', btn(t('lr_open_req'), { sm: true, variant: 'primary', onClick: () => openRequest(r) })),
-      ]))),
+      ])) : barisTakCocok(8, { id: 'lr-masuk', adaFilter: jumlahFilterAktif(nilai) > 0 })),
     ])),
   ]);
 }
@@ -438,14 +526,24 @@ function incomingRequests(st) {
 // Dibaca dari isi barisnya (`section`), BUKAN dari kolom baru di tabel:
 // permintaan lama yang sudah tersimpan tidak punya kolom itu, dan menambah
 // kolom berarti SQL — yang bukan hak layar ini untuk menjalankan.
-function lencanaSumber(r) {
-  const rows = r.rows || [];
-  const dariStok = rows.some(x => x.section === 'buynow')
+function dariStok(r) {
+  return (r.rows || []).some(x => x.section === 'buynow')
     || /Stok Label|Label Stock|标签库存/.test(String(r.file || ''));
-  return badge(
-    dariStok ? tr({ id: 'BUY NOW', en: 'BUY NOW', zh: '需采购' }) : tr({ id: 'Excel', en: 'Excel', zh: 'Excel' }),
-    dariStok ? 'accent' : 'blue',
-    { iconName: dariStok ? 'check' : 'upload' });
+}
+
+// Teksnya dipisah dari lencananya supaya dropdown "Sumber" di jendela saring
+// memakai kata yang SAMA PERSIS dengan yang tertulis di kolomnya. Kalau kedua
+// tempat itu menghitung sendiri-sendiri, cukup satu yang diubah nanti untuk
+// membuat saringan yang selalu nol hasil tanpa ada yang tahu sebabnya.
+function sumberTeks(r) {
+  return dariStok(r)
+    ? tr({ id: 'BUY NOW', en: 'BUY NOW', zh: '需采购' })
+    : tr({ id: 'Excel', en: 'Excel', zh: 'Excel' });
+}
+
+function lencanaSumber(r) {
+  const stok = dariStok(r);
+  return badge(sumberTeks(r), stok ? 'accent' : 'blue', { iconName: stok ? 'check' : 'upload' });
 }
 
 // Peringatan yang dihitung waktu permintaan dibuat IKUT TERSIMPAN di barisnya,

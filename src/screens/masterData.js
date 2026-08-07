@@ -2,7 +2,7 @@ import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { blockWrite } from '../core/guard.js';
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, icon, modal, field, inputEl, selectEl, toggle, searchInput } from '../ui/components.js';
+import { card, badge, btn, icon, modal, field, inputEl, selectEl, toggle, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
 import { fmtDateTime, CURRENCIES, TOP_OPTIONS, ccyTone } from '../core/format.js';
 import { termsText } from '../core/statusText.js';
 import { can } from '../auth/roles.js';
@@ -45,24 +45,66 @@ function confirmDeleteBtn(key, onConfirm) {
   return btn(t('delete'), { sm: true, onClick: () => setUI({ mdDelConfirm: { ...(st.ui.mdDelConfirm || {}), [key]: true } }) });
 }
 
+// Opsi dropdown diambil dari isi tabelnya sendiri, bukan dari daftar master
+// mana pun. Yang membuka corong sedang menatap baris-baris INI; pilihan yang
+// tidak dimiliki satu baris pun cuma jalan buntu — dipilih, hasilnya nol, dan
+// yang memilih menyimpulkan datanya hilang, bukan bahwa pilihannya memang tidak
+// pernah dipakai. Himpunan tetap (valuta, TOP) tetap dari konstanta karena di
+// situ "belum ada yang pakai" memang bukan alasan untuk menyembunyikannya.
+const opsiDari = (rows, ambil) => [...new Set((rows || []).map(ambil).filter(Boolean))].sort();
+
 // ---------- Suppliers ----------
+
+// Satu sumber untuk lencana PKP: kotak saringnya harus menawarkan persis kata
+// yang tercetak di kolomnya. Kalau dua tempat ini menghitung labelnya sendiri-
+// sendiri, cukup satu kata berubah untuk membuat dropdown yang tidak pernah
+// cocok dengan apa pun.
+const labelPkp = s => s.overseas ? tr({ id: 'Overseas', en: 'Overseas', zh: '境外' }) : (s.pkp ? 'PKP' : 'Non-PKP');
+
+const MEDAN_SUPPLIER = () => [
+  // Nama Mandarin ikut dicocokkan karena ikut TERCETAK di kolom yang sama.
+  // Penyaring lama cuma melihat s.name, jadi mengetik nama yang jelas-jelas
+  // terbaca di layar bisa mengosongkan tabelnya.
+  { kunci: 'nama', label: t('col_supplier'), tipe: 'teks', ambil: s => `${s.name || ''} ${s.nameZh || ''}` },
+  { kunci: 'kota', label: t('md_city'), tipe: 'teks', ambil: s => s.city },
+  // Kontak dan telepon satu kotak karena di tabel pun satu sel — memisahnya
+  // memaksa orang menebak nomor itu tersimpan di kolom mana.
+  { kunci: 'kontak', label: t('md_contact'), tipe: 'teks', ambil: s => `${s.contact || ''} ${s.phone || ''}` },
+  // Nomor rekening dan SWIFT ikut karena keduanya tampil di sel Bank, dan
+  // pencarian bank paling sering dimulai dari potongan nomor rekening yang
+  // sedang dicocokkan orang dengan lampiran mutasi.
+  { kunci: 'bank', label: t('md_bank'), tipe: 'teks', mono: true, ambil: s => `${s.bank || ''} ${s.acct || ''} ${s.swift || ''}` },
+  { kunci: 'pkp', label: 'PKP', tipe: 'pilih', opsi: ['PKP', 'Non-PKP', tr({ id: 'Overseas', en: 'Overseas', zh: '境外' })], ambil: labelPkp },
+  { kunci: 'ccy', label: tr({ id: 'Valuta', en: 'Currency', zh: '币种' }), tipe: 'pilih', opsi: CURRENCIES, ambil: s => s.currency || 'IDR' },
+  // Sama seperti PKP: opsinya teks yang TERBACA ('30 days'), bukan yang
+  // tersimpan ('30 hari'), supaya dropdown dan kolomnya bicara satu bahasa.
+  { kunci: 'top', label: 'TOP', tipe: 'pilih', opsi: TOP_OPTIONS.map(termsText), ambil: s => termsText(s.top) },
+];
+
 function suppliersTab(st) {
-  const q = (st.ui.mdQ || '').toLowerCase();
-  const rows = st.suppliers.filter(s => !q || s.name.toLowerCase().includes(q));
   const editable = can(st.user.role, 'editMaster');
+  const medan = MEDAN_SUPPLIER();
+  const nilai = nilaiFilter('md-sup');
+  const rows = saring(st.suppliers, medan, nilai);
+  const kepala = [t('col_supplier'), t('md_city'), t('md_contact'), t('md_bank'), 'PKP', tr({ id: 'Valuta', en: 'Currency', zh: '币种' }), 'TOP', t('col_action')];
   return h('div.stack', [
     h('div.row.gap8', [
       h('div.card-title', t('md_suppliers')),
+      // Angka jumlahnya pindah ke hitunganSaring dan dicabut dari kalimat di
+      // sebelahnya: dua angka bersebelahan yang berbeda ("3 dari 137" di kiri,
+      // "137 aktif" di kanan) terbaca sebagai portal yang salah hitung.
+      hitunganSaring(rows.length, st.suppliers.length, { id: 'supplier', en: `supplier${st.suppliers.length === 1 ? '' : 's'}`, zh: '家供应商' }),
+      tombolFilter({ id: 'md-sup', medan, judul: t('md_suppliers') }),
       h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
-        id: `${st.suppliers.length} aktif · rekening & mata uang dipakai langsung oleh PRF`,
-        en: `${st.suppliers.length} active · account and currency are what the PRF uses`,
-        zh: `${st.suppliers.length} 家启用 · 账户与币种即付款申请单所用`,
+        id: 'rekening & mata uang dipakai langsung oleh PRF',
+        en: 'account and currency are what the PRF uses',
+        zh: '账户与币种即付款申请单所用',
       })),
-      h('div.mla.row.gap8', [searchInput({ id: 'md-q-sup', placeholder: tr({ id: 'Search supplier…', en: 'Search supplier…', zh: '搜索供应商…' }), value: st.ui.mdQ || '', onChange: v => setUI({ mdQ: v }) }), editable ? btn(t('md_add_supplier'), { variant: 'primary', iconName: 'plus', onClick: () => openSup() }) : null]),
+      h('div.mla.row.gap8', [editable ? btn(t('md_add_supplier'), { variant: 'primary', iconName: 'plus', onClick: () => openSup() }) : null]),
     ]),
     h('div.card', h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', [t('col_supplier'), t('md_city'), t('md_contact'), t('md_bank'), 'PKP', tr({ id: 'Valuta', en: 'Currency', zh: '币种' }), 'TOP', t('col_action')].map(c => h('th', c)))),
-      h('tbody', rows.map(s => h('tr', [
+      h('thead', h('tr', kepala.map(c => h('th', c)))),
+      h('tbody', rows.length ? rows.map(s => h('tr', [
         h('td.cell-strong', [s.name, s.nameZh ? h('span', { style: { color: 'var(--text-3)', fontWeight: 500 } }, ' ' + s.nameZh) : null]),
         h('td', s.city),
         h('td', `${s.contact} · ${s.phone}`),
@@ -73,7 +115,7 @@ function suppliersTab(st) {
           h('div', `${s.bank || '—'} ${s.acct || ''}`),
           s.swift ? h('div', { style: { color: 'var(--text-3)', fontSize: '10.5px', marginTop: '2px' } }, s.swift) : null,
         ]),
-        h('td', s.overseas ? badge(tr({ id: 'Overseas', en: 'Overseas', zh: '境外' }), 'gray') : badge(s.pkp ? 'PKP' : 'Non-PKP', s.pkp ? 'green' : 'gray')),
+        h('td', badge(labelPkp(s), !s.overseas && s.pkp ? 'green' : 'gray')),
         h('td', badge(s.currency || 'IDR', ccyTone(s.currency || 'IDR'))),
         // Master data value, shown translated, stored exactly as chosen —
         // the <select> below still writes '30 hari'.
@@ -83,7 +125,7 @@ function suppliersTab(st) {
           editable ? btn(t('edit'), { sm: true, onClick: () => openSup(s) }) : null,
           editable ? confirmDeleteBtn('sup:' + s.id, () => { st.suppliers = st.suppliers.filter(x => x.id !== s.id); setState({ suppliers: st.suppliers }); logAudit({ entity: 'supplier', target: s.name, action: 'delete' }); toast({ id: 'Supplier dihapus', en: 'Supplier deleted', zh: '供应商已删除' }); }) : null,
         ])),
-      ]))),
+      ])) : barisTakCocok(kepala.length, { id: 'md-sup', adaFilter: jumlahFilterAktif(nilai) > 0 })),
     ]))),
   ]);
 }
@@ -367,19 +409,42 @@ function audStatusLabel(s) {
 }
 
 // ---------- Brand Mapping ----------
+const MEDAN_BRAND = () => [
+  { kunci: 'zh', label: tr({ id: 'Mandarin', en: 'Mandarin', zh: '中文' }), tipe: 'teks', ambil: b => b.zh },
+  // Canonical sengaja kotak teks, bukan dropdown, walaupun himpunannya tertutup:
+  // satu merek kanonik biasanya punya beberapa ejaan Mandarin, dan yang datang
+  // ke tabel ini justru mau melihat SEMUA ejaan itu berjajar — mengetik sepotong
+  // namanya menemukan mereka sekaligus, memilih satu nilai persis tidak.
+  { kunci: 'canonical', label: tr({ id: 'Canonical', en: 'Canonical', zh: '标准名' }), tipe: 'teks', mono: true, ambil: b => b.canonical },
+];
+
 function brandsTab(st) {
   const editable = can(st.user.role, 'editMaster');
+  const judul = tr({ id: 'Brand Mapping (Mandarin → Canonical)', en: 'Brand Mapping (Mandarin → Canonical)', zh: '品牌映射（中文 → 标准名）' });
+  const medan = MEDAN_BRAND();
+  const nilai = nilaiFilter('md-brand');
+  const rows = saring(st.brandMap, medan, nilai);
+  const kepala = [tr({ id: 'Mandarin', en: 'Mandarin', zh: '中文' }), tr({ id: 'Canonical', en: 'Canonical', zh: '标准名' }), editable ? t('col_action') : ''];
   return h('div.stack', [card([
-    h('div.card-head', [h('div.card-title', tr({ id: 'Brand Mapping (Mandarin → Canonical)', en: 'Brand Mapping (Mandarin → Canonical)', zh: '品牌映射（中文 → 标准名）' })), editable ? h('div.mla', btn(tr({ id: 'Add', en: 'Add', zh: '新增' }), { sm: true, variant: 'primary', iconName: 'plus', onClick: () => openBrandModal() })) : null]),
+    h('div.card-head', [
+      h('div.card-title', judul),
+      hitunganSaring(rows.length, st.brandMap.length, { id: 'merek', en: `brand${st.brandMap.length === 1 ? '' : 's'}`, zh: '个品牌' }),
+      tombolFilter({ id: 'md-brand', medan, judul }),
+      editable ? h('div.mla', btn(tr({ id: 'Add', en: 'Add', zh: '新增' }), { sm: true, variant: 'primary', iconName: 'plus', onClick: () => openBrandModal() })) : null,
+    ]),
     h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', [tr({ id: 'Mandarin', en: 'Mandarin', zh: '中文' }), tr({ id: 'Canonical', en: 'Canonical', zh: '标准名' }), editable ? t('col_action') : ''].map(c => h('th', c)))),
-      h('tbody', st.brandMap.map((b, i) => h('tr', [
+      h('thead', h('tr', kepala.map(c => h('th', c)))),
+      h('tbody', rows.length ? rows.map(b => h('tr', [
         h('td.cell-strong', b.zh), h('td.mono', b.canonical),
         h('td', editable ? h('div.row.gap8', [
           btn(t('edit'), { sm: true, onClick: () => openBrandModal(b) }),
-          confirmDeleteBtn('brand:' + (b.id || i), () => deleteBrandMapRow(b)),
+          // Baris yang belum punya id dikenali lewat posisinya di daftar ASAL,
+          // bukan di daftar tersaring: nomor urut hasil saringan berubah tiap
+          // kali saringannya diubah, dan konfirmasi "Yakin?" yang tergantung
+          // padanya bisa pindah ke baris lain di bawah tangan orangnya.
+          confirmDeleteBtn('brand:' + (b.id || st.brandMap.indexOf(b)), () => deleteBrandMapRow(b)),
         ]) : null),
-      ]))),
+      ])) : barisTakCocok(kepala.length, { id: 'md-brand', adaFilter: jumlahFilterAktif(nilai) > 0 })),
     ])),
   ]), st.ui.brandModal ? brandModal() : null]);
 }
@@ -470,22 +535,37 @@ async function deleteBrandMapRow(b) {
 }
 
 // ---------- Description Dictionary ----------
+const MEDAN_DICT = () => [
+  { kunci: 'en', label: tr({ id: 'English', en: 'English', zh: '英文' }), tipe: 'teks', ambil: d => d.en },
+  { kunci: 'zh', label: tr({ id: '中文', en: 'Chinese', zh: '中文' }), tipe: 'teks', ambil: d => d.zh },
+];
+
 function dictTab(st) {
   const editable = can(st.user.role, 'editMaster');
+  const judul = tr({ id: 'Learning Description Dictionary (EN ↔ ZH)', en: 'Learning Description Dictionary (EN ↔ ZH)', zh: '自学习描述词典（英 ↔ 中）' });
+  const medan = MEDAN_DICT();
+  const nilai = nilaiFilter('md-dict');
+  // Kamus ini tumbuh sendiri tiap PRF dibuat, jadi justru daftar yang paling
+  // cepat jadi terlalu panjang untuk dibaca — mencocokkan satu istilah dengan
+  // mata, dari atas ke bawah, berhenti masuk akal jauh sebelum tabel lainnya.
+  const rows = saring(st.descDict, medan, nilai);
+  const kepala = [tr({ id: 'English', en: 'English', zh: '英文' }), tr({ id: '中文', en: 'Chinese', zh: '中文' }), editable ? t('col_action') : ''];
   return h('div.stack', [card([
     h('div.card-head', [
-      h('div', [h('div.card-title', tr({ id: 'Learning Description Dictionary (EN ↔ ZH)', en: 'Learning Description Dictionary (EN ↔ ZH)', zh: '自学习描述词典（英 ↔ 中）' })), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({ id: 'diisi otomatis saat membuat PRF — bisa dikoreksi manual', en: 'filled automatically when a PRF is created — can be corrected by hand', zh: '生成付款申请单时自动填充 — 可手工修正' }))]),
+      h('div', [h('div.card-title', judul), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({ id: 'diisi otomatis saat membuat PRF — bisa dikoreksi manual', en: 'filled automatically when a PRF is created — can be corrected by hand', zh: '生成付款申请单时自动填充 — 可手工修正' }))]),
+      hitunganSaring(rows.length, st.descDict.length, { id: 'istilah', en: `term${st.descDict.length === 1 ? '' : 's'}`, zh: '个词条' }),
+      tombolFilter({ id: 'md-dict', medan, judul }),
       editable ? h('div.mla', btn(tr({ id: 'Add', en: 'Add', zh: '新增' }), { sm: true, variant: 'primary', iconName: 'plus', onClick: () => openDictModal() })) : null,
     ]),
     h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', [tr({ id: 'English', en: 'English', zh: '英文' }), tr({ id: '中文', en: 'Chinese', zh: '中文' }), editable ? t('col_action') : ''].map(c => h('th', c)))),
-      h('tbody', st.descDict.map((d, i) => h('tr', [
+      h('thead', h('tr', kepala.map(c => h('th', c)))),
+      h('tbody', rows.length ? rows.map(d => h('tr', [
         h('td', d.en), h('td', d.zh),
         h('td', editable ? h('div.row.gap8', [
           btn(t('edit'), { sm: true, onClick: () => openDictModal(d) }),
-          confirmDeleteBtn('dict:' + (d.id || i), () => deleteDictEntry(d)),
+          confirmDeleteBtn('dict:' + (d.id || st.descDict.indexOf(d)), () => deleteDictEntry(d)),
         ]) : null),
-      ]))),
+      ])) : barisTakCocok(kepala.length, { id: 'md-dict', adaFilter: jumlahFilterAktif(nilai) > 0 })),
     ])),
   ]), st.ui.dictModal ? dictModal() : null]);
 }
@@ -576,29 +656,46 @@ async function deleteDictEntry(d) {
 }
 
 // ---------- Item Master ----------
+
+// Brand, market dan unit jadi dropdown karena ketiganya dipakai untuk
+// MEMPERSEMPIT, bukan untuk mencari: yang membukanya ingin "semua item merek
+// ini", dan mengetiknya sendiri cuma menambah peluang salah eja pada nilai yang
+// sudah pasti ada di data. Opsinya dari isi tabel — lihat catatan opsiDari.
+const MEDAN_ITEM = (rows) => [
+  { kunci: 'erp', label: t('col_erp'), tipe: 'teks', mono: true, ambil: i => i.erp },
+  { kunci: 'spec', label: t('col_spec'), tipe: 'teks', ambil: i => i.spec },
+  { kunci: 'brand', label: t('col_brand'), tipe: 'pilih', opsi: opsiDari(rows, i => i.brand), ambil: i => i.brand },
+  { kunci: 'market', label: tr({ id: 'Market', en: 'Market', zh: '市场' }), tipe: 'pilih', opsi: opsiDari(rows, i => i.market), ambil: i => i.market },
+  // Unit sengaja TIDAK diambil dari tab Unit sebelah: master unit boleh berisi
+  // satuan yang belum dipakai item mana pun, dan di sini yang ditawarkan harus
+  // yang benar-benar berdiri di kolomnya.
+  { kunci: 'unit', label: tr({ id: 'Unit', en: 'Unit', zh: '单位' }), tipe: 'pilih', opsi: opsiDari(rows, i => i.unit), ambil: i => i.unit },
+  { kunci: 'nameEn', label: tr({ id: 'Name EN', en: 'Name EN', zh: '英文名称' }), tipe: 'teks', ambil: i => i.nameEn },
+];
+
 function itemsTab(st) {
-  const q = (st.ui.mdItemQ || '').toLowerCase();
-  const rows = st.items.filter(i => !q || `${i.erp} ${i.spec} ${i.brand}`.toLowerCase().includes(q));
   const editable = can(st.user.role, 'editMaster');
+  const judul = tr({ id: 'Item Master', en: 'Item Master', zh: '物料主数据' });
+  const medan = MEDAN_ITEM(st.items);
+  const nilai = nilaiFilter('md-item');
+  const rows = saring(st.items, medan, nilai);
+  const kepala = [t('col_erp'), t('col_spec'), t('col_brand'), tr({ id: 'Market', en: 'Market', zh: '市场' }), tr({ id: 'Unit', en: 'Unit', zh: '单位' }), tr({ id: 'Name EN', en: 'Name EN', zh: '英文名称' }), t('col_action')];
   return h('div.stack', [
     h('div.row.gap8', [
-      h('div.card-title', tr({ id: 'Item Master', en: 'Item Master', zh: '物料主数据' })),
-      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
-        id: `${st.items.length} item`,
-        en: `${st.items.length} item${st.items.length === 1 ? '' : 's'}`,
-        zh: `${st.items.length} 个物料`,
-      })),
-      h('div.mla.row.gap8', [searchInput({ id: 'md-q-item', placeholder: tr({ id: 'Search ERP / spec / brand…', en: 'Search ERP / spec / brand…', zh: '搜索 ERP / 规格 / 品牌…' }), value: st.ui.mdItemQ || '', onChange: v => setUI({ mdItemQ: v }) }), editable ? btn(tr({ id: 'Add Item', en: 'Add Item', zh: '新增物料' }), { variant: 'primary', iconName: 'plus', onClick: () => openItem() }) : null]),
+      h('div.card-title', judul),
+      hitunganSaring(rows.length, st.items.length, { id: 'item', en: `item${st.items.length === 1 ? '' : 's'}`, zh: '个物料' }),
+      tombolFilter({ id: 'md-item', medan, judul }),
+      h('div.mla.row.gap8', [editable ? btn(tr({ id: 'Add Item', en: 'Add Item', zh: '新增物料' }), { variant: 'primary', iconName: 'plus', onClick: () => openItem() }) : null]),
     ]),
     h('div.card', h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', [t('col_erp'), t('col_spec'), t('col_brand'), tr({ id: 'Market', en: 'Market', zh: '市场' }), tr({ id: 'Unit', en: 'Unit', zh: '单位' }), tr({ id: 'Name EN', en: 'Name EN', zh: '英文名称' }), t('col_action')].map(c => h('th', c)))),
-      h('tbody', rows.map(i => h('tr', [
+      h('thead', h('tr', kepala.map(c => h('th', c)))),
+      h('tbody', rows.length ? rows.map(i => h('tr', [
         h('td.mono.cell-strong', i.erp || '—'), h('td', i.spec || '—'), h('td', i.brand || '—'), h('td', i.market || '—'), h('td.mono', i.unit || '—'), h('td', i.nameEn || '—'),
         h('td', editable ? h('div.row.gap8', [
           btn(t('edit'), { sm: true, onClick: () => openItem(i) }),
           confirmDeleteBtn('item:' + i.id, () => deleteItemRow(i)),
         ]) : null),
-      ]))),
+      ])) : barisTakCocok(kepala.length, { id: 'md-item', adaFilter: jumlahFilterAktif(nilai) > 0 })),
     ]))),
   ]);
 }
@@ -692,25 +789,39 @@ async function deleteItemRow(i) {
 }
 
 // ---------- Unit ----------
+const MEDAN_UNIT = (rows) => [
+  { kunci: 'code', label: tr({ id: 'Mandarin', en: 'Mandarin', zh: '中文' }), tipe: 'teks', mono: true, ambil: u => u.code },
+  // PC/KG/SET adalah himpunan pendek yang berulang di banyak baris — persis
+  // bentuk yang lebih enak dipilih daripada diketik.
+  { kunci: 'intl', label: tr({ id: 'International', en: 'International', zh: '国际单位' }), tipe: 'pilih', opsi: opsiDari(rows, u => u.intl), ambil: u => u.intl },
+  { kunci: 'note', label: tr({ id: 'Keterangan', en: 'Notes', zh: '备注' }), tipe: 'teks', ambil: u => u.note },
+];
+
 function unitsTab(st) {
   const editable = can(st.user.role, 'editMaster');
+  const judul = tr({ id: 'Unit', en: 'Unit', zh: '单位' });
+  const medan = MEDAN_UNIT(st.units);
+  const nilai = nilaiFilter('md-unit');
+  const rows = saring(st.units, medan, nilai);
+  const kepala = [tr({ id: 'Mandarin', en: 'Mandarin', zh: '中文' }), tr({ id: 'International', en: 'International', zh: '国际单位' }), tr({ id: 'Keterangan', en: 'Notes', zh: '备注' }), editable ? t('col_action') : ''];
   return h('div.stack', [card([
-    h('div.card-head', [h('div.card-title', tr({ id: 'Unit', en: 'Unit', zh: '单位' })), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
-      id: `${st.units.length} unit`,
-      en: `${st.units.length} unit${st.units.length === 1 ? '' : 's'}`,
-      zh: `${st.units.length} 个单位`,
-    })), editable ? h('div.mla', btn(tr({ id: 'Add', en: 'Add', zh: '新增' }), { sm: true, variant: 'primary', iconName: 'plus', onClick: () => openUnitModal() })) : null]),
+    h('div.card-head', [
+      h('div.card-title', judul),
+      hitunganSaring(rows.length, st.units.length, { id: 'unit', en: `unit${st.units.length === 1 ? '' : 's'}`, zh: '个单位' }),
+      tombolFilter({ id: 'md-unit', medan, judul }),
+      editable ? h('div.mla', btn(tr({ id: 'Add', en: 'Add', zh: '新增' }), { sm: true, variant: 'primary', iconName: 'plus', onClick: () => openUnitModal() })) : null,
+    ]),
     h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', [tr({ id: 'Mandarin', en: 'Mandarin', zh: '中文' }), tr({ id: 'International', en: 'International', zh: '国际单位' }), tr({ id: 'Keterangan', en: 'Notes', zh: '备注' }), editable ? t('col_action') : ''].map(c => h('th', c)))),
-      h('tbody', st.units.map((u, i) => h('tr', [
+      h('thead', h('tr', kepala.map(c => h('th', c)))),
+      h('tbody', rows.length ? rows.map(u => h('tr', [
         h('td.cell-strong.mono', u.code),
         h('td.mono', u.intl || '—'),
         h('td', u.note || '—'),
         h('td', editable ? h('div.row.gap8', [
           btn(t('edit'), { sm: true, onClick: () => openUnitModal(u) }),
-          confirmDeleteBtn('unit:' + (u.id || i), () => deleteUnitRow(u)),
+          confirmDeleteBtn('unit:' + (u.id || st.units.indexOf(u)), () => deleteUnitRow(u)),
         ]) : null),
-      ]))),
+      ])) : barisTakCocok(kepala.length, { id: 'md-unit', adaFilter: jumlahFilterAktif(nilai) > 0 })),
     ])),
   ]), st.ui.unitModal ? unitModal() : null]);
 }

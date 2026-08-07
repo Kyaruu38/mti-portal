@@ -1,7 +1,7 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, checkRow, selectEl, icon, driveLink, modal } from '../ui/components.js';
+import { card, badge, btn, checkRow, selectEl, icon, driveLink, modal, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
 import { suratJalanPaper } from '../ui/documents.js';
 import { romanMonth, nextMonthlySeq, fmtDate, num } from '../core/format.js';
 import { outstandingPOs, closeFullyReceivedPOs, receivedQty, overDeliveredPOs } from '../core/outstanding.js';
@@ -502,17 +502,41 @@ function previewCard(st, id) {
   return h('div.stack', [bar, h('div.paper-scroll', { style: { justifyContent: 'center' } }, suratJalanPaper(sj))]);
 }
 
+// Kotak-kotak di jendela saring Riwayat Surat Jalan. Isinya persis kolom yang
+// terbaca di tabelnya; File dan Action tidak ikut karena keduanya tombol, bukan
+// keterangan yang bisa dicari orang.
+const MEDAN_SJ = () => [
+  { kunci: 'no', label: 'No.', tipe: 'teks', mono: true, ambil: r => r.no },
+  { kunci: 'supplier', label: t('col_supplier'), tipe: 'teks', ambil: r => r.supplier },
+  { kunci: 'po', label: 'PO', tipe: 'teks', mono: true, ambil: r => r.poNo },
+  { kunci: 'tgl', label: t('col_date'), tipe: 'tanggal', ambil: r => r.date },
+];
+
 function historyCard(st, canWrite) {
-  const list = st.suratJalan.slice(0, 20);
+  const semua = st.suratJalan;
+  const medan = MEDAN_SJ();
+  const nilai = nilaiFilter('sj-riwayat');
+  const tersaring = saring(semua, medan, nilai);
+  // Menyaring DULU, baru dipotong. Kalau urutannya dibalik, surat jalan ke-21
+  // tidak akan pernah ketemu walau nomornya diketik utuh — dan yang mencarinya
+  // akan menyimpulkan dokumennya tidak ada, bukan bahwa daftarnya dipotong.
+  const list = tersaring.slice(0, 20);
+  const judul = tr({ id: 'Riwayat Surat Jalan', en: 'Surat Jalan History', zh: '送货单历史' });
+  const kepala = ['No.', t('col_supplier'), 'PO', t('col_date'), 'File', t('col_action')];
   return card([
-    h('div.card-head', [h('div.card-title', tr({ id: 'Riwayat Surat Jalan', en: 'Surat Jalan History', zh: '送货单历史' })), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
-      id: `${st.suratJalan.length} dokumen`,
-      en: `${st.suratJalan.length} document${st.suratJalan.length === 1 ? '' : 's'}`,
-      zh: `${st.suratJalan.length} 份单据`,
-    }))]),
-    list.length ? h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', ['No.', t('col_supplier'), 'PO', t('col_date'), 'File', t('col_action')].map(c => h('th', c)))),
-      h('tbody', list.map(sj => h('tr', [
+    h('div.card-head', [
+      h('div.card-title', judul),
+      // Pembandingnya jumlah SEBENARNYA di state, bukan 20 yang kelihatan.
+      // Angka yang mentok di 20 pada arsip 300 dokumen membuat orang mengira
+      // sisanya hilang.
+      hitunganSaring(tersaring.length, semua.length, {
+        id: 'dokumen', en: `document${semua.length === 1 ? '' : 's'}`, zh: '份单据',
+      }),
+      tombolFilter({ id: 'sj-riwayat', medan, judul }),
+    ]),
+    h('div.tbl-wrap', h('table.tbl', [
+      h('thead', h('tr', kepala.map(c => h('th', c)))),
+      h('tbody', list.length ? list.map(sj => h('tr', [
         h('td.mono.cell-strong', sj.no), h('td', sj.supplier), h('td.mono', { style: { color: 'var(--text-3)' } }, sj.poNo),
         h('td.mono', fmtDate(sj.date)),
         h('td', driveLink(sj.driveUrl || '')),
@@ -525,11 +549,15 @@ function historyCard(st, canWrite) {
             ? btn('Arsip ulang', { sm: true, iconName: 'upload', onClick: () => reArchive(sj) })
             : null,
         ])),
-      ]))),
-    ])) : h('div', { style: { padding: '16px', fontSize: '12px', color: 'var(--text-3)' } }, tr({
-      id: 'Belum ada surat jalan dibuat.',
-      en: 'No Surat Jalan has been created yet.',
-      zh: '尚未开具任何送货单。',
-    })),
+      ])) : barisTakCocok(kepala.length, { id: 'sj-riwayat', adaFilter: jumlahFilterAktif(nilai) > 0 })),
+    ])),
+    // Catatan pemotongan cuma muncul waktu memang ada yang terpotong. Dulu
+    // tidak ada catatan sama sekali: 20 baris teratas ditampilkan diam-diam,
+    // dan tidak ada apa pun di layar yang bilang masih ada sisanya.
+    tersaring.length > 20 ? h('div', { style: { padding: '10px 16px', fontSize: '10.5px', color: 'var(--text-3)' } }, tr({
+      id: `Menampilkan 20 dari ${tersaring.length} — pakai saringan untuk mempersempit.`,
+      en: `Showing 20 of ${tersaring.length} — use the filter to narrow it down.`,
+      zh: `显示 ${tersaring.length} 份中的 20 份 — 请使用筛选缩小范围。`,
+    })) : null,
   ]);
 }

@@ -25,7 +25,7 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, logAudit } from '../core/store.js';
 import { tr } from '../i18n/index.js';
-import { card, badge, btn, icon, searchInput, selectEl } from '../ui/components.js';
+import { card, badge, btn, icon, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring } from '../ui/components.js';
 import { num, fmtDate } from '../core/format.js';
 import { outstandingPOs, overDeliveredPOs, receivedBreakdown, isLabelPO } from '../core/outstanding.js';
 import { setPoItems } from '../core/posApi.js';
@@ -35,19 +35,53 @@ import { blockWrite } from '../core/guard.js';
 
 const key = (poId, lineId) => `${poId}::${lineId}`;
 
+// Nama jenis PO memakai kata yang tertulis di lencana kartunya, bukan kode
+// internal 'label'/'biasa'. Yang memilih di sini sedang menunjuk lencana yang
+// dia lihat; 'biasa' cuma ada di dalam kode dan tidak pernah muncul di layar.
+const jenisPo = (po) => isLabelPO(po)
+  ? tr({ id: 'Label', en: 'Label', zh: '标签' })
+  : tr({ id: 'Non-label', en: 'Non-label', zh: '非标签' });
+
+// Baris yang sudah lengkap TIDAK dirender di kartunya, jadi tidak boleh ikut
+// dicari: kecocokan pada ERP yang cuma ada di baris yang sudah tuntas akan
+// memunculkan kartu yang di dalamnya tidak ada satu pun yang dicari orang.
+const barisTampil = (x) => x.lines.filter(l => l.outstanding > 0);
+
+// Penyaring layar PO Outstanding.
+//
+// Kotak teks + dropdown yang dulu berdiri di atas daftar sekarang duduk di
+// balik satu tombol corong, sama seperti daftar lain di portal ini — satu cara
+// mencari, bukan sepasang kotak yang selalu terpasang di layar yang isinya
+// sudah panjang dengan kartu.
+//
+// Kotak No. PO menyapu nomor kontrak DAN nomor PO sekaligus walaupun kartunya
+// cuma menampilkan salah satu: yang mengetik menyalin dari e-mail atau dari
+// layar lain, dan tidak perlu tahu nomor mana yang kebetulan menang di sana.
+//
+// ERP dan nama item menyaring KARTU, bukan baris. Kartunya lolos kalau salah
+// satu baris outstanding-nya cocok, dan kartu itu tetap tampil utuh — memotong
+// isinya jadi baris yang cocok saja akan menyembunyikan sisa PO yang sama, dan
+// justru sisa itulah yang menentukan kiriman berikutnya lengkap atau tidak.
+//
+// Opsi jenis PO diambil dari data yang ada: portal yang sedang tidak punya satu
+// pun PO label tidak menawarkan pilihan yang pasti mengosongkan layar.
+const MEDAN_OP = (semua) => [
+  { kunci: 'po', label: tr({ id: 'No. PO / kontrak', en: 'PO / contract no.', zh: '采购单 / 合同号' }), tipe: 'teks', mono: true, ambil: x => `${x.po.contract || ''} ${x.po.no || ''}` },
+  { kunci: 'supplier', label: tr({ id: 'Supplier', en: 'Supplier', zh: '供应商' }), tipe: 'teks', ambil: x => x.po.supplier },
+  { kunci: 'erp', label: tr({ id: 'ERP', en: 'ERP', zh: 'ERP' }), tipe: 'teks', mono: true, ambil: x => barisTampil(x).map(l => l.erp || '').join(' ') },
+  { kunci: 'item', label: tr({ id: 'Nama item', en: 'Item name', zh: '物料名称' }), tipe: 'teks', ambil: x => barisTampil(x).map(l => l.d || l.desc || l.dimension || '').join(' ') },
+  { kunci: 'jenis', label: tr({ id: 'Jenis PO', en: 'PO type', zh: '采购单类型' }), tipe: 'pilih', opsi: [...new Set((semua || []).map(x => jenisPo(x.po)).filter(Boolean))].sort(), ambil: x => jenisPo(x.po) },
+];
+
 export function outstandingPoScreen() {
   const st = getState(); const ui = st.ui;
   const canWrite = can(st.user.role, 'poReceive');
 
   const all = outstandingPOs(st);
-  const filter = ui.opFilter || 'semua';
-  const q = (ui.opQ || '').toLowerCase();
+  const medan = MEDAN_OP(all);
+  const nilai = nilaiFilter('op');
 
-  const list = all
-    .filter(x => filter === 'semua'
-      || (filter === 'label' && isLabelPO(x.po))
-      || (filter === 'biasa' && !isLabelPO(x.po)))
-    .filter(x => !q || `${x.po.no} ${x.po.contract || ''} ${x.po.supplier || ''}`.toLowerCase().includes(q))
+  const list = saring(all, medan, nilai)
     .sort((a, b) => new Date(a.po.createdAt || 0) - new Date(b.po.createdAt || 0));
 
   const sel = ui.opSel || {};
@@ -58,16 +92,43 @@ export function outstandingPoScreen() {
   return h('div.stack', [
     over.length ? overBanner(over) : null,
     summaryCard(st, all),
-    toolbar(st, all, list),
+    toolbar(all, list, medan),
     list.length
       ? h('div.stack', list.map(x => poCard(st, x, sel, canWrite)))
-      : card([h('div.card-pad', { style: { fontSize: '12px', color: 'var(--text-3)' } }, tr({
-          id: all.length ? 'Tidak ada yang cocok dengan filter/pencarian.' : 'Tidak ada PO dengan barang outstanding.',
-          en: all.length ? 'Nothing matches the filter or search.' : 'No PO with outstanding goods.',
-          zh: all.length ? '没有符合筛选或搜索条件的结果。' : '没有尚未到货的采购单。',
-        }))]),
+      : blokTakCocok(jumlahFilterAktif(nilai) > 0),
     canWrite && chosen.length ? actionBar(st, list, sel) : null,
   ]);
+}
+
+// Layar ini merender KARTU per PO, bukan baris tabel, jadi pesan kosongnya
+// tidak boleh memakai barisTakCocok(): itu sebuah <tr>, dan <tr> di luar
+// <table> dibuang browser tanpa suara — pesannya hilang dan yang tersisa cuma
+// layar kosong. Isinya sengaja sama persis: pesan plus jalan keluarnya, supaya
+// "kosong karena saringan" tidak pernah terbaca sebagai "portal rusak".
+function blokTakCocok(adaFilter) {
+  const bersihkan = () => {
+    const f = { ...(getState().ui.filters || {}) };
+    delete f.op;
+    setUI({ filters: f });
+  };
+  return card([h('div.card-pad', { style: { textAlign: 'center', padding: '30px 16px', color: 'var(--text-3)' } },
+    h('div.stack', { style: { gap: '8px', alignItems: 'center' } }, [
+      h('div', { style: { fontSize: '12.5px' } }, adaFilter
+        ? tr({
+            id: 'Tidak ada PO yang cocok dengan saringannya',
+            en: 'No PO matches the filter',
+            zh: '没有符合筛选条件的采购单',
+          })
+        : tr({
+            id: 'Tidak ada PO dengan barang outstanding.',
+            en: 'No PO with outstanding goods.',
+            zh: '没有尚未到货的采购单。',
+          })),
+      adaFilter
+        ? h('button.btn.btn-sm', { onClick: bersihkan },
+            tr({ id: 'Bersihkan saringan', en: 'Clear filter', zh: '清除筛选' }))
+        : null,
+    ]))]);
 }
 
 function summaryCard(st, all) {
@@ -87,23 +148,17 @@ function summaryCard(st, all) {
   ]));
 }
 
-function toolbar(st, all, list) {
-  return h('div.row.gap8.wrap', [
-    searchInput({
-      id: 'op-q',
-      placeholder: tr({ id: 'Cari no PO / supplier…', en: 'Search PO no / supplier…', zh: '搜索采购单号 / 供应商…' }),
-      value: st.ui.opQ || '', onChange: v => setUI({ opQ: v }),
+// Yang tersisa di baris ini cuma angka dan tombol corongnya. Angkanya tetap
+// dipasang di tempat yang sama: begitu saringan menyala, daftar kartu yang
+// tinggal 3 dari 41 terlihat persis seperti daftar yang memang cuma punya 3 —
+// dan tanpa pembandingnya, yang membacanya begitu akan mengira PO-nya hilang.
+function toolbar(all, list, medan) {
+  return h('div.row.gap8.wrap', { style: { alignItems: 'center' } }, [
+    hitunganSaring(list.length, all.length, { id: 'PO', en: 'PO', zh: '张采购单' }),
+    tombolFilter({
+      id: 'op', medan,
+      judul: tr({ id: 'Saring PO Outstanding', en: 'Filter Outstanding POs', zh: '筛选未结采购单' }),
     }),
-    selectEl([
-      { value: 'semua', label: tr({ id: 'Semua PO', en: 'All POs', zh: '全部采购单' }) },
-      { value: 'label', label: tr({ id: 'PO Label', en: 'Label POs', zh: '标签采购单' }) },
-      { value: 'biasa', label: tr({ id: 'PO Biasa (non-label)', en: 'Ordinary POs (non-label)', zh: '普通采购单（非标签）' }) },
-    ], { value: st.ui.opFilter || 'semua', onChange: v => setUI({ opFilter: v }) }),
-    h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
-      id: `${list.length} dari ${all.length} PO`,
-      en: `${list.length} of ${all.length} PO`,
-      zh: `${all.length} 张中的 ${list.length} 张`,
-    })),
   ]);
 }
 

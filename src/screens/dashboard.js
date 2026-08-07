@@ -1,7 +1,7 @@
 import { h } from '../core/dom.js';
-import { getState, setState, toast } from '../core/store.js';
+import { getState, setState, setUI, toast } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { card, sectionHead, badge, btn, icon } from '../ui/components.js';
+import { card, sectionHead, badge, btn, icon, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring } from '../ui/components.js';
 import { money, fmtDate, daysUntil, sumByCurrency, moneyMulti } from '../core/format.js';
 import { outstandingPOs } from '../core/outstanding.js';
 import { statusText } from '../core/statusText.js';
@@ -17,6 +17,30 @@ function stat(label, value, sub, accent) {
 }
 
 const sameMonth = (d) => { const dt = new Date(d); const now = new Date(); return !isNaN(dt) && dt.getMonth() === now.getMonth() && dt.getFullYear() === now.getFullYear(); };
+
+// Padanan barisTakCocok() untuk kartu dashboard. Kartu-kartu di sini deretan
+// <div>, bukan <table>, dan <tr> yang dihasilkan helper di components.js akan
+// dibuang browser tanpa suara — pesannya hilang persis waktu paling dibutuhkan.
+// `kosong` dipakai kalau memang belum ada datanya sama sekali: "belum ada" dan
+// "saringannya terlalu sempit" dua kabar yang berbeda, dan yang salah membacanya
+// akan berhenti mencari.
+function blokTakCocok(id, adaFilter, kosong) {
+  const bersihkan = () => {
+    const f = { ...(getState().ui.filters || {}) };
+    delete f[id];
+    setUI({ filters: f });
+  };
+  if (!adaFilter) return h('div', { style: { padding: '18px', color: 'var(--text-3)', fontSize: '12px' } }, kosong);
+  return h('div.stack', { style: { gap: '8px', alignItems: 'center', padding: '22px 16px', color: 'var(--text-3)' } }, [
+    h('div', { style: { fontSize: '12px', textAlign: 'center' } }, tr({
+      id: 'Tidak ada data yang cocok dengan saringannya',
+      en: 'No data matches the filter',
+      zh: '没有符合筛选条件的数据',
+    })),
+    h('button.btn.btn-sm', { onClick: bersihkan },
+      tr({ id: 'Bersihkan saringan', en: 'Clear filter', zh: '清除筛选' })),
+  ]);
+}
 
 export function dashboardScreen() {
   const st = getState();
@@ -83,6 +107,17 @@ function driveQueueBanner(st) {
 }
 
 
+// Tiga kotak saja, sesuai tiga keterangan yang tertulis di barisnya. Kartu ini
+// isinya belasan baris, jadi jendela saring berisi tujuh kotak akan lebih lama
+// dibaca daripada daftarnya sendiri.
+const MEDAN_PO_SAYA = (rows) => [
+  { kunci: 'no', label: tr({ id: 'No. PO', en: 'PO No.', zh: '采购单号' }), tipe: 'teks', mono: true, ambil: r => r.no },
+  { kunci: 'supplier', label: t('col_supplier'), tipe: 'teks', ambil: r => r.supplier },
+  // Opsinya teks lencana yang terbaca, dan hanya status yang benar-benar ada di
+  // PO orang ini — pilihan yang pasti menghasilkan daftar kosong bukan pilihan.
+  { kunci: 'status', label: t('col_status'), tipe: 'pilih', opsi: [...new Set(rows.map(r => statusText(r.status)).filter(Boolean))].sort(), ambil: r => statusText(r.status) },
+];
+
 // EVERY PO THIS PERSON RAISED — and its PDF, approved or not.
 //
 // The Approval Queue belongs to the Supervisor and must keep belonging to him:
@@ -102,10 +137,19 @@ function driveQueueBanner(st) {
 //
 // Still no approve button here. That separation is the point.
 function myPoCard(st, u) {
-  const mine = st.pos.filter(p => p.by === u.username)
-    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
-    .slice(0, 12);
-  const pending = mine.filter(p => p.status === 'Menunggu Approval').length;
+  const semua = st.pos.filter(p => p.by === u.username)
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  const medan = MEDAN_PO_SAYA(semua);
+  const nilai = nilaiFilter('db-po');
+  const tersaring = saring(semua, medan, nilai);
+  // Disaring dulu baru dipotong: PO ke-13 tidak akan pernah ketemu kalau
+  // urutannya dibalik.
+  const mine = tersaring.slice(0, 12);
+  // Dihitung dari SEMUA PO orang ini, bukan dari 12 yang tampil. Dulu ini
+  // membaca daftar yang sudah dipotong, jadi yang punya 30 PO menunggu melihat
+  // lencana mentok di angka yang kebetulan lolos ke 12 baris teratas.
+  const pending = semua.filter(p => p.status === 'Menunggu Approval').length;
+  const judul = tr({ id: 'PO Saya', en: 'My POs', zh: '我的采购单' });
 
   const openPdf = async (po) => {
     // Popup dulu, cap belakangan — lihat catatan di ui/documents.js.
@@ -128,8 +172,10 @@ function myPoCard(st, u) {
 
   return card([
     sectionHead(h('div.row.gap8', [
-      tr({ id: 'PO Saya', en: 'My POs', zh: '我的采购单' }),
+      judul,
       badge(String(pending), pending ? 'accent' : 'gray'),
+      hitunganSaring(tersaring.length, semua.length, { id: 'PO', en: 'PO', zh: '个采购单' }),
+      tombolFilter({ id: 'db-po', medan, judul }),
     ]), null),
     ...mine.map(p => h('div.row.gap14', { style: { padding: '12px 18px', borderBottom: '1px solid var(--border)' } }, [
       h('div.grow', [
@@ -145,7 +191,7 @@ function myPoCard(st, u) {
         : tr({ id: 'PDF draft', en: 'Draft PDF', zh: '草稿 PDF' }),
         { sm: true, iconName: 'download', onClick: () => openPdf(p) }),
     ])),
-    mine.length ? null : h('div', { style: { padding: '18px', color: 'var(--text-3)', fontSize: '12px' } }, tr({
+    mine.length ? null : blokTakCocok('db-po', jumlahFilterAktif(nilai) > 0, tr({
       id: 'Anda belum membuat PO.',
       en: 'You have not raised any PO yet.',
       zh: '您尚未创建采购单。',
@@ -199,8 +245,20 @@ function quickActions(st, u) {
   return [];
 }
 
+// Tanpa kotak Status: setiap baris di kartu ini pasti 'Menunggu Approval' —
+// itu definisi daftarnya — jadi dropdown status cuma berisi satu pilihan yang
+// tidak menyaring apa pun.
+const MEDAN_ANTRE_DB = () => [
+  { kunci: 'no', label: tr({ id: 'No. PO', en: 'PO No.', zh: '采购单号' }), tipe: 'teks', mono: true, ambil: r => r.no },
+  { kunci: 'supplier', label: t('col_supplier'), tipe: 'teks', ambil: r => r.supplier },
+  { kunci: 'by', label: tr({ id: 'Diajukan oleh', en: 'Submitted by', zh: '提交人' }), tipe: 'teks', ambil: r => r.by },
+];
+
 function wilbertBody(st) {
   const pending = st.pos.filter(p => p.status === 'Menunggu Approval');
+  const medanAntre = MEDAN_ANTRE_DB();
+  const nilaiAntre = nilaiFilter('db-approval');
+  const antre = saring(pending, medanAntre, nilaiAntre);
   const dueSoon = st.invoices.filter(i => i.status !== 'Paid' && daysUntil(i.due) <= 7).sort((a, b) => new Date(a.due) - new Date(b.due));
   const unpaidPrf = st.prfs.filter(p => p.stage !== 'Paid');
   const ppkekMonth = st.ppkek.length;
@@ -224,9 +282,17 @@ function wilbertBody(st) {
     ]),
     h('div.grid', { style: { gridTemplateColumns: '1.55fr 1fr', alignItems: 'start' } }, [
       card([
-        sectionHead(h('div.row.gap8', [t('dash_pending_mine'), badge(String(pending.length), 'accent')]),
+        sectionHead(h('div.row.gap8', [
+          t('dash_pending_mine'),
+          // Lencana ini dan kartu angka di atas tetap membaca `pending` yang
+          // utuh: keduanya menjawab "berapa yang harus saya kerjakan", bukan
+          // "berapa yang sedang saya lihat".
+          badge(String(pending.length), 'accent'),
+          hitunganSaring(antre.length, pending.length, { id: 'PO', en: 'PO', zh: '个采购单' }),
+          tombolFilter({ id: 'db-approval', medan: medanAntre, judul: t('dash_pending_mine') }),
+        ]),
           h('a.link', { onClick: () => setState({ screen: 'approval' }) }, t('dash_open_queue') + ' →')),
-        ...pending.map(p => h('div.row.gap14', { style: { padding: '12px 18px', borderBottom: '1px solid var(--border)' } }, [
+        ...antre.map(p => h('div.row.gap14', { style: { padding: '12px 18px', borderBottom: '1px solid var(--border)' } }, [
           h('div.grow', [
             h('div.mono', { style: { fontSize: '12px', fontWeight: 600, color: 'var(--text)' } }, p.no),
             h('div', { style: { fontSize: '11.5px', color: 'var(--text-3)', marginTop: '2px' } }, tr({
@@ -237,7 +303,7 @@ function wilbertBody(st) {
           badge(t('dash_awaiting_you'), 'amber'),
           btn(t('dash_review'), { sm: true, onClick: () => setState({ screen: 'approval', ui: { ...st.ui, selPO: p.id } }) }),
         ])),
-        pending.length ? null : h('div', { style: { padding: '18px', color: 'var(--text-3)', fontSize: '12px' } }, tr({
+        antre.length ? null : blokTakCocok('db-approval', jumlahFilterAktif(nilaiAntre) > 0, tr({
           id: 'Tidak ada PO menunggu approval.', en: 'No POs awaiting approval.', zh: '没有待审批的采购单。',
         })),
       ]),

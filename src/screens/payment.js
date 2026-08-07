@@ -2,8 +2,8 @@ import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { blockWrite } from '../core/guard.js';
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, statusTone, driveLink, pager, pageSlice, PAGE_DEFAULT } from '../ui/components.js';
-import { money, num, fmtDate, romanMonth, daysUntil, topDays, addDays, ccyTone } from '../core/format.js';
+import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, statusTone, driveLink, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
+import { money, num, fmtDate, romanMonth, daysUntil, topDays, addDays, ccyTone, CURRENCIES } from '../core/format.js';
 import { prfPaper } from '../ui/documents.js';
 import { downloadBlob } from '../core/dom.js';
 import { can } from '../auth/roles.js';
@@ -316,12 +316,29 @@ async function markPrfsReceived() {
   });
 }
 
+// Opsi dropdown Supplier diambil dari PRF yang BENAR-BENAR ADA, bukan dari
+// daftar master supplier: daftar master berisi ratusan nama yang belum pernah
+// muncul di PRF mana pun, dan memilih salah satunya selalu menghasilkan nol
+// baris — dropdown yang setiap pilihannya bisa jadi jalan buntu.
+const MEDAN_PRF = (semua) => [
+  { kunci: 'no', label: tr({ id: 'No. PRF', en: 'PRF no.', zh: '付款申请单号' }), tipe: 'teks', mono: true, ambil: r => r.no },
+  { kunci: 'supplier', label: t('col_supplier'), tipe: 'teks', ambil: r => r.supplier },
+  { kunci: 'inv', label: tr({ id: 'No. Invoice di dalamnya', en: 'Invoice no. inside', zh: '内含发票号' }), tipe: 'teks', mono: true, ambil: r => (r.invoices || []).join(' ') },
+  { kunci: 'by', label: tr({ id: 'Dibuat oleh', en: 'Created by', zh: '创建人' }), tipe: 'pilih', opsi: [...new Set((semua || []).map(p => p.by).filter(Boolean))].sort(), ambil: r => r.by },
+  { kunci: 'tgl', label: tr({ id: 'Tanggal dibuat', en: 'Date created', zh: '创建日期' }), tipe: 'tanggal', ambil: r => r.createdAt },
+  { kunci: 'ccy', label: tr({ id: 'Valuta', en: 'Currency', zh: '币种' }), tipe: 'pilih', opsi: CURRENCIES, ambil: r => r.currency },
+  { kunci: 'stage', label: t('col_status'), tipe: 'pilih', opsi: ['Terbentuk', 'Diproses Wilbert', 'Diterima Finance', 'Paid'].map(trStage), ambil: r => trStage(r.stage) },
+];
+
 function prfTrackingCard(st, readonly) {
   // Dulu dipotong 25 secara diam-diam: PRF ke-26 tidak ada di layar dan tidak
   // ada satu pun tulisan yang menyebutkannya. Sekarang seluruhnya ada, dibuka
   // per halaman, dan jumlah aslinya tertulis di kaki tabel.
   const semua = st.prfs;
-  const halPrf = halamanBayar(semua, st, 'prfPage', 'prfSize');
+  const medanPrf = MEDAN_PRF(semua);
+  const nilaiPrf = nilaiFilter('prf');
+  const tersaring = saring(semua, medanPrf, nilaiPrf);
+  const halPrf = halamanBayar(tersaring, st, 'prfPage', 'prfSize');
   const list = halPrf.items;
   const canReceive = !readonly && can(st.user.role, 'prfReceive');
   const recvSel = st.ui.prfRecvSel || {};
@@ -334,11 +351,15 @@ function prfTrackingCard(st, readonly) {
     h('div.card-head', [
       h('div.card-title', tr({ id: 'Progress PRF', en: 'PRF Progress', zh: '付款申请单进度' })),
       badge(tr({ id: 'Read-only', en: 'Read-only', zh: '只读' }), 'gray', { iconName: 'eye' }),
-      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
-        id: `${st.prfs.length} PRF · status diubah oleh Finance`,
-        en: `${st.prfs.length} PRF${st.prfs.length === 1 ? '' : 's'} · status changed by Finance`,
-        zh: `${st.prfs.length} 张付款申请单 · 状态由财务更新`,
-      })),
+      hitunganSaring(tersaring.length, semua.length, {
+        id: 'PRF · status diubah oleh Finance',
+        en: `PRF${semua.length === 1 ? '' : 's'} · status changed by Finance`,
+        zh: '张付款申请单 · 状态由财务更新',
+      }),
+      tombolFilter({
+        id: 'prf', medan: medanPrf, kunciHalaman: 'prfPage',
+        judul: tr({ id: 'Saring Progress PRF', en: 'Filter PRF Progress', zh: '筛选付款申请单进度' }),
+      }),
       // One PRF at a time was fine when there was one. USD and IDR are separate
       // PRFs per currency, so a single supplier already produces two, and a
       // week's run produces a stack — each needing its own click, its own print
@@ -360,7 +381,7 @@ function prfTrackingCard(st, readonly) {
         zh: `标记 ${tickedCount} 张已收到`,
       }), { sm: true, variant: 'primary', iconName: 'check', onClick: () => markPrfsReceived() }) : null,
     ]),
-    list.length ? h('div.tbl-wrap', h('table.tbl', [
+    tersaring.length ? h('div.tbl-wrap', h('table.tbl', [
       h('thead', h('tr', [
         canReceive ? h('th', { style: { width: '34px' } }, '') : null,
         ...[tr({ id: 'No. PRF', en: 'PRF No.', zh: '付款申请单号' }), t('col_supplier'), t('col_amount'), tr({ id: 'Invoice', en: 'Invoice', zh: '发票' }), tr({ id: 'Dibuat', en: 'Created', zh: '创建' }), t('col_status')].map((c, i) => h('th' + (i === 2 ? '.r' : ''), c)),
@@ -393,8 +414,14 @@ function prfTrackingCard(st, readonly) {
           (!readonly && canDeletePrf(p)) ? prfDeleteBtn(p) : null,
         ])),
       ]))),
-    ])) : h('div', { style: { padding: '16px', fontSize: '12px', color: 'var(--text-3)' } }, tr({ id: 'Belum ada PRF dibuat.', en: 'No PRF has been created yet.', zh: '尚未创建任何付款申请单。' })),
-    semua.length ? pagerBayar(halPrf, 'prfPage', 'prfSize') : null,
+    ])) : h('div', { style: { padding: '16px', fontSize: '12px', color: 'var(--text-3)' } },
+      // Dua sebab, dua kalimat. "Belum ada PRF dibuat" waktu sebenarnya ada 136
+      // PRF yang cuma tidak lolos saringan adalah kalimat yang salah, dan yang
+      // membacanya akan mencari PRF-nya di tempat lain.
+      jumlahFilterAktif(nilaiPrf) > 0
+        ? tr({ id: 'Tidak ada PRF yang cocok dengan saringannya.', en: 'No PRF matches the filter.', zh: '没有符合筛选条件的付款申请单。' })
+        : tr({ id: 'Belum ada PRF dibuat.', en: 'No PRF has been created yet.', zh: '尚未创建任何付款申请单。' })),
+    tersaring.length ? pagerBayar(halPrf, 'prfPage', 'prfSize') : null,
   ]);
 }
 
@@ -586,14 +613,35 @@ const pagerBayar = (info, kHal, kUkur) => pager(info, {
   onSize: n => setUI({ [kUkur]: n, [kHal]: 1 }),
 });
 
+// Kotak-kotak di jendela saring Incoming Invoices. Isinya mengikuti kolom yang
+// benar-benar ada di tabelnya — menyaring lewat kolom yang tidak kelihatan
+// membuat baris menghilang tanpa ada yang bisa menunjuk sebabnya.
+const TAHAP_INVOICE = ['Diterima Purchasing', 'Diproses Wilbert', 'Diterima Finance', 'Paid'];
+const MEDAN_INVOICE = () => [
+  { kunci: 'supplier', label: t('col_supplier'), tipe: 'teks', ambil: r => r.supplier },
+  { kunci: 'no', label: tr({ id: 'No. Invoice', en: 'Invoice no.', zh: '发票号' }), tipe: 'teks', mono: true, ambil: r => r.no },
+  { kunci: 'po', label: 'PO Ref', tipe: 'teks', mono: true, ambil: r => r.poRef },
+  { kunci: 'faktur', label: t('pay_faktur'), tipe: 'teks', mono: true, ambil: r => r.faktur },
+  { kunci: 'due', label: t('col_due'), tipe: 'tanggal', ambil: r => r.due },
+  { kunci: 'ccy', label: tr({ id: 'Valuta', en: 'Currency', zh: '币种' }), tipe: 'pilih', opsi: CURRENCIES, ambil: r => r.currency },
+  // Opsi status memakai teks yang TERBACA di layar, bukan kode internalnya.
+  // Yang memilih di dropdown ini sedang menunjuk lencana yang dia lihat di
+  // kolom Status; kalau isinya kode mentah, dua daftar yang sama terlihat beda.
+  { kunci: 'status', label: t('col_status'), tipe: 'pilih', opsi: TAHAP_INVOICE.map(trStage), ambil: r => trStage(r.status) },
+];
+
 function invoiceTable(st, opts) {
   // readonly: render the same table with no action buttons. Used by the
   // observe-only branch, which needs the invoice list for monitoring but must
   // offer no way to advance a stage or add a row.
   const readonly = !!(opts && opts.readonly);
-  const head = h('thead', h('tr', [tr({ id: 'Invoice', en: 'Invoice', zh: '发票' }), t('col_supplier'), 'PO Ref', t('col_amount'), t('col_due'), t('pay_faktur'), tr({ id: 'File', en: 'File', zh: '文件' }), t('col_status')].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c))));
-  const halInv = halamanBayar(st.invoices, st, 'invPage', 'invSize');
-  const body = h('tbody', halInv.items.map(inv => {
+  const kepala = [tr({ id: 'Invoice', en: 'Invoice', zh: '发票' }), t('col_supplier'), 'PO Ref', t('col_amount'), t('col_due'), t('pay_faktur'), tr({ id: 'File', en: 'File', zh: '文件' }), t('col_status')];
+  const head = h('thead', h('tr', kepala.map((c, i) => h('th' + (i === 3 ? '.r' : ''), c))));
+  const medan = MEDAN_INVOICE();
+  const nilai = nilaiFilter('inv');
+  const tersaring = saring(st.invoices, medan, nilai);
+  const halInv = halamanBayar(tersaring, st, 'invPage', 'invSize');
+  const body = h('tbody', halInv.items.length ? halInv.items.map(inv => {
     const d = daysUntil(inv.due);
     const dueTone = inv.status === 'Paid' ? '' : d < 0 ? 'red' : d <= 1 ? 'amber' : '';
     // Advancing an invoice is purchasing-side work (sekar's job), not a
@@ -634,19 +682,21 @@ function invoiceTable(st, opts) {
         (!readonly && canRevert(st, inv)) ? btn(t('pay_back_stage1'), { sm: true, onClick: () => revertToStage1(inv) }) : null,
       ])),
     ]);
-  }));
+  }) : barisTakCocok(kepala.length, { id: 'inv', adaFilter: jumlahFilterAktif(nilai) > 0 }));
   return h('div.card', [
     h('div.card-head', [
       h('div.card-title', t('pay_inv_in')),
-      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
-        id: `${st.invoices.length} invoice`,
-        en: `${st.invoices.length} invoice${st.invoices.length === 1 ? '' : 's'}`,
-        zh: `${st.invoices.length} 张发票`,
-      })),
+      hitunganSaring(tersaring.length, st.invoices.length, {
+        id: `invoice`, en: `invoice${st.invoices.length === 1 ? '' : 's'}`, zh: `张发票`,
+      }),
+      tombolFilter({ id: 'inv', medan, judul: t('pay_inv_in'), kunciHalaman: 'invPage' }),
       readonly ? null : h('div.mla', btn(tr({ id: 'Add Invoice', en: 'Add Invoice', zh: '新增发票' }), { sm: true, variant: 'primary', iconName: 'plus', onClick: () => openInvoiceModal() })),
     ]),
     h('div.tbl-wrap', h('table.tbl', [head, body])),
-    pagerBayar(halInv, 'invPage', 'invSize'),
+    // Pager disembunyikan waktu tidak ada hasil: "Tampilkan 10 · kosong" di
+    // bawah tabel yang sudah bilang tidak ada yang cocok cuma mengulang kabar
+    // buruk dengan angka.
+    tersaring.length ? pagerBayar(halInv, 'invPage', 'invSize') : null,
   ]);
 }
 

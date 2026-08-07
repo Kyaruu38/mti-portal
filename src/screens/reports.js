@@ -1,7 +1,7 @@
 import { h } from '../core/dom.js';
-import { getState, setUI, toast } from '../core/store.js';
+import { getState, toast } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, icon, driveLink, selectEl } from '../ui/components.js';
+import { card, badge, btn, icon, driveLink, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
 import { money, num, fmtDate } from '../core/format.js';
 import { statusText } from '../core/statusText.js';
 import { writeWorkbook } from '../core/xlsx.js';
@@ -9,8 +9,6 @@ import { outstandingPOs } from '../core/outstanding.js';
 import { allowedReportModules } from '../auth/roles.js';
 // NOTE: buildRows() filtering alone was not enough — outstandingCard() and the
 // audit sheet in exportReport() each read state directly and bypassed it.
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
 // Flatten the modules THIS ROLE may see into a unified report dataset.
 // Filtering here (not just in the dropdown) is what actually keeps finance data
@@ -27,48 +25,66 @@ function buildRows(st) {
   return rows.sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
-export function reportsScreen() {
-  const st = getState(); const ui = st.ui;
-  const f = ui.rpFilter || { module: t('all'), month: MONTHS[new Date().getMonth()], year: String(new Date().getFullYear()), status: t('all'), supplier: t('all'), currency: t('all') };
-  const set = patch => setUI({ rpFilter: { ...f, ...patch } });
-
-  let rows = buildRows(st);
-  rows = rows.filter(r =>
-    (f.module === t('all') || r.module === f.module) &&
-    (f.status === t('all') || r.status === f.status) &&
-    (f.supplier === t('all') || r.supplier === f.supplier) &&
-    (f.currency === t('all') || r.currency === f.currency) &&
-    (MONTHS[new Date(r.date).getMonth()] === f.month) &&
-    (String(new Date(r.date).getFullYear()) === f.year));
-
-  const suppliers = [t('all'), ...new Set(st.suppliers.map(s => s.name))];
-  // value = the STORED status string (compared with === above and matched
-  // against Postgres rows); label = display only. Never swap the two.
-  const statuses = [t('all'),
-    { value: 'Approved', label: tr({ id: 'Approved', en: 'Approved', zh: '已批准' }) },
-    { value: 'Menunggu Approval', label: tr({ id: 'Menunggu Approval', en: 'Awaiting Approval', zh: '待审批' }) },
-    { value: 'Paid', label: tr({ id: 'Paid', en: 'Paid', zh: '已付款' }) },
-    { value: 'Open', label: tr({ id: 'Open', en: 'Open', zh: '未结' }) },
-    { value: 'Costed', label: tr({ id: 'Costed', en: 'Costed', zh: '已核算成本' }) },
-    { value: 'Closed', label: tr({ id: 'Closed', en: 'Closed', zh: '已关闭' }) },
-    { value: 'Diterima Finance', label: tr({ id: 'Diterima Finance', en: 'Received by Finance', zh: '财务已接收' }) },
+// Kotak penyaring Unified Report — satu per kolom yang benar-benar tampil.
+//
+// KENAPA DI BALIK SATU TOMBOL
+// Enam dropdown ini dulu berdiri permanen di atas tabel: satu baris penuh
+// tinggi layar, terpasang setiap hari, padahal yang benar-benar menyaring cuma
+// sesekali. Sekarang ongkosnya satu klik, dan cuma dibayar yang memang sedang
+// mencari. Yang ikut hilang bersama deretan itu: dua cara mencari hal yang sama
+// di satu layar.
+//
+// KENAPA OPSINYA DARI DATA, BUKAN DAFTAR TETAP
+// Dropdown bulan/tahun yang lama menawarkan periode yang belum tentu punya satu
+// pun baris — memilih 'Feb 2025' di portal yang datanya mulai Juni menghasilkan
+// tabel kosong yang terbaca persis seperti data hilang. Daftar yang isinya cuma
+// nilai yang benar-benar ada tidak punya jalan buntu itu. Sumbernya juga sudah
+// disaring peran lewat buildRows(), jadi opsinya tidak bisa membocorkan modul
+// yang tidak boleh dilihat.
+//
+// Bulan + tahun sendiri diganti SATU rentang tanggal: pertanyaan yang dibawa
+// orang ke sini jarang persis sebulan kalender ("sejak akhir Maret", "kuartal
+// lalu"), dan dua dropdown yang harus cocok itu juga berarti tidak ada cara
+// melihat lebih dari satu bulan sekaligus.
+const MEDAN_REPORT = (semua) => {
+  const unik = (ambil) => [...new Set((semua || []).map(ambil).filter(Boolean))].sort();
+  return [
+    { kunci: 'tgl', label: t('col_date'), tipe: 'tanggal', ambil: r => r.date },
+    { kunci: 'module', label: t('rp_module'), tipe: 'pilih', opsi: unik(r => r.module), ambil: r => r.module },
+    { kunci: 'doc', label: t('rp_col_doc'), tipe: 'teks', mono: true, ambil: r => r.doc },
+    // Supplier jadi kotak teks, bukan dropdown. Daftarnya sepanjang master
+    // supplier dan yang mencari biasanya sudah tahu namanya — mengetik tiga
+    // huruf lebih pendek daripada menggulung daftar yang isinya ratusan.
+    { kunci: 'supplier', label: t('col_supplier'), tipe: 'teks', ambil: r => r.supplier },
+    // Valuta menyaring kolom Value: yang tampil di sana adalah nilai BESERTA
+    // valutanya, jadi kotak ini menyaring sesuatu yang memang terlihat.
+    { kunci: 'ccy', label: t('rp_currency'), tipe: 'pilih', opsi: unik(r => r.currency), ambil: r => r.currency },
+    // Opsi status memakai teks yang TERBACA di kolom Status, bukan nilai
+    // simpanannya. Yang memilih di sini sedang menunjuk lencana yang dia lihat;
+    // kalau isinya nilai mentah, satu daftar yang sama terlihat seperti dua.
+    // Nilai simpanannya tidak ikut berubah — statusText() cuma satu arah.
+    { kunci: 'status', label: t('col_status'), tipe: 'pilih', opsi: unik(r => statusText(r.status)), ambil: r => statusText(r.status) },
   ];
+};
 
-  const filterBar = h('div.card', { style: { display: 'flex', alignItems: 'flex-end', gap: '10px', padding: '14px 18px', flexWrap: 'wrap' } }, [
-    filt(t('rp_module'), [t('all'), ...allowedReportModules(st.user.role)], f.module, v => set({ module: v })),
-    filt(t('rp_month'), MONTHS, f.month, v => set({ month: v })),
-    filt(t('rp_year'), ['2025', '2026'], f.year, v => set({ year: v })),
-    filt(t('rp_status'), statuses, f.status, v => set({ status: v })),
-    filt(t('col_supplier'), suppliers, f.supplier, v => set({ supplier: v })),
-    filt(t('rp_currency'), [t('all'), 'IDR', 'USD', 'EUR', 'CNY'], f.currency, v => set({ currency: v })),
-    btn(t('rp_run'), { variant: 'navy', onClick: () => { setUI({}); toast({ id: `Report: ${rows.length} baris`, en: `Report: ${rows.length} rows`, zh: `报表：${rows.length} 行` }); } }),
-  ]);
+export function reportsScreen() {
+  const st = getState();
+
+  const semua = buildRows(st);
+  const medan = MEDAN_REPORT(semua);
+  const nilai = nilaiFilter('rp');
+  // Tanpa saringan, yang tampil SELURUHNYA. Dulu bulan+tahun dipaksa terisi
+  // bulan berjalan, jadi layar ini selalu dibuka dalam keadaan tersaring tanpa
+  // ada yang memintanya — dan awal bulan, ketika belum ada dokumen apa pun,
+  // Reports terlihat seperti portal yang kehilangan seluruh isinya.
+  const rows = saring(semua, medan, nilai);
 
   const tableCard = h('div.card', [
     h('div.card-head', [
-      h('span', { style: { fontSize: '11.5px', color: 'var(--text-3)' } }, [h('span.mono', { style: { fontWeight: 600, color: 'var(--text-2)' } }, String(rows.length)), ` ${t('rp_rows')}`]),
+      hitunganSaring(rows.length, semua.length, { id: 'baris', en: `row${semua.length === 1 ? '' : 's'}`, zh: '行' }),
+      tombolFilter({ id: 'rp', medan, judul: tr({ id: 'Saring Unified Report', en: 'Filter Unified Report', zh: '筛选统一报表' }) }),
       badge(t('rp_drive_note'), 'navy'),
-      h('div.mla', btn(t('pk_export'), { variant: 'primary', iconName: 'download', onClick: () => exportReport(rows, f) })),
+      h('div.mla', btn(t('pk_export'), { variant: 'primary', iconName: 'download', onClick: () => exportReport(rows, nilai) })),
     ]),
     h('div.tbl-wrap', h('table.tbl', [
       h('thead', h('tr', [t('col_date'), t('rp_module'), t('rp_col_doc'), t('col_supplier'), t('rp_col_value'), t('col_status'), t('rp_col_link')].map((c, i) => h('th' + (i === 4 ? '.r' : ''), c)))),
@@ -78,15 +94,14 @@ export function reportsScreen() {
         h('td.mono.cell-strong', r.doc),
         h('td', r.supplier),
         h('td.mono.r', r.value ? money(r.value, r.currency) : '—'),
-        // Translated for the eye only — statusToneRp and the filter above both
-        // still read the STORED value (see the filter's value/label split).
+        // Translated for the eye only — statusToneRp still reads the STORED
+        // value. Kotak status di jendela corong sengaja membandingkan hasil
+        // statusText() di kedua sisi, jadi yang dipilih orang sama persis
+        // dengan lencana yang dia tunjuk; tidak ada satu pun dari keduanya yang
+        // menghasilkan nilai untuk disimpan.
         h('td', badge(statusText(r.status), statusToneRp(r.status))),
         h('td', driveLink(r.driveUrl)),
-      ])) : h('tr', h('td', { colspan: 7, style: { textAlign: 'center', padding: '24px', color: 'var(--text-3)' } }, tr({
-        id: 'Tidak ada data untuk filter ini',
-        en: 'No data for this filter',
-        zh: '此筛选条件下没有数据',
-      })))),
+      ])) : barisTakCocok(7, { id: 'rp', adaFilter: jumlahFilterAktif(nilai) > 0 })),
     ])),
   ]);
 
@@ -94,14 +109,31 @@ export function reportsScreen() {
   // buildRows() role filter never touched it — sekar (PPKEK/PRF only) still saw
   // every outstanding PO with supplier names and values, and could export them.
   const canSeePO = allowedReportModules(st.user.role).includes('PO');
-  return h('div.stack', [filterBar, tableCard, canSeePO ? outstandingCard(st) : null]);
+  return h('div.stack', [tableCard, canSeePO ? outstandingCard(st) : null]);
 }
 
+// Daftar ini cuma punya dua kolom yang bisa dicari orang; dua sisanya angka
+// hitungan, dan tidak ada yang datang ke sini mencari "PO dengan tepat 3 baris".
+//
+// Kotak No. PO menyapu nomor kontrak DAN nomor PO sekaligus walaupun kolomnya
+// cuma menampilkan salah satu (kontrak kalau ada). Yang mengetik biasanya
+// menyalin dari e-mail atau dari layar lain, dan tidak tahu — tidak perlu tahu
+// — nomor mana yang kebetulan menang di kolom itu.
+const MEDAN_RP_PO = () => [
+  { kunci: 'po', label: tr({ id: 'No. PO', en: 'PO No.', zh: '采购单号' }), tipe: 'teks', mono: true, ambil: r => `${r.po.contract || ''} ${r.po.no || ''}` },
+  { kunci: 'supplier', label: t('col_supplier'), tipe: 'teks', ambil: r => r.po.supplier },
+];
+
 // Outstanding POs (goods not yet fully shipped via Surat Jalan). This is a
-// current-state snapshot, not a dated event, so it's NOT subject to the
-// month/year filter above — it always shows the live picture.
+// current-state snapshot, not a dated event, so it's NOT subject to the date
+// range above — it always shows the live picture. Saringannya pun terpisah
+// (id 'rp-po'), karena menyempitkan laporan ke satu supplier tidak berarti
+// orangnya juga sedang menyempitkan daftar barang yang ditunggu.
 function outstandingCard(st) {
-  const rows = outstandingPOs(st);
+  const semua = outstandingPOs(st);
+  const medan = MEDAN_RP_PO();
+  const nilai = nilaiFilter('rp-po');
+  const rows = saring(semua, medan, nilai);
   return h('div.card', [
     h('div.card-head', [
       h('div.card-title', tr({
@@ -109,7 +141,17 @@ function outstandingCard(st) {
         en: 'Outstanding POs (goods not yet fully shipped)',
         zh: '未结采购单（货物尚未全部发出）',
       })),
-      badge(String(rows.length), rows.length ? 'amber' : 'gray'),
+      // Menggantikan lencana angka yang lama. Lencana itu cuma tahu satu angka,
+      // dan begitu ada saringan, satu angka tidak cukup: daftar yang tinggal 3
+      // dari 41 terlihat persis seperti daftar yang memang cuma punya 3.
+      hitunganSaring(rows.length, semua.length, { id: 'PO', en: 'PO', zh: '张采购单' }),
+      tombolFilter({
+        id: 'rp-po', medan,
+        judul: tr({ id: 'Saring PO Outstanding', en: 'Filter Outstanding POs', zh: '筛选未结采购单' }),
+      }),
+      // Yang diekspor adalah yang TERLIHAT. Tombol ekspor yang diam-diam
+      // mengambil lebih banyak daripada yang ada di layar menghasilkan berkas
+      // yang isinya tidak bisa dijelaskan oleh orang yang mengirimnya.
       h('div.mla', btn(t('pk_export'), { iconName: 'download', onClick: () => exportOutstanding(rows) })),
     ]),
     h('div.tbl-wrap', h('table.tbl', [
@@ -119,15 +161,21 @@ function outstandingCard(st) {
         tr({ id: 'Baris Outstanding', en: 'Outstanding Lines', zh: '未结行数' }),
         tr({ id: 'Total Qty Outstanding', en: 'Total Outstanding Qty', zh: '未结总数量' }),
       ].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c)))),
+      // Kosong karena saringan dan kosong karena semuanya memang sudah terkirim
+      // adalah dua kabar yang berbeda — yang kedua itu kabar BAIK, dan
+      // menggantinya dengan "belum ada data" membuang satu-satunya kalimat di
+      // kartu ini yang bilang pekerjaannya beres.
       h('tbody', rows.length ? rows.map(r => h('tr', [
         h('td.mono.cell-strong', r.po.contract || r.po.no), h('td', r.po.supplier),
         h('td.mono', String(r.lines.filter(l => l.outstanding > 0).length)),
         h('td.mono.r', num(r.totalOutstanding)),
-      ])) : h('tr', h('td', { colspan: 4, style: { textAlign: 'center', padding: '24px', color: 'var(--text-3)' } }, tr({
-        id: 'Semua PO sudah terkirim penuh',
-        en: 'Every PO has been fully shipped',
-        zh: '所有采购单均已全部发出',
-      })))),
+      ])) : jumlahFilterAktif(nilai) > 0
+        ? barisTakCocok(4, { id: 'rp-po', adaFilter: true })
+        : h('tr', h('td', { colspan: 4, style: { textAlign: 'center', padding: '24px', color: 'var(--text-3)' } }, tr({
+            id: 'Semua PO sudah terkirim penuh',
+            en: 'Every PO has been fully shipped',
+            zh: '所有采购单均已全部发出',
+          })))),
     ])),
   ]);
 }
@@ -143,13 +191,10 @@ async function exportOutstanding(rows) {
   });
 }
 
-function filt(label, opts, value, onChange) {
-  return h('div', [h('div.field-label', label), selectEl(opts, { value, onChange })]);
-}
 function moduleTone(m) { return { PO: 'accent', PPKEK: 'blue', PRF: 'navy', Label: 'green', Payment: 'green' }[m] || 'gray'; }
 function statusToneRp(s) { return /Paid|Approved|Closed/.test(s) ? 'green' : /Menunggu|Open|Awaiting/.test(s) ? 'amber' : 'blue'; }
 
-async function exportReport(rows, f) {
+async function exportReport(rows, nilai) {
   const header = ['Tanggal', 'Module', 'Dokumen', 'Supplier', 'Currency', 'Nilai', 'Status', 'Drive Link'];
   const aoa = [header, ...rows.map(r => [fmtDate(r.date), r.module, r.doc, r.supplier, r.currency, r.value || '', r.status, r.driveUrl && !r.driveUrl.startsWith('drive-') ? 'Drive' : ''])];
   const hyperlinks = [];
@@ -179,7 +224,14 @@ async function exportReport(rows, f) {
   const seesSuppliers = auditEntities.size > 0;
   const auditRows = st.audit.filter(a => auditEntities.has(a.entity) || (seesSuppliers && a.entity === 'supplier'));
   const auditAoa = [['Waktu', 'User', 'Entity', 'Target', 'Aksi', 'Detail'], ...auditRows.map(a => [fmtDate(a.at), a.user, a.entity, a.target || '', a.action, a.detail || ''])];
-  await writeWorkbook(`MTI_Report_${f.module}_${f.month}_${f.year}.xlsx`.replace(/\s/g, ''), [
+  // Nama berkasnya menyebutkan saringan yang menyala. Dulu selalu berisi
+  // module_bulan_tahun karena ketiganya WAJIB terisi; sekarang kotaknya boleh
+  // dikosongkan, jadi yang kosong tidak ikut disebut — dan dua ekspor berbeda
+  // di hari yang sama tetap tidak saling menimpa di folder Download.
+  const rentang = nilai && nilai.tgl ? [nilai.tgl.dari, nilai.tgl.sampai].filter(Boolean).join('-') : '';
+  const nama = ['MTI_Report', (nilai || {}).module, (nilai || {}).ccy, (nilai || {}).status, rentang]
+    .filter(Boolean).join('_').replace(/[\s/\\:*?"<>|]+/g, '');
+  await writeWorkbook(`${nama}.xlsx`, [
     { name: 'Report', aoa }, { name: 'Audit Trail', aoa: auditAoa },
   ], hyperlinks);
   toast({

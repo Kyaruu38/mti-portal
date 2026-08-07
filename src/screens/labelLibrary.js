@@ -1,7 +1,7 @@
 import { h, pickFiles } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { badge, btn, icon, driveLink, selectEl, inputEl, searchInput, modal, field, pager, pageSlice, PAGE_DEFAULT } from '../ui/components.js';
+import { badge, btn, icon, driveLink, inputEl, modal, field, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring } from '../ui/components.js';
 import { uploadToDrive } from '../core/drive.js';
 import { insertDesign, updateDesign, deleteDesign } from '../core/designsApi.js';
 import { linkOutbox } from '../core/driveOutbox.js';
@@ -10,24 +10,42 @@ import { blockWrite } from '../core/guard.js';
 import { renderThumb } from '../parsers/pdf.js';
 import { warnaMerek } from '../ui/brands.js';
 
+// Kotak di jendela saring Design Library. Persis apa yang tertulis di kartunya:
+// kode ERP, spec, brand, market, versi, dan tanggal update.
+//
+// Menggantikan kotak cari + dua dropdown yang dulu berdiri permanen di atas
+// kisi. Yang hilang cuma tempatnya, bukan kemampuannya: kotak cari lama
+// menyapu erp + spec + brand jadi satu teks, dan sekarang ketiganya punya
+// kotaknya masing-masing — jadi 'ID295' di spec tidak lagi ikut menarik kode
+// ERP yang kebetulan mengandung angka yang sama.
+const MEDAN_LIB = (rows) => [
+  { kunci: 'erp', label: tr({ id: 'Kode ERP', en: 'ERP code', zh: 'ERP 编码' }), tipe: 'teks', mono: true, ambil: d => d.erp },
+  { kunci: 'spec', label: tr({ id: 'Spec', en: 'Spec', zh: '规格' }), tipe: 'teks', mono: true, ambil: d => d.spec },
+  { kunci: 'brand', label: tr({ id: 'Brand', en: 'Brand', zh: '品牌' }), tipe: 'pilih', opsi: [...new Set(rows.map(d => d.brand).filter(Boolean))].sort(), ambil: d => d.brand },
+  { kunci: 'market', label: tr({ id: 'Market', en: 'Market', zh: '市场' }), tipe: 'pilih', opsi: [...new Set(rows.map(d => d.market).filter(Boolean))].sort(), ambil: d => d.market },
+  { kunci: 'ver', label: tr({ id: 'Versi', en: 'Version', zh: '版本' }), tipe: 'pilih', opsi: [...new Set(rows.map(d => d.ver).filter(Boolean))].sort(), ambil: d => d.ver },
+  // TANGGAL UPDATE DISARING SEBAGAI TEKS, BUKAN SEBAGAI TANGGAL — sengaja.
+  //
+  // `updated` bukan kolom tanggal: isinya string bebas yang diketik manusia dan
+  // ikut tersimpan apa adanya — '12 Mar 2026', tapi juga 'hari ini', '05 Mei
+  // 2026' (bulan Indonesia), bahkan 'INMETRO ✓'. Kotak Dari/Sampai akan
+  // MEMBUANG semua yang tidak bisa diurai jadi tanggal, termasuk 'hari ini' —
+  // yaitu persis desain yang paling baru diupload dan paling sering dicari.
+  // Kotak teks menemukan semuanya, dan tidak berbohong soal apa isinya.
+  { kunci: 'updated', label: tr({ id: 'Tanggal update', en: 'Updated', zh: '更新时间' }), tipe: 'teks', ambil: d => updatedText(d.updated) },
+];
+
 export function labelLibraryScreen() {
   const st = getState(); const ui = st.ui;
-  const q = (ui.libQ || '').toLowerCase();
-  const brand = ui.libBrand || t('lib_all_brand');
-  const market = ui.libMarket || t('lib_all_market');
-  const designs = st.designs.filter(d =>
-    (!q || `${d.erp} ${d.spec} ${d.brand}`.toLowerCase().includes(q)) &&
-    (brand === t('lib_all_brand') || d.brand === brand) &&
-    (market === t('lib_all_market') || d.market === market));
-
-  const brands = [t('lib_all_brand'), ...new Set(st.designs.map(d => d.brand))];
-  const markets = [t('lib_all_market'), ...new Set(st.designs.map(d => d.market))];
+  const medan = MEDAN_LIB(st.designs);
+  const nilai = nilaiFilter('lib');
+  const designs = saring(st.designs, medan, nilai);
 
   const toolbar = h('div.row.gap8.wrap', [
-    searchInput({ id: 'lib-q', placeholder: t('lib_search'), value: ui.libQ || '', onChange: v => setUI({ libQ: v, libPage: 1 }) }),
-    selectEl(brands, { value: brand, onChange: v => setUI({ libBrand: v, libPage: 1 }) }),
-    selectEl(markets, { value: market, onChange: v => setUI({ libMarket: v, libPage: 1 }) }),
-    h('span', { style: { fontSize: '11.5px', color: 'var(--text-3)' } }, [h('span.mono', String(st.designs.length)), ` ${t('lib_designs')}`]),
+    hitunganSaring(designs.length, st.designs.length, {
+      id: `desain`, en: `design${st.designs.length === 1 ? '' : 's'}`, zh: `个设计`,
+    }),
+    tombolFilter({ id: 'lib', medan, judul: t('s_library'), kunciHalaman: 'libPage' }),
     // designWrite, not screen presence. This file had no capability check at
     // all: every role that could open the library could also add to it.
     can(st.user.role, 'designWrite')
@@ -40,28 +58,63 @@ export function labelLibraryScreen() {
   // Layar ini menggambar SEMUA desain sekaligus — 57 kartu, masing-masing dengan
   // gambarnya sendiri. Dan karena core/dom.js mount() membangun ulang seluruh
   // layar setiap kali ada yang diklik, semua kartu itu dibongkar-pasang lagi
-  // tiap kali orangnya mengetik satu huruf di kotak cari.
+  // tiap kali ada satu klik di mana pun di layar ini.
   //
   // Urutannya sudah benar tanpa perlu diurutkan ulang: designsApi memuatnya
   // dengan created_at menurun, dan desain baru di-unshift ke depan. Jadi
   // sepuluh pertama memang sepuluh yang terakhir dimasukkan.
   //
-  // Yang mencari desain tertentu memakai kotak cari atau penyaring brand/market
-  // yang sudah ada di atas — itu jalan yang lebih pendek daripada menggulir
-  // lima puluh tujuh kartu, dan sekarang jadi jalan yang jelas.
+  // Yang mencari desain tertentu memakai tombol corong di atas — itu jalan yang
+  // lebih pendek daripada menggulir lima puluh tujuh kartu, dan sekarang jadi
+  // jalan yang jelas.
   const size = ui.libSize === 0 ? 0 : (Number(ui.libSize) || PAGE_DEFAULT);
   const hal = pageSlice(designs, ui.libPage || 1, size);
   hal.size = size;
-  const grid = h('div.lib-grid', hal.items.map(d => card(d)));
+  const grid = designs.length
+    ? h('div.lib-grid', hal.items.map(d => card(d)))
+    : kisiKosong(jumlahFilterAktif(nilai) > 0);
   const kaki = h('div.card', { style: { padding: '0' } },
     pager(hal, { onPage: n => setUI({ libPage: n }), onSize: n => setUI({ libSize: n, libPage: 1 }) }));
   const open = ui.libPreview ? st.designs.find(d => d.id === ui.libPreview) : null;
   return h('div.stack', [
     toolbar,
     grid,
-    kaki,
+    // Pager disembunyikan waktu tidak ada hasil: "Tampilkan 10 · kosong" di
+    // bawah kisi yang sudah bilang tidak ada yang cocok cuma mengulang kabar
+    // buruk dengan angka.
+    designs.length ? kaki : null,
     open ? (ui.libEdit ? editModal(st, open) : previewModal(st, open)) : null,
   ]);
+}
+
+// Pesan "tidak ada yang cocok" DI TEMPAT kisinya.
+//
+// Sepupu dari barisTakCocok() di ui/components.js dan lahir dari alasan yang
+// sama — kisi yang mendadak kosong tanpa keterangan terbaca sebagai portal
+// rusak, dan yang membacanya begitu akan memuat ulang halaman, bukan
+// melonggarkan pencariannya. Ditulis ulang di sini karena yang di components
+// itu sebuah <tr>: sah di dalam <table>, tapi di dalam .lib-grid dia bukan apa-
+// apa dan tidak akan tampil sama sekali.
+function kisiKosong(adaFilter) {
+  const bersihkan = () => {
+    const f = { ...(getState().ui.filters || {}) };
+    delete f.lib;
+    setUI({ filters: f, libPage: 1 });
+  };
+  return h('div.card', { style: { padding: '38px 16px', textAlign: 'center', color: 'var(--text-3)' } },
+    h('div.stack', { style: { gap: '9px', alignItems: 'center' } }, [
+      h('div', { style: { fontSize: '12.5px' } }, adaFilter
+        ? tr({
+            id: 'Tidak ada desain yang cocok dengan saringannya',
+            en: 'No design matches the filter',
+            zh: '没有符合筛选条件的设计',
+          })
+        : tr({ id: 'Belum ada desain', en: 'No designs yet', zh: '暂无设计' })),
+      adaFilter
+        ? h('button.btn.btn-sm', { onClick: bersihkan },
+            tr({ id: 'Bersihkan saringan', en: 'Clear filter', zh: '清除筛选' }))
+        : null,
+    ]));
 }
 
 // PREVIEW — the artwork at a size a human can actually check.

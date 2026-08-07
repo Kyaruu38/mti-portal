@@ -15,7 +15,7 @@
 import { h, wireDrop } from '../core/dom.js';
 import { getState, setState, setUI, toast, logAudit, uid } from '../core/store.js';
 import { tr } from '../i18n/index.js';
-import { card, badge, btn, icon, dropzone, modal, searchInput, selectEl, pager, pageSlice, PAGE_DEFAULT } from '../ui/components.js';
+import { card, badge, btn, icon, dropzone, modal, selectEl, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
 import { num, money, fmtDate, fmtDateTime } from '../core/format.js';
 import { readWorkbook, writeWorkbook } from '../core/xlsx.js';
 import { parseLabelStockSheet, STATUSES, guessErp, requirementOf, suggestedQtyOf, statusOf } from '../parsers/labelStock.js';
@@ -98,8 +98,13 @@ export function labelStockScreen() {
       : tr({ id: 'Cocokkan ERP ✓', en: 'Match ERP ✓', zh: '匹配 ERP ✓' })],
     ['uploads', tr({ id: 'Riwayat Upload', en: 'Upload History', zh: '上传记录' })],
   ];
+  // Pindah tab SELALU mengembalikan ketiga daftar berhalaman ke halaman 1.
+  // lsjPage ikut sejak DO NOT BUY punya nomor halaman sendiri: kalau dia
+  // ketinggalan di sini, orang yang meninggalkan DO NOT BUY di halaman 6 lalu
+  // kembali setelah upload baru (yang biasanya memendekkan daftarnya) mendarat
+  // di halaman kosong — dan halaman kosong terbaca persis seperti data hilang.
   const tabBar = h('div.row.gap8.wrap', tabs.map(([id, label]) =>
-    h('button.btn' + (tab === id ? '.btn-navy' : ''), { onClick: () => setUI({ lsTab: id, lsPage: 1, lsbPage: 1 }) }, label)));
+    h('button.btn' + (tab === id ? '.btn-navy' : ''), { onClick: () => setUI({ lsTab: id, lsPage: 1, lsjPage: 1, lsbPage: 1 }) }, label)));
 
   let body;
   if (tab === 'buy') body = buyNowTab(st);
@@ -987,39 +992,67 @@ async function applyUpload() {
 // ---------------------------------------------------------------------------
 // Tables
 // ---------------------------------------------------------------------------
-function filtered(st) {
-  const q = (st.ui.lsQ || '').toLowerCase();
-  const f = st.ui.lsStatus || 'Semua';
-  return (st.labelStock || []).filter(r =>
-    (f === 'Semua' || r.status === f) &&
-    (!q || `${r.spec} ${r.market} ${r.erp}`.toLowerCase().includes(q)));
-}
+// Kotak-kotak jendela saring untuk KEDUA tabel stok (Master Tracker dan
+// DO NOT BUY) — dua daftar, satu bentuk tabel, jadi satu daftar medan.
+//
+// Isinya mengikuti kolom yang benar-benar tampil di stockTable(). Menyaring
+// lewat kolom yang tidak kelihatan membuat baris menghilang tanpa ada yang bisa
+// menunjuk sebabnya, dan yang paling sering kena adalah orang yang membuka
+// daftar ini besoknya dan lupa saringan kemarin masih menyala.
+//
+// Market memang sebuah pilihan, bukan kotak ketik: kodenya pendek dan salah
+// ketik satu huruf ('PT ' dengan spasi, 'pt') menghasilkan nol baris tanpa satu
+// pun tanda bahwa yang salah cuma ejaannya.
+//
+// Status DIBATASI pada yang benar-benar ada di daftar yang bersangkutan,
+// bukan seluruh STATUSES. Urutannya tetap urutan STATUSES supaya dua daftar
+// tidak menyusun dropdown-nya dengan urutan berbeda — tapi di DO NOT BUY,
+// menawarkan 'BUY NOW' berarti menawarkan pilihan yang SELALU menghasilkan nol
+// baris, dan dropdown yang setiap pilihannya bisa jadi jalan buntu adalah
+// dropdown yang berhenti dipercaya.
+const MEDAN_STOK = (semua) => {
+  const adaStatus = new Set((semua || []).map(r => r.status).filter(Boolean));
+  return [
+    { kunci: 'spec', label: tr({ id: 'Spec', en: 'Spec', zh: '规格' }), tipe: 'teks', ambil: r => r.spec },
+    {
+      kunci: 'market', label: tr({ id: 'Market', en: 'Market', zh: '市场' }), tipe: 'pilih',
+      opsi: [...new Set((semua || []).map(r => r.market).filter(Boolean))].sort(), ambil: r => r.market,
+    },
+    { kunci: 'erp', label: tr({ id: 'ERP', en: 'ERP', zh: 'ERP' }), tipe: 'teks', mono: true, ambil: r => r.erp },
+    // Opsi status memakai teks yang TERBACA di kolom Status, bukan kode
+    // simpanannya. Yang memilih di sini sedang menunjuk lencana yang dia lihat;
+    // kalau isinya kode mentah, dropdown dan tabel bicara dua bahasa berbeda.
+    {
+      kunci: 'status', label: tr({ id: 'Status', en: 'Status', zh: '状态' }), tipe: 'pilih',
+      opsi: STATUSES.filter(s => adaStatus.has(s)).map(statusLabel), ambil: r => statusLabel(r.status),
+    },
+  ];
+};
 
 function masterTab(st) {
-  const rows = filtered(st);
+  const semua = st.labelStock || [];
+  const medan = MEDAN_STOK(semua);
+  const nilai = nilaiFilter('ls-master');
+  const tersaring = saring(semua, medan, nilai);
   return h('div.stack', [
-    h('div.row.gap8.wrap', [
-      searchInput({
-        id: 'ls-q',
-        placeholder: tr({ id: 'Cari spec / market / ERP…', en: 'Search spec / market / ERP…', zh: '搜索规格 / 市场 / ERP…' }),
-        value: st.ui.lsQ || '', onChange: v => setUI({ lsQ: v, lsPage: 1 }),
+    h('div.row.gap8.wrap', { style: { alignItems: 'center' } }, [
+      hitunganSaring(tersaring.length, semua.length, { id: 'SKU', en: 'SKU', zh: '个 SKU' }),
+      tombolFilter({
+        id: 'ls-master', medan, kunciHalaman: 'lsPage',
+        judul: tr({ id: 'Saring Master Tracker', en: 'Filter Master Tracker', zh: '筛选主跟踪表' }),
       }),
-      // Option VALUES stay the stored strings — only the visible label is translated.
-      selectEl(['Semua', ...STATUSES].map(s => ({
-        value: s,
-        label: s === 'Semua' ? tr({ id: 'Semua', en: 'All', zh: '全部' }) : statusLabel(s),
-      })), { value: st.ui.lsStatus || 'Semua', onChange: v => setUI({ lsStatus: v, lsPage: 1 }) }),
-      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
-        id: `${rows.length} dari ${(st.labelStock || []).length} SKU`,
-        en: `${rows.length} of ${(st.labelStock || []).length} SKU`,
-        zh: `${(st.labelStock || []).length} 个 SKU 中的 ${rows.length} 个`,
-      })),
       h('div.mla.row.gap8', [
         isConfigured() ? btn(tr({ id: 'Refresh dari server', en: 'Refresh from Server', zh: '从服务器刷新' }), { sm: true, iconName: 'clock', onClick: () => refreshLabelStock() }) : null,
-        btn(tr({ id: 'Export Excel', en: 'Export Excel', zh: '导出 Excel' }), { sm: true, iconName: 'download', onClick: () => exportRows(rows) }),
+        // Export mengikuti yang TERSARING, bukan seluruh tracker — sama seperti
+        // sebelumnya waktu penyaringnya masih berupa kotak cari. Yang menyaring
+        // dulu lalu menekan Export sedang meminta hasil saringannya.
+        btn(tr({ id: 'Export Excel', en: 'Export Excel', zh: '导出 Excel' }), { sm: true, iconName: 'download', onClick: () => exportRows(tersaring) }),
       ]),
     ]),
-    stockTable(rows, true),
+    stockTable(tersaring, true, {
+      idFilter: 'ls-master', kunciHal: 'lsPage', kunciUkur: 'lsSize',
+      adaFilter: jumlahFilterAktif(nilai) > 0, jumlahAsli: semua.length,
+    }),
   ]);
 }
 
@@ -1115,22 +1148,57 @@ function jumlahBeli(st) {
   }
 }
 
-function saringBeli(st, rows) {
-  const ui = st.ui;
-  const q = (ui.lsbQ || '').toLowerCase().trim();
-  const mk = ui.lsbMarket || '', br = ui.lsbBrand || '', kt = ui.lsbKat || '', td = ui.lsbTanda || '';
-  return rows.filter(r =>
-    (!q || `${r.spec} ${r.erp} ${r.brand}`.toLowerCase().includes(q)) &&
-    (!mk || r.market === mk) &&
-    (!br || r.brand === br) &&
-    (!kt || r.kategori === kt) &&
-    (!td || r.tanda === td));
-}
+// Kotak-kotak jendela saring daftar beli. Market, brand, dan kategori diambil
+// dari isinya sendiri, bukan daftar tetap — daftar tetap akan ketinggalan
+// begitu ada brand baru masuk lewat berkas order, dan brand yang tidak ada di
+// dropdown adalah brand yang tidak bisa dicari sama sekali.
+//
+// Kategori cuma muncul kalau daftarnya memang punya kategori. Baris hitungan
+// portal tidak punya kategori sama sekali (portal tidak tahu barang itu untuk
+// lokal atau ekspor), jadi tanpa berkas order dropdown-nya akan kosong
+// melompong — kotak yang tidak punya satu pun pilihan cuma menambah tinggi
+// jendela tanpa pernah bisa dipakai.
+//
+// Tanda dan Status dua kotak terpisah walaupun duduk di satu kolom Status.
+// Keduanya menjawab pertanyaan berbeda: tanda itu putusan portal atas
+// permintaannya (⛔/⚠/✓), status itu keadaan stoknya. Menggabungkannya jadi
+// satu dropdown memaksa orang memilih salah satu pertanyaan.
+const MEDAN_BELI = (semua) => {
+  const unik = (ambil) => [...new Set((semua || []).map(ambil).filter(Boolean))].sort();
+  const kategori = unik(r => r.kategori);
+  const status = STATUSES.filter(s => (semua || []).some(r => r.status === s));
+  return [
+    { kunci: 'spec', label: tr({ id: 'Spec', en: 'Spec', zh: '规格' }), tipe: 'teks', ambil: r => r.spec },
+    { kunci: 'erp', label: tr({ id: 'ERP', en: 'ERP', zh: 'ERP' }), tipe: 'teks', mono: true, ambil: r => r.erp },
+    { kunci: 'market', label: tr({ id: 'Market', en: 'Market', zh: '市场' }), tipe: 'pilih', opsi: unik(r => r.market), ambil: r => r.market },
+    { kunci: 'brand', label: tr({ id: 'Brand', en: 'Brand', zh: '品牌' }), tipe: 'pilih', opsi: unik(r => r.brand), ambil: r => r.brand },
+    kategori.length ? {
+      kunci: 'kategori', label: tr({ id: 'Kategori', en: 'Category', zh: '类别' }), tipe: 'pilih',
+      // Opsi DAN isi yang dibandingkan sama-sama teks terjemahannya, persis
+      // seperti yang tertulis di lencana kolom Kategori. Kalau opsinya kode
+      // mentah ('newitems') sementara kolomnya sudah diterjemahkan, dropdown
+      // dan tabel bicara dua bahasa dan tidak ada yang bisa menebak
+      // pasangannya.
+      opsi: kategori.map(k => tr(labelKategori(k))),
+      ambil: r => (r.kategori ? tr(labelKategori(r.kategori)) : ''),
+    } : null,
+    {
+      kunci: 'tanda', label: tr({ id: 'Tanda portal', en: 'Portal verdict', zh: '门户判定' }), tipe: 'pilih',
+      opsi: [TANDA.STOP, TANDA.CEK, TANDA.OK].map(k => tr(TANDA_UI[k].label)),
+      ambil: r => (TANDA_UI[r.tanda] ? tr(TANDA_UI[r.tanda].label) : ''),
+    },
+    status.length ? {
+      kunci: 'status', label: tr({ id: 'Status stok', en: 'Stock status', zh: '库存状态' }), tipe: 'pilih',
+      opsi: status.map(statusLabel), ambil: r => (r.status ? statusLabel(r.status) : ''),
+    } : null,
+  ].filter(Boolean);
+};
 
 function buyNowTab(st) {
   const { daftar, rows: semua } = daftarBeliSekarang(st);
-  const ui = st.ui;
-  const rows = saringBeli(st, semua);
+  const medan = MEDAN_BELI(semua);
+  const nilai = nilaiFilter('ls-beli');
+  const rows = saring(semua, medan, nilai);
   const dariFile = semua.filter(r => r.asal === 'file').length;
   const dariPortal = semua.filter(r => r.asal === 'portal').length;
   const s = daftar.stats;
@@ -1140,10 +1208,6 @@ function buyNowTab(st) {
     h('div.mono', { style: { fontSize: '19px', fontWeight: 800, marginTop: '4px', color: tone ? `var(--st-${tone}-tx)` : 'var(--text)' } }, value),
     sub ? h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', marginTop: '2px' } }, sub) : null,
   ]);
-
-  const opsi = (kosong, nilai) => [{ value: '', label: kosong }, ...nilai.map(v => ({ value: v, label: v }))];
-  const daftarMarket = [...new Set(semua.map(r => r.market).filter(Boolean))].sort();
-  const daftarBrand = [...new Set(semua.map(r => r.brand).filter(Boolean))].sort();
 
   return h('div.stack', [
     dariFile ? h('div.row.gap8.wrap', [
@@ -1196,40 +1260,23 @@ function buyNowTab(st) {
       zh: ` ${s.marketAsing} 行的市场无法识别 — 保持原样，不作推测`,
     })]) : null,
 
-    // Penyaring. Market dan brand diambil dari isinya sendiri, bukan daftar
-    // tetap — daftar tetap akan ketinggalan begitu ada brand baru masuk.
-    h('div.card', { style: { padding: '11px 14px' } }, h('div.row.gap8.wrap', [
-      searchInput({
-        id: 'lsb-q', placeholder: tr({ id: 'Cari spec / ERP / brand…', en: 'Search spec / ERP / brand…', zh: '搜索规格 / ERP / 品牌…' }),
-        value: ui.lsbQ || '', onChange: v => setUI({ lsbQ: v, lsbPage: 1 }),
+    h('div.card', { style: { padding: '11px 14px' } }, h('div.row.gap8.wrap', { style: { alignItems: 'center' } }, [
+      hitunganSaring(rows.length, semua.length, { id: 'baris', en: 'rows', zh: '行' }),
+      tombolFilter({
+        id: 'ls-beli', medan, kunciHalaman: 'lsbPage',
+        judul: tr({ id: 'Saring Daftar Beli', en: 'Filter Buy List', zh: '筛选采购清单' }),
       }),
-      selectEl(opsi(tr({ id: 'Semua market', en: 'All markets', zh: '全部市场' }), daftarMarket),
-        { value: ui.lsbMarket || '', onChange: v => setUI({ lsbMarket: v, lsbPage: 1 }) }),
-      selectEl(opsi(tr({ id: 'Semua brand', en: 'All brands', zh: '全部品牌' }), daftarBrand),
-        { value: ui.lsbBrand || '', onChange: v => setUI({ lsbBrand: v, lsbPage: 1 }) }),
-      dariFile ? selectEl([
-        { value: '', label: tr({ id: 'Semua kategori', en: 'All categories', zh: '全部类别' }) },
-        ...[...new Set(semua.map(r => r.kategori).filter(Boolean))].map(k => ({ value: k, label: tr(labelKategori(k)) })),
-      ], { value: ui.lsbKat || '', onChange: v => setUI({ lsbKat: v, lsbPage: 1 }) }) : null,
-      selectEl([
-        { value: '', label: tr({ id: 'Semua status', en: 'All statuses', zh: '全部状态' }) },
-        { value: TANDA.STOP, label: tr(TANDA_UI[TANDA.STOP].label) },
-        { value: TANDA.CEK, label: tr(TANDA_UI[TANDA.CEK].label) },
-        { value: TANDA.OK, label: tr(TANDA_UI[TANDA.OK].label) },
-      ], { value: ui.lsbTanda || '', onChange: v => setUI({ lsbTanda: v, lsbPage: 1 }) }),
-      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
-        id: `${rows.length} dari ${semua.length}`, en: `${rows.length} of ${semua.length}`, zh: `${semua.length} 中的 ${rows.length}`,
-      })),
       h('div.mla.row.gap8', [
-        btn(tr({ id: 'Kosongkan filter', en: 'Clear filters', zh: '清除筛选' }), {
-          sm: true, onClick: () => setUI({ lsbQ: '', lsbMarket: '', lsbBrand: '', lsbKat: '', lsbTanda: '', lsbPage: 1 }),
-        }),
+        // Export mengikuti yang TERSARING. Yang menyaring dulu lalu menekan
+        // Export sedang meminta hasil saringannya — dan angkanya tertulis
+        // persis di sebelah tombolnya, jadi tidak ada tebak-tebakan soal
+        // berapa baris yang akan ikut.
         btn(tr({ id: 'Export Excel', en: 'Export Excel', zh: '导出 Excel' }), { sm: true, iconName: 'download', onClick: () => exportBeli(rows) }),
       ]),
     ])),
 
     barKirim(st, rows, semua),
-    tabelBeli(st, rows),
+    tabelBeli(st, rows, semua, jumlahFilterAktif(nilai) > 0),
   ]);
 }
 
@@ -1243,12 +1290,30 @@ function qtyPesan(st, r) {
   return Number(r.pesan) || 0;
 }
 
+// rows = yang LOLOS saringan (yang kelihatan di tabel), semua = seluruh daftar
+// beli. Perbedaan keduanya adalah seluruh isi catatan panjang di bawah ini.
 function barKirim(st, rows, semua) {
   const sel = st.ui.lsPick || {};
+  // DIHITUNG DARI SELURUH DAFTAR, BUKAN DARI YANG TAMPIL.
+  //
+  // Yang dikirim kirimDaftarBeli() adalah seluruh centangan, jadi angka di
+  // tombol kirim harus menghitung hal yang sama. Menghitungnya dari `rows`
+  // akan membuat tombol bertuliskan "3 SKU dipilih" lalu mengirim 27 — dan
+  // yang menekannya baru tahu setelah 27 baris itu jadi permintaan di meja
+  // cania.
   const dipilih = semua.filter(r => sel[r.kunci]);
   const total = dipilih.reduce((s, r) => s + qtyPesan(st, r), 0);
   const nolan = dipilih.filter(r => qtyPesan(st, r) <= 0);
   const stopDipilih = dipilih.filter(r => r.tanda === TANDA.STOP);
+  // Centangan yang sedang DISEMBUNYIKAN saringan. Centangannya sengaja TIDAK
+  // dihapus waktu saringan menyala: saringan itu alat melihat, bukan alat
+  // membatalkan, dan orang yang menyaring untuk mengecek satu brand tidak
+  // sedang meminta pilihannya yang lain dibuang. Tapi centangan yang ikut
+  // terkirim tanpa terlihat di layar adalah persis jenis kejutan yang layar
+  // ini ada untuk mencegahnya — jadi jumlahnya ditulis, dengan jalan keluarnya
+  // (bersihkan saringan) tepat di sebelahnya.
+  const tampak = new Set(rows.map(r => r.kunci));
+  const tersembunyi = dipilih.filter(r => !tampak.has(r.kunci));
   const bisa = rows.filter(bolehPilihSemua);
   const semuaOn = bisa.length > 0 && bisa.every(r => sel[r.kunci]);
   const mayAsk = can(st.user.role, 'labelRequestAsk');
@@ -1262,6 +1327,13 @@ function barKirim(st, rows, semua) {
         // seluruh fitur ini. Sekali dia ikut tercentang, seluruh peringatannya
         // jadi hiasan — orang mencentang semua, mengirim, dan peringatan yang
         // sudah dihitung dengan susah payah tidak mengubah apa pun.
+        //
+        // "Semua" berarti SEMUA YANG KELIHATAN, jadi loop-nya jalan di `rows`
+        // (hasil saringan), bukan di `semua`. Kotak ini duduk di atas tabel
+        // yang sedang tersaring; mencentang baris yang tidak ada di tabel itu
+        // berarti tombolnya melakukan hal yang tidak bisa dilihat siapa pun.
+        // Konsekuensinya melepasnya juga cuma melepas yang kelihatan — dan itu
+        // memang yang benar: centangan di luar saringan bukan milik klik ini.
         onChange: e => {
           const s = { ...(getState().ui.lsPick || {}) };
           for (const r of rows) {
@@ -1296,6 +1368,23 @@ function barKirim(st, rows, semua) {
     nolan.length ? badge(tr({
       id: `${nolan.length} baris jumlahnya 0`, en: `${nolan.length} rows have qty 0`, zh: `${nolan.length} 行数量为 0`,
     }), 'amber') : null,
+    // Disebut, bukan didiamkan dan bukan dihapus. Tombol bersihkannya ikut,
+    // supaya "tunjukkan yang mana" cuma satu klik — tanpa itu orang harus
+    // menebak sendiri kotak saringan mana yang menyembunyikannya.
+    tersembunyi.length ? h('span.row.gap8', { style: { alignItems: 'center' } }, [
+      badge(tr({
+        id: `${tersembunyi.length} centangan disembunyikan saringan — tetap ikut terkirim`,
+        en: `${tersembunyi.length} ticked rows are hidden by the filter — they will still be sent`,
+        zh: `${tersembunyi.length} 个已勾选行被筛选隐藏 — 仍会一并发送`,
+      }), 'amber', { iconName: 'warn' }),
+      h('button.btn.btn-sm', {
+        onClick: () => {
+          const f = { ...(getState().ui.filters || {}) };
+          delete f['ls-beli'];
+          setUI({ filters: f, lsbPage: 1 });
+        },
+      }, tr({ id: 'Bersihkan saringan', en: 'Clear filter', zh: '清除筛选' })),
+    ]) : null,
     h('div.mla.row.gap8', [
       mayAsk ? btn(tr({ id: 'Kirim ke Label Request →', en: 'Send to Label Request →', zh: '发送至标签申请 →' }), {
         variant: 'primary', disabled: !dipilih.length, onClick: () => kirimDaftarBeli(),
@@ -1476,10 +1565,13 @@ function bannerStop(semua) {
     ...stop.slice(0, 4).map(r => h('div.mono', { style: { fontSize: '10px' } },
       `• ${String(r.spec).slice(0, 40)} — minta ${num(r.minta)}, stok ${num(r.stok)}, kebutuhan ${num(r.kebutuhan)}`
       + (r.kebutuhan > 0 ? ` (${Math.round(r.stok / r.kebutuhan)}× kebutuhan)` : ''))),
+    // Menyebut nama kotaknya, bukan cuma "pakai filter": penyaringnya sekarang
+    // ada di balik tombol corong, jadi yang tidak tahu namanya harus membuka
+    // jendelanya dulu untuk menemukan kotak mana yang dimaksud.
     stop.length > 4 ? h('div', { style: { fontSize: '10px' } }, tr({
-      id: `…dan ${stop.length - 4} lagi — pakai filter status "⛔ stop"`,
-      en: `…and ${stop.length - 4} more — use the "⛔ stop" status filter`,
-      zh: `…还有 ${stop.length - 4} 个 — 请使用"⛔ 停止"状态筛选`,
+      id: `…dan ${stop.length - 4} lagi — buka corong saringan, kotak "Tanda portal" → "⛔ stop"`,
+      en: `…and ${stop.length - 4} more — open the filter funnel, "Portal verdict" box → "⛔ stop"`,
+      zh: `…还有 ${stop.length - 4} 个 — 打开筛选漏斗，"门户判定"选择"⛔ 停止"`,
     })) : null,
   ]);
 }
@@ -1508,12 +1600,17 @@ function bannerKodeGanda(list) {
   ]);
 }
 
-function tabelBeli(st, rows) {
-  if (!rows.length) {
+// rows = hasil saringan, semua = seluruh daftar beli. Dipisah karena dua sebab
+// kosong butuh dua kalimat: daftar beli yang memang belum ada (belum ada berkas
+// order dan tidak ada satu pun baris BUY NOW) bukan hal yang bisa diperbaiki
+// dengan membersihkan saringan, dan menawarkan tombol bersihkan di situ cuma
+// mengirim orang ke jalan buntu.
+function tabelBeli(st, rows, semua, adaFilter) {
+  if (!(semua || rows).length) {
     return card([h('div.card-pad', { style: { fontSize: '12px', color: 'var(--text-3)' } }, tr({
-      id: 'Tidak ada baris yang cocok dengan filter.',
-      en: 'No rows match the filter.',
-      zh: '没有符合筛选条件的行。',
+      id: 'Belum ada yang perlu dibeli. Daftar ini terisi dari sheet order di file tracker, dan dari baris yang stoknya di bawah kebutuhan.',
+      en: 'Nothing to buy yet. This list fills from the order sheets in the tracker file, and from rows whose stock is below requirement.',
+      zh: '暂无需采购项。此列表来自跟踪表文件中的订单工作表，以及库存低于需求量的行。',
     }))]);
   }
   const sel = st.ui.lsPick || {};
@@ -1534,7 +1631,7 @@ function tabelBeli(st, rows) {
       h('th', { style: { width: '34px' } }),
       ...head.map((c, i) => h('th' + (i >= 4 && i !== 6 ? '.r' : ''), c)),
     ])),
-    h('tbody', hal.items.map(r => {
+    h('tbody', hal.items.length ? hal.items.map(r => {
       const t = TANDA_UI[r.tanda] || TANDA_UI[TANDA.OK];
       return h('tr', {
         // Latar merah tipis, bukan baris yang dicoret atau disembunyikan.
@@ -1613,8 +1710,12 @@ function tabelBeli(st, rows) {
           },
         })),
       ]);
-    })),
-  ])), barisPager(hal, 'lsbPage', 'lsbSize')]);
+    }) : barisTakCocok(head.length + 1, { id: 'ls-beli', adaFilter })),
+  ])),
+  // Pager disembunyikan waktu tidak ada hasil: "Tampilkan 10 · kosong" di bawah
+  // tabel yang sudah bilang tidak ada yang cocok cuma mengulang kabar buruk
+  // dengan angka.
+  rows.length ? barisPager(hal, 'lsbPage', 'lsbSize') : null]);
 }
 
 // Sekarang cuma dipakai DO NOT BUY. Pencentangan sudah pindah seluruhnya ke
@@ -1622,28 +1723,82 @@ function tabelBeli(st, rows) {
 // daftar yang justru TIDAK boleh dipesan, dan memberinya tombol kirim
 // mengundang persis kesalahan yang daftar itu ada untuk mencegahnya.
 function listTab(st, pred, title, sub) {
-  const rows = (st.labelStock || []).filter(pred).sort((a, b) => b.surplus - a.surplus);
+  const semua = (st.labelStock || []).filter(pred).sort((a, b) => b.surplus - a.surplus);
+  const medan = MEDAN_STOK(semua);
+  const nilai = nilaiFilter('ls-jangan');
+  const tersaring = saring(semua, medan, nilai);
   return h('div.stack', [
-    h('div.row.gap8', [
+    h('div.row.gap8', { style: { alignItems: 'center' } }, [
       h('div.card-title', title),
       h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, sub),
-      h('div.mla', btn(tr({ id: 'Export Excel', en: 'Export Excel', zh: '导出 Excel' }), { sm: true, iconName: 'download', onClick: () => exportRows(rows) })),
+      hitunganSaring(tersaring.length, semua.length, { id: 'SKU', en: 'SKU', zh: '个 SKU' }),
+      tombolFilter({
+        id: 'ls-jangan', medan, kunciHalaman: 'lsjPage',
+        judul: tr({ id: 'Saring DO NOT BUY', en: 'Filter DO NOT BUY', zh: '筛选请勿采购' }),
+      }),
+      h('div.mla', btn(tr({ id: 'Export Excel', en: 'Export Excel', zh: '导出 Excel' }), { sm: true, iconName: 'download', onClick: () => exportRows(tersaring) })),
     ]),
-    stockTable(rows, false, null),
+    // DO NOT BUY akhirnya punya nomor halaman SENDIRI (lsjPage/lsjSize).
+    //
+    // Dulu dia meminjam lsPage/lsSize milik Master Tracker — sudah tercatat
+    // sebagai kekurangan di catatan paginasi di atas, dan baru sekarang benar-
+    // benar menggigit: Master Tracker berisi ratusan baris, DO NOT BUY biasanya
+    // belasan. Berhenti di halaman 9 Master Tracker lalu pindah ke sini berarti
+    // mendarat di halaman 9 dari daftar yang cuma punya 2 — tabel kosong, tanpa
+    // satu pun keterangan, di layar yang isinya justru barang yang sedang
+    // menumpuk di gudang. Nomor halamannya terpisah, jadi dua daftar bisa
+    // berhenti di tempatnya masing-masing.
+    stockTable(tersaring, false, {
+      idFilter: 'ls-jangan', kunciHal: 'lsjPage', kunciUkur: 'lsjSize',
+      adaFilter: jumlahFilterAktif(nilai) > 0, jumlahAsli: semua.length,
+      // Tracker penuh tapi tidak ada satu pun spec berlebih itu KABAR BAIK,
+      // bukan kekurangan data. Menyuruh orang mengupload ulang berkas yang
+      // sudah ada di portal adalah jawaban yang salah untuk keadaan itu.
+      pesanKosong: (st.labelStock || []).length ? tr({
+        id: 'Tidak ada spec yang stoknya berlebih atau nganggur. Tidak ada yang perlu dihindari.',
+        en: 'No spec is overstocked or idle. Nothing to avoid buying.',
+        zh: '没有库存过剩或呆滞的规格。无需回避采购任何项目。',
+      }) : null,
+    }),
   ]);
 }
 
+// Satu bentuk tabel, dua daftar (Master Tracker dan DO NOT BUY).
+//
+// opts.kunciHal / opts.kunciUkur DIWAJIBKAN datang dari pemanggilnya, bukan
+// dihardcode di sini. Selama nomor halamannya tertulis 'lsPage' di dalam fungsi
+// ini, setiap daftar yang memakai tabel ini otomatis ikut berbagi satu nomor
+// halaman dengan daftar lain — bug yang tidak pernah kelihatan waktu membaca
+// kode pemanggilnya, karena pemanggilnya tidak menyebut halaman sama sekali.
 function stockTable(rows, showAll, opts) {
-  if (!rows.length) {
-    return card([h('div.card-pad', { style: { fontSize: '12px', color: 'var(--text-3)' } }, tr({
+  const o = opts || {};
+  const idFilter = o.idFilter || null;
+  const kunciHal = o.kunciHal || 'lsPage';
+  const kunciUkur = o.kunciUkur || 'lsSize';
+  const adaFilter = !!o.adaFilter;
+  // Jumlah baris SEBELUM disaring. Dipakai untuk membedakan dua sebab kosong
+  // yang tampilannya sama persis tapi jalan keluarnya berlawanan.
+  const jumlahAsli = o.jumlahAsli == null ? rows.length : o.jumlahAsli;
+
+  // DUA SEBAB KOSONG, DUA KALIMAT.
+  //
+  // Dulu tabel ini cuma punya satu: "Belum ada data, upload dulu". Begitu ada
+  // penyaring, kalimat itu jadi jebakan — yang barusan mengetik saringan yang
+  // terlalu sempit dibilang datanya belum ada, dan yang mempercayainya akan
+  // mengunggah ulang berkas yang SUDAH ada di portal, minggu ini, olehnya
+  // sendiri. Jadi ajakan upload cuma keluar kalau daftarnya memang belum
+  // punya baris sama sekali; kosong karena saringan ditangani barisTakCocok()
+  // di dalam tabelnya, lengkap dengan tombol bersihkannya.
+  if (!jumlahAsli) {
+    return card([h('div.card-pad', { style: { fontSize: '12px', color: 'var(--text-3)' } }, o.pesanKosong || tr({
       id: 'Belum ada data. Upload file Label Inventory Tracker di atas.',
       en: 'No data yet. Upload the Label Inventory Tracker file above.',
       zh: '暂无数据。请在上方上传标签库存跟踪表。',
     }))]);
   }
-  const pick = opts && opts.st ? opts.st : null;
+  const pick = o.st ? o.st : null;
   const sel = pick ? (pick.ui.lsPick || {}) : null;
-  const hal = halaman(rows, getState(), 'lsPage', 'lsSize');
+  const hal = halaman(rows, getState(), kunciHal, kunciUkur);
 
   const head = [
     tr({ id: 'Spec', en: 'Spec', zh: '规格' }),
@@ -1665,7 +1820,7 @@ function stockTable(rows, showAll, opts) {
       pick ? h('th', { style: { width: '34px' } }) : null,
       ...head.map((c, i) => h('th' + (i >= 3 && i !== 8 ? '.r' : ''), c)),
     ])),
-    h('tbody', hal.items.map(r => h('tr', {
+    h('tbody', hal.items.length ? hal.items.map(r => h('tr', {
       style: r.missing ? { opacity: '.55' } : {},
     }, [
       pick ? h('td', h('input', {
@@ -1729,37 +1884,71 @@ function stockTable(rows, showAll, opts) {
             },
           }))
         : h('td.mono.r', { style: { fontWeight: r.suggestedQty ? 700 : 400 } }, r.suggestedQty ? num(r.suggestedQty) : '—'),
-    ]))),
-  ])), barisPager(hal, 'lsPage', 'lsSize')]);
+    ])) : barisTakCocok(head.length + (pick ? 1 : 0), { id: idFilter, adaFilter })),
+  ])),
+  // Pager disembunyikan waktu tidak ada hasil: "Tampilkan 10 · kosong" di bawah
+  // tabel yang sudah bilang tidak ada yang cocok cuma mengulang kabar buruk
+  // dengan angka.
+  rows.length ? barisPager(hal, kunciHal, kunciUkur) : null]);
 }
 
+// Riwayat upload dicari dengan pertanyaan yang bentuknya selalu sama: "siapa
+// yang mengunggah minggu itu, dan file mana". Jadi kotaknya cuma empat: waktu,
+// orangnya, nama file, nama sheet. Angka-angka di kanan (dibaca/masuk/dobel/
+// rumus) sengaja TIDAK bisa disaring — tidak ada yang pernah mencari upload
+// "yang dobelnya 3", yang dicari adalah upload yang dobelnya ADA, dan itu sudah
+// terbaca dari warnanya tanpa perlu satu kotak pun.
+const MEDAN_UPLOAD = (semua) => [
+  { kunci: 'tgl', label: tr({ id: 'Waktu', en: 'Time', zh: '时间' }), tipe: 'tanggal', ambil: u => u.at },
+  {
+    kunci: 'by', label: tr({ id: 'Oleh', en: 'By', zh: '操作人' }), tipe: 'pilih',
+    opsi: [...new Set((semua || []).map(u => u.by).filter(Boolean))].sort(), ambil: u => u.by,
+  },
+  { kunci: 'file', label: tr({ id: 'File', en: 'File', zh: '文件' }), tipe: 'teks', ambil: u => u.fileName },
+  { kunci: 'sheet', label: tr({ id: 'Sheet', en: 'Sheet', zh: '工作表' }), tipe: 'teks', ambil: u => u.sheetName },
+];
+
 function uploadsTab(st) {
-  const list = st.labelUploads || [];
-  if (!list.length) return card([h('div.card-pad', { style: { fontSize: '12px', color: 'var(--text-3)' } }, tr({
+  const semua = st.labelUploads || [];
+  if (!semua.length) return card([h('div.card-pad', { style: { fontSize: '12px', color: 'var(--text-3)' } }, tr({
     id: 'Belum ada riwayat upload.', en: 'No upload history yet.', zh: '暂无上传记录。',
   }))]);
-  return h('div.card', h('div.tbl-wrap', h('table.tbl', [
-    h('thead', h('tr', [
-      tr({ id: 'Waktu', en: 'Time', zh: '时间' }),
-      tr({ id: 'Oleh', en: 'By', zh: '操作人' }),
-      tr({ id: 'File', en: 'File', zh: '文件' }),
-      tr({ id: 'Sheet', en: 'Sheet', zh: '工作表' }),
-      tr({ id: 'Dibaca', en: 'Read', zh: '已读取' }),
-      tr({ id: 'Masuk', en: 'Imported', zh: '已导入' }),
-      tr({ id: 'Dobel', en: 'Duplicate', zh: '重复' }),
-      tr({ id: 'Rumus?', en: 'Formula?', zh: '公式？' }),
-    ].map((c, i) => h('th' + (i >= 4 ? '.r' : ''), c)))),
-    h('tbody', list.map(u => h('tr', [
-      h('td.mono', { style: { fontSize: '10.5px' } }, fmtDateTime(u.at)),
-      h('td', u.by || '—'),
-      h('td', { style: { fontSize: '11px' } }, u.fileName || '—'),
-      h('td', { style: { fontSize: '11px', color: 'var(--text-3)' } }, u.sheetName || '—'),
-      h('td.mono.r', num(u.total)),
-      h('td.mono.r', num(u.imported)),
-      h('td.mono.r', { style: { color: u.duplicate ? 'var(--st-red-tx)' : 'var(--text-3)', fontWeight: u.duplicate ? 700 : 400 } }, num(u.duplicate)),
-      h('td.mono.r', { style: { color: u.mismatch ? 'var(--st-amber-tx)' : 'var(--text-3)' } }, num(u.mismatch)),
-    ]))),
-  ])));
+  const medan = MEDAN_UPLOAD(semua);
+  const nilai = nilaiFilter('ls-upload');
+  const list = saring(semua, medan, nilai);
+  const kepala = [
+    tr({ id: 'Waktu', en: 'Time', zh: '时间' }),
+    tr({ id: 'Oleh', en: 'By', zh: '操作人' }),
+    tr({ id: 'File', en: 'File', zh: '文件' }),
+    tr({ id: 'Sheet', en: 'Sheet', zh: '工作表' }),
+    tr({ id: 'Dibaca', en: 'Read', zh: '已读取' }),
+    tr({ id: 'Masuk', en: 'Imported', zh: '已导入' }),
+    tr({ id: 'Dobel', en: 'Duplicate', zh: '重复' }),
+    tr({ id: 'Rumus?', en: 'Formula?', zh: '公式？' }),
+  ];
+  return h('div.card', [
+    h('div.card-head', [
+      h('div.card-title', tr({ id: 'Riwayat Upload', en: 'Upload History', zh: '上传记录' })),
+      hitunganSaring(list.length, semua.length, { id: 'upload', en: `upload${semua.length === 1 ? '' : 's'}`, zh: '次上传' }),
+      tombolFilter({
+        id: 'ls-upload', medan,
+        judul: tr({ id: 'Saring Riwayat Upload', en: 'Filter Upload History', zh: '筛选上传记录' }),
+      }),
+    ]),
+    h('div.tbl-wrap', h('table.tbl', [
+      h('thead', h('tr', kepala.map((c, i) => h('th' + (i >= 4 ? '.r' : ''), c)))),
+      h('tbody', list.length ? list.map(u => h('tr', [
+        h('td.mono', { style: { fontSize: '10.5px' } }, fmtDateTime(u.at)),
+        h('td', u.by || '—'),
+        h('td', { style: { fontSize: '11px' } }, u.fileName || '—'),
+        h('td', { style: { fontSize: '11px', color: 'var(--text-3)' } }, u.sheetName || '—'),
+        h('td.mono.r', num(u.total)),
+        h('td.mono.r', num(u.imported)),
+        h('td.mono.r', { style: { color: u.duplicate ? 'var(--st-red-tx)' : 'var(--text-3)', fontWeight: u.duplicate ? 700 : 400 } }, num(u.duplicate)),
+        h('td.mono.r', { style: { color: u.mismatch ? 'var(--st-amber-tx)' : 'var(--text-3)' } }, num(u.mismatch)),
+      ])) : barisTakCocok(kepala.length, { id: 'ls-upload', adaFilter: jumlahFilterAktif(nilai) > 0 })),
+    ])),
+  ]);
 }
 
 async function exportRows(rows) {
@@ -1791,6 +1980,35 @@ export async function refreshLabelStock() {
 // ORDER TRACKING — fully derived, see core/labelOrders.js. No inputs on this
 // screen at all, deliberately: everything here is already recorded elsewhere.
 // ---------------------------------------------------------------------------
+
+// Dua kotak tanggal, bukan satu. Tanggal order menjawab "apa saja yang dipesan
+// bulan lalu"; perkiraan sampai menjawab "apa yang seharusnya sudah datang
+// minggu ini" — dan yang kedua itulah pertanyaan yang membuat orang membuka
+// tab ini. Satu kotak tanggal saja memaksa salah satu pertanyaan dijawab
+// dengan menggulir.
+//
+// Prioritas dan Status memakai teks TERJEMAHANNYA, sama persis dengan lencana
+// yang tampil di kolomnya. Kolomnya sudah lewat priorityLabel/alertLabel, jadi
+// dropdown berisi kode mentah ('Super Urgent' vs '特急') akan jadi dropdown
+// yang tidak cocok dengan apa pun yang terbaca di layar.
+const MEDAN_ORDER = (semua) => [
+  { kunci: 'po', label: tr({ id: 'No. PO', en: 'PO no.', zh: '采购单号' }), tipe: 'teks', mono: true, ambil: o => o.poNo },
+  { kunci: 'erp', label: tr({ id: 'ERP', en: 'ERP', zh: 'ERP' }), tipe: 'teks', mono: true, ambil: o => o.erp },
+  { kunci: 'nama', label: tr({ id: 'Nama', en: 'Name', zh: '名称' }), tipe: 'teks', ambil: o => o.name },
+  { kunci: 'tglOrder', label: tr({ id: 'Tgl Order', en: 'Order Date', zh: '下单日期' }), tipe: 'tanggal', ambil: o => o.orderDate },
+  { kunci: 'tglSampai', label: tr({ id: 'Perkiraan Sampai', en: 'Expected Arrival', zh: '预计到货' }), tipe: 'tanggal', ambil: o => o.expectedArrival },
+  {
+    kunci: 'prioritas', label: tr({ id: 'Prioritas', en: 'Priority', zh: '优先级' }), tipe: 'pilih',
+    opsi: [...new Set((semua || []).map(o => o.priority).filter(Boolean))].sort().map(priorityLabel),
+    ambil: o => (o.priority ? priorityLabel(o.priority) : ''),
+  },
+  {
+    kunci: 'status', label: tr({ id: 'Status', en: 'Status', zh: '状态' }), tipe: 'pilih',
+    opsi: [...new Set((semua || []).map(o => o.alert).filter(Boolean))].sort().map(alertLabel),
+    ambil: o => (o.alert ? alertLabel(o.alert) : ''),
+  },
+];
+
 function ordersTab(st, ord) {
   const { orders, summary } = ord;
   const ALERT_TONE = { OVERDUE: 'red', 'IN TRANSIT': 'amber', RECEIVED: 'green' };
@@ -1851,36 +2069,68 @@ function ordersTab(st, ord) {
     tr({ id: 'Status', en: 'Status', zh: '状态' }),
     tr({ id: 'Umur', en: 'Age', zh: '时长' }),
   ];
-  return h('div.stack', [chips, dblBanner, h('div.card', h('div.tbl-wrap', h('table.tbl', [
-    h('thead', h('tr', head.map((c, i) => h('th' + ([4, 5, 6].includes(i) ? '.r' : ''), c)))),
-    h('tbody', orders.slice(0, 300).map(o => h('tr', {
-      style: o.doubleOrder ? { background: 'var(--st-red-bg)' } : {},
-    }, [
-      h('td.mono.cell-strong', { style: { fontSize: '11px' } }, o.poNo),
-      h('td.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, fmtDate(o.orderDate)),
-      h('td.mono', { style: { fontSize: '10.5px' } }, [
-        o.erp || h('span', { style: { color: 'var(--text-3)' } }, '—'),
-        !o.linked ? h('span', { style: { marginLeft: '5px' } }, badge(tr({ id: 'belum kecocok', en: 'not matched', zh: '未匹配' }), 'gray')) : null,
-        o.doubleOrder ? h('span', { style: { marginLeft: '5px' } }, badge(tr({ id: 'DOBEL', en: 'DOUBLE', zh: '重复' }), 'red')) : null,
-      ]),
-      h('td', { style: { maxWidth: '240px', fontSize: '11px' } }, o.name),
-      h('td.mono.r', num(o.qtyOrdered)),
-      h('td.mono.r', num(o.qtyReceived)),
-      h('td.mono.r', { style: { fontWeight: o.outstanding ? 700 : 400 } }, o.outstanding ? num(o.outstanding) : '—'),
-      h('td', badge(priorityLabel(o.priority), o.priority === 'Super Urgent' ? 'red' : o.priority === 'Urgent' ? 'amber' : 'gray')),
-      h('td.mono', { style: { fontSize: '10.5px' } }, o.expectedArrival ? fmtDate(o.expectedArrival) : '—'),
-      h('td', h('div.row.gap8', [
-        badge(alertLabel(o.alert), ALERT_TONE[o.alert] || 'gray'),
-        o.daysLate ? h('span', { style: { fontSize: '10px', color: 'var(--st-red-tx)', fontWeight: 700 } }, tr({
-          id: `+${o.daysLate}h`, en: `+${o.daysLate}d`, zh: `+${o.daysLate}天`,
-        })) : null,
-      ])),
-      h('td.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } },
-        o.status === 'Received'
-          ? (o.receivedAt ? fmtDate(o.receivedAt) : tr({ id: 'selesai', en: 'done', zh: '已完成' }))
-          : tr({ id: `${o.daysOutstanding}h`, en: `${o.daysOutstanding}d`, zh: `${o.daysOutstanding}天` })),
-    ]))),
-  ])))]);
+  const medan = MEDAN_ORDER(orders);
+  const nilai = nilaiFilter('ls-order');
+  const tersaring = saring(orders, medan, nilai);
+  // POTONGNYA SESUDAH SARINGAN, BUKAN SEBELUMNYA.
+  //
+  // Dipotong lebih dulu berarti saringan cuma bekerja pada 300 order pertama:
+  // mencari satu PO yang kebetulan nomor 340 menghasilkan "tidak ada yang
+  // cocok" untuk order yang jelas-jelas ada di portal. Angka di sebelah judul
+  // juga dihitung dari SEBELUM dipotong — kalau dari sesudah, "300 dari 300"
+  // akan tertulis di layar yang sebenarnya menyembunyikan 40 baris.
+  const tampil = tersaring.slice(0, 300);
+  return h('div.stack', [chips, dblBanner, h('div.card', [
+    h('div.card-head', [
+      h('div.card-title', tr({ id: 'Order Tracking', en: 'Order Tracking', zh: '订单跟踪' })),
+      hitunganSaring(tersaring.length, orders.length, { id: 'order', en: `order${orders.length === 1 ? '' : 's'}`, zh: '个订单' }),
+      tombolFilter({
+        id: 'ls-order', medan,
+        judul: tr({ id: 'Saring Order Tracking', en: 'Filter Order Tracking', zh: '筛选订单跟踪' }),
+      }),
+    ]),
+    h('div.tbl-wrap', h('table.tbl', [
+      h('thead', h('tr', head.map((c, i) => h('th' + ([4, 5, 6].includes(i) ? '.r' : ''), c)))),
+      h('tbody', tampil.length ? tampil.map(o => h('tr', {
+        style: o.doubleOrder ? { background: 'var(--st-red-bg)' } : {},
+      }, [
+        h('td.mono.cell-strong', { style: { fontSize: '11px' } }, o.poNo),
+        h('td.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, fmtDate(o.orderDate)),
+        h('td.mono', { style: { fontSize: '10.5px' } }, [
+          o.erp || h('span', { style: { color: 'var(--text-3)' } }, '—'),
+          !o.linked ? h('span', { style: { marginLeft: '5px' } }, badge(tr({ id: 'belum kecocok', en: 'not matched', zh: '未匹配' }), 'gray')) : null,
+          o.doubleOrder ? h('span', { style: { marginLeft: '5px' } }, badge(tr({ id: 'DOBEL', en: 'DOUBLE', zh: '重复' }), 'red')) : null,
+        ]),
+        h('td', { style: { maxWidth: '240px', fontSize: '11px' } }, o.name),
+        h('td.mono.r', num(o.qtyOrdered)),
+        h('td.mono.r', num(o.qtyReceived)),
+        h('td.mono.r', { style: { fontWeight: o.outstanding ? 700 : 400 } }, o.outstanding ? num(o.outstanding) : '—'),
+        h('td', badge(priorityLabel(o.priority), o.priority === 'Super Urgent' ? 'red' : o.priority === 'Urgent' ? 'amber' : 'gray')),
+        h('td.mono', { style: { fontSize: '10.5px' } }, o.expectedArrival ? fmtDate(o.expectedArrival) : '—'),
+        h('td', h('div.row.gap8', [
+          badge(alertLabel(o.alert), ALERT_TONE[o.alert] || 'gray'),
+          o.daysLate ? h('span', { style: { fontSize: '10px', color: 'var(--st-red-tx)', fontWeight: 700 } }, tr({
+            id: `+${o.daysLate}h`, en: `+${o.daysLate}d`, zh: `+${o.daysLate}天`,
+          })) : null,
+        ])),
+        h('td.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } },
+          o.status === 'Received'
+            ? (o.receivedAt ? fmtDate(o.receivedAt) : tr({ id: 'selesai', en: 'done', zh: '已完成' }))
+            : tr({ id: `${o.daysOutstanding}h`, en: `${o.daysOutstanding}d`, zh: `${o.daysOutstanding}天` })),
+      ])) : barisTakCocok(head.length, { id: 'ls-order', adaFilter: jumlahFilterAktif(nilai) > 0 })),
+    ])),
+    // Potongannya DISEBUT. Sebelumnya 300 baris pertama ditampilkan dan sisanya
+    // hilang tanpa satu pun tulisan — daftar yang berhenti di tengah terlihat
+    // persis seperti daftar yang memang habis di situ, dan yang mencari order
+    // ke-301 menyimpulkan portal tidak mencatatnya.
+    tersaring.length > tampil.length ? h('div', {
+      style: { padding: '9px 14px', fontSize: '11px', color: 'var(--text-3)', borderTop: '1px solid var(--border)' },
+    }, tr({
+      id: `Menampilkan ${tampil.length} order teratas dari ${tersaring.length} — persempit dengan saringan untuk melihat sisanya.`,
+      en: `Showing the top ${tampil.length} of ${tersaring.length} orders — narrow it with the filter to reach the rest.`,
+      zh: `显示 ${tersaring.length} 个订单中的前 ${tampil.length} 个 — 请使用筛选缩小范围以查看其余部分。`,
+    })) : null,
+  ])]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1941,6 +2191,30 @@ function matchTab(st) {
   return h('div.stack', [info, matchTable(st, unmatched, cands)]);
 }
 
+const kepalaCocok = () => [
+  tr({ id: 'Spec (dari tracker)', en: 'Spec (from tracker)', zh: '规格（来自跟踪表）' }),
+  tr({ id: 'Market', en: 'Market', zh: '市场' }),
+  tr({ id: 'Tebakan ERP', en: 'ERP Guess', zh: 'ERP 推测' }),
+  tr({ id: 'Spec kandidat', en: 'Candidate Spec', zh: '候选规格' }),
+  tr({ id: 'Yakin', en: 'Confidence', zh: '置信度' }),
+  tr({ id: 'Aksi', en: 'Action', zh: '操作' }),
+];
+
+// Cuma dua kotak, dan itu memang seluruh yang bisa disaring di sini.
+//
+// Kolom Tebakan ERP, Spec kandidat, dan Yakin TIDAK bisa jadi kotak saringan:
+// ketiganya lahir dari guessErp(), yang cuma dijalankan untuk 60 baris yang
+// tampil. Menyaring lewat kolom itu berarti memanggil guessErp() untuk seluruh
+// 900-an baris di setiap render — pengorbanan yang catatan di bawah ini justru
+// dibuat untuk menghindarinya, dan hasilnya layar yang macet tiap satu klik.
+const MEDAN_COCOK = (semua) => [
+  { kunci: 'spec', label: tr({ id: 'Spec (dari tracker)', en: 'Spec (from tracker)', zh: '规格（来自跟踪表）' }), tipe: 'teks', ambil: r => r.spec },
+  {
+    kunci: 'market', label: tr({ id: 'Market', en: 'Market', zh: '市场' }), tipe: 'pilih',
+    opsi: [...new Set((semua || []).map(r => r.market).filter(Boolean))].sort(), ambil: r => r.market,
+  },
+];
+
 function matchTable(st, unmatched, cands) {
   // Confirming an ERP match WRITES to label_stock (setLabelStockErp), so this
   // tab needs the same capability as the weekly upload. uploadCard() was gated;
@@ -1954,18 +2228,43 @@ function matchTable(st, unmatched, cands) {
       zh: '所有 SKU 均已有 ERP 编码。订单跟踪可将订单关联到 SKU。',
     }))]);
   }
+  const medan = MEDAN_COCOK(unmatched);
+  const nilai = nilaiFilter('ls-cocok');
+  // Saring DULU, potong SESUDAHNYA. Sebaliknya, saringannya cuma berlaku pada
+  // 60 nama pertama — dan tab ini justru dipakai dengan 900-an nama belum
+  // kecocok, jadi hampir semua yang dicari orang duduk di luar 60 itu. Mencari
+  // spec yang jelas ada dan mendapat "tidak ada yang cocok" adalah cara paling
+  // cepat membuat orang berhenti memakai kotak carinya.
+  const tersaring = saring(unmatched, medan, nilai);
   // Guess once per render for the visible slice only — guessErp scans every
   // candidate, so doing all 974 x N candidates on each keystroke would crawl.
-  const shown = unmatched.slice(0, 60);
+  const shown = tersaring.slice(0, 60);
   const guesses = shown.map(r => guessErp(r, cands));
 
   return h('div.stack', [
-    h('div.row.gap8', [
-      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
-        id: `Menampilkan ${shown.length} dari ${unmatched.length} yang belum kecocok`,
-        en: `Showing ${shown.length} of ${unmatched.length} still unmatched`,
-        zh: `显示 ${unmatched.length} 条未匹配中的 ${shown.length} 条`,
-      })),
+    h('div.row.gap8', { style: { alignItems: 'center' } }, [
+      hitunganSaring(tersaring.length, unmatched.length, {
+        id: 'belum kecocok', en: 'still unmatched', zh: '条未匹配',
+      }),
+      tombolFilter({
+        id: 'ls-cocok', medan,
+        judul: tr({ id: 'Saring Cocokkan ERP', en: 'Filter Match ERP', zh: '筛选匹配 ERP' }),
+      }),
+      // Angka potongannya berdiri sendiri, terpisah dari hitungan saringan di
+      // sebelahnya: "60 dari 940" dan "940 dari 974" itu dua kabar berbeda, dan
+      // menggabungkannya jadi satu angka menyembunyikan salah satunya.
+      tersaring.length > shown.length ? h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
+        id: `· ${shown.length} teratas ditampilkan`,
+        en: `· top ${shown.length} shown`,
+        zh: `· 显示前 ${shown.length} 条`,
+      })) : null,
+      // "Terima semua" berarti semua YANG ADA DI TABEL INI — dia jalan di
+      // `shown`, yaitu hasil saringan yang sudah dipotong 60. Ini tombol yang
+      // MENULIS ke label_stock, jadi jangkauannya harus persis sama dengan apa
+      // yang barusan dibaca orangnya: menerima tebakan untuk baris yang sedang
+      // disembunyikan saringan berarti menulis kode ERP yang tidak sempat
+      // dilihat siapa pun, dan kode ERP yang salah diam-diam menyeret kiriman
+      // barang lain ke SKU ini.
       h('div.mla', canWrite
         ? btn(tr({
             id: `Terima semua tebakan yakin (skor ≥ 0.8)`,
@@ -1983,15 +2282,8 @@ function matchTable(st, unmatched, cands) {
           }), 'gray', { iconName: 'eye' })),
     ]),
     h('div.card', h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', [
-        tr({ id: 'Spec (dari tracker)', en: 'Spec (from tracker)', zh: '规格（来自跟踪表）' }),
-        tr({ id: 'Market', en: 'Market', zh: '市场' }),
-        tr({ id: 'Tebakan ERP', en: 'ERP Guess', zh: 'ERP 推测' }),
-        tr({ id: 'Spec kandidat', en: 'Candidate Spec', zh: '候选规格' }),
-        tr({ id: 'Yakin', en: 'Confidence', zh: '置信度' }),
-        tr({ id: 'Aksi', en: 'Action', zh: '操作' }),
-      ].map(c => h('th', c)))),
-      h('tbody', shown.map((r, i) => {
+      h('thead', h('tr', kepalaCocok().map(c => h('th', c)))),
+      h('tbody', shown.length ? shown.map((r, i) => {
         const g = guesses[i];
         return h('tr', [
           h('td.cell-strong', { style: { maxWidth: '280px', fontSize: '11px' } }, r.spec),
@@ -2005,7 +2297,7 @@ function matchTable(st, unmatched, cands) {
             btn(tr({ id: 'Ketik manual', en: 'Type Manually', zh: '手动输入' }), { sm: true, onClick: () => setUI({ lsManual: r.id }) }),
           ]) : h('span', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, '—')),
         ]);
-      })),
+      }) : barisTakCocok(kepalaCocok().length, { id: 'ls-cocok', adaFilter: jumlahFilterAktif(nilai) > 0 })),
     ]))),
     st.ui.lsManual ? manualErpModal(st) : null,
   ]);
