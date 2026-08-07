@@ -1,5 +1,7 @@
 import { h, mount, svg } from './core/dom.js';
 import { ICONS } from './core/icons.js';
+import { BRANDS } from './ui/brands.js';
+import { LOGO } from './assets/brandLogos.js';
 import { getState, subscribe, setState } from './core/store.js';
 import { appShell } from './ui/layout.js';
 import { allowedScreens } from './auth/roles.js';
@@ -226,10 +228,60 @@ function gagalMuat(id, e) {
   ]);
 }
 
+// Layar boot: nama portal, keterangan sedang memulihkan sesi, dan pita merek
+// yang MENGELILINGI layar — atas ke kanan, kanan ke bawah, bawah ke kiri, kiri
+// ke atas. Satu putaran searah jarum jam.
+//
+// KENAPA MENGELILINGI, BUKAN DUA PITA BERSILANGAN
+// -----------------------------------------------------------------------------
+// Versi bersilangan menaruh dua pita di tengah layar, tepat di tempat tulisan
+// "memulihkan sesi" berada — jadi hiasannya berebut perhatian dengan satu-satunya
+// kalimat yang perlu dibaca. Dipindahkan ke tepi, dia membingkai: tengahnya
+// tenang, pinggirnya hidup. Yang perlu dibaca tetap yang paling mudah dibaca.
+//
+// LOGO, BUKAN TULISAN. Yang lewat adalah banner merek dari lembar standar resmi
+// (assets/brandLogos.js) — bentuk yang sama persis dengan yang tercetak di label
+// yang keluar dari gudang ini. Nama merek dalam huruf biasa terbaca sebagai
+// daftar; logonya terbaca sebagai barangnya.
+//
+// SAMBUNGANNYA MULUS. Isi tiap sisi ditulis DUA KALI lalu digeser tepat setengah
+// lebarnya, jadi salinan kedua mendarat persis di posisi salinan pertama dan
+// lompatan kembali ke awal tidak pernah terlihat. Ditulis sekali lalu digeser
+// penuh akan meninggalkan celah kosong sepanjang sisi itu setiap satu putaran.
+//
+// HANYA MEREK YANG PUNYA LOGO ASLI YANG TAMPIL DI SINI.
+// Sempat ada versi yang menampilkan merek tanpa logo (TIANLI) sebagai tulisan
+// biasa berlatar warna, supaya daftarnya lengkap. Hasilnya justru sebaliknya:
+// satu kotak tulisan di antara enam logo cetakan terbaca seperti gambar yang
+// gagal dimuat, bukan seperti merek yang memang belum punya berkas logo.
+// Pita ini pajangan, bukan daftar merek — daftar merek yang lengkap ada di
+// ui/brands.js dan di layar Design Library, dan TIANLI tetap utuh di sana.
+// Begitu berkas logo TIANLI ada dan masuk ke assets/brandLogos.js, dia ikut
+// tampil di sini dengan sendirinya — tanpa satu baris pun diubah di berkas ini.
 function bootSplash() {
-  return h('div', { style: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '10px' } }, [
-    h('div', { style: { fontSize: '15px', fontWeight: 800, color: 'var(--text)' } }, 'MTI PURCHASING PORTAL'),
-    h('div', { style: { fontSize: '12px', color: 'var(--text-3)' } }, t('restoring')),
+  const berlogo = BRANDS.filter(b => LOGO[b.nama]);
+
+  const sisi = (arah) => {
+    const isi = [];
+    // Diulang cukup banyak supaya barisannya melebihi sisi terpanjang layar
+    // mana pun. Barisan yang lebih pendek dari sisinya meninggalkan lubang yang
+    // ikut berjalan.
+    for (let u = 0; u < 6; u++) for (const b of berlogo) {
+      const lg = LOGO[b.nama];
+      isi.push(h('img.pita-logo', { src: lg.src, alt: b.nama, width: lg.w, height: lg.h, draggable: false }));
+    }
+    return h(`div.tepi.tepi-${arah}`, h('div.tepi-jalan', [
+      h('div.tepi-set', isi),
+      h('div.tepi-set', isi.map(x => x.cloneNode(true))),
+    ]));
+  };
+
+  return h('div.boot', [
+    h('div.boot-bingkai', [sisi('atas'), sisi('kanan'), sisi('bawah'), sisi('kiri')]),
+    h('div.boot-inti', [
+      h('div.boot-title', 'MTI PURCHASING PORTAL'),
+      h('div.boot-sub', t('restoring')),
+    ]),
   ]);
 }
 

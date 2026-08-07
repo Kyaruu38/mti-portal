@@ -27,7 +27,20 @@ export function h(tag, props, children) {
     if (key === 'class' || key === 'className') {
       el.className = (el.className ? el.className + ' ' : '') + val;
     } else if (key === 'style' && typeof val === 'object') {
-      Object.assign(el.style, val);
+      // Object.assign(el.style, …) DIAM-DIAM MENGABAIKAN CUSTOM PROPERTY.
+      //
+      // `el.style['--bc'] = '#1B7A3C'` bukan error dan bukan peringatan — dia
+      // cuma tidak melakukan apa-apa, karena CSSStyleDeclaration tidak punya
+      // properti bernama '--bc' untuk ditimpa. Satu-satunya jalan masuk adalah
+      // setProperty().
+      //
+      // Ketahuan waktu tujuh lencana merek di layar boot keluar oranye semua:
+      // --bc tidak pernah sampai, jadi setiap lencana memakai nilai cadangannya.
+      // Tujuh warna berbeda menjadi satu warna, tanpa satu pun tanda di console.
+      for (const [k, v] of Object.entries(val)) {
+        if (k.startsWith('--')) el.style.setProperty(k, v);
+        else el.style[k] = v;
+      }
     } else if (key === 'dataset' && typeof val === 'object') {
       Object.assign(el.dataset, val);
     } else if (key.startsWith('on') && typeof val === 'function') {

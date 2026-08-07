@@ -180,3 +180,112 @@ textarea.input { resize:vertical; }
    a button that did nothing. */
 @keyframes mti-spin { to { transform: rotate(360deg); } }
 .icon-btn.spin svg { animation: mti-spin .9s linear infinite; transform-origin: 50% 50%; }
+
+/* ---------------------------------------------------------------------------
+   LAYAR BOOT — PITA MEREK MENGELILINGI LAYAR
+   ---------------------------------------------------------------------------
+   Empat sisi, satu putaran searah jarum jam: atas ke kanan, kanan ke bawah,
+   bawah ke kiri, kiri ke atas. Yang lewat adalah banner merek dari lembar
+   standar resmi, sama persis dengan yang tercetak di labelnya.
+
+   Sisi kiri dan kanan adalah pita mendatar yang DIPUTAR 90 derajat, bukan pita
+   tegak. Lebarnya 100vh — tinggi layar — lalu diputar pada titik sudutnya
+   sendiri. Menyusun pita tegak sungguhan berarti menumpuk gambar satu per satu
+   ke bawah, dan gambar yang ditumpuk tidak bisa digeser mulus sebagai satu
+   barisan.
+
+   Hanya transform yang dianimasikan. Ini satu-satunya properti yang bisa
+   berjalan tanpa memaksa browser menghitung ulang tata letak tiap frame — dan
+   layar ini justru hidup saat browser sedang sibuk memulihkan sesi. Hiasan yang
+   memperlambat hal yang sedang ditunggu adalah hiasan yang merugikan.
+
+   prefers-reduced-motion dihormati di bawah: pitanya berhenti tapi tetap
+   tampil. Menghilangkan isinya sekalian akan menghukum orang yang justru minta
+   lebih sedikit gerakan.
+--------------------------------------------------------------------------- */
+.boot { position:relative; min-height:100vh; display:flex; align-items:center;
+  justify-content:center; flex-direction:column; gap:10px; padding:24px; overflow:hidden; }
+.boot-inti { position:relative; z-index:2; text-align:center; }
+.boot-title { font-size:15px; font-weight:800; color:var(--text); letter-spacing:.02em; }
+.boot-sub { font-size:12px; color:var(--text-3); margin-top:4px; }
+
+.boot-bingkai { position:absolute; inset:0; pointer-events:none; z-index:1; }
+.tepi { position:absolute; overflow:hidden; height:38px; }
+.tepi-jalan { display:flex; width:max-content; }
+.tepi-set { display:flex; }
+/* Hanya logo. Aturan .pita-teks untuk merek tanpa berkas logo sengaja DIHAPUS,
+   bukan disimpan berjaga-jaga: aturan CSS yang tidak dipakai siapa pun akan
+   dikira masih hidup oleh orang berikutnya yang membaca berkas ini. */
+.pita-logo { display:block; height:38px; width:auto; margin-right:10px; border-radius:5px; }
+
+/* ATAS dan BAWAH: pita mendatar biasa. */
+.tepi-atas  { top:0;    left:0; width:100vw; }
+.tepi-bawah { bottom:0; left:0; width:100vw; }
+
+/* KANAN dan KIRI: pita mendatar selebar TINGGI layar, diputar 90 derajat pada
+   sudutnya. transform-origin di sudut itulah yang membuat perhitungannya cukup
+   satu translate — memutar di tengah akan menuntut dua koreksi yang berubah
+   setiap kali tinggi layar berubah. */
+/* translateY(+100%), bukan -100%. Transform dibaca dari kanan ke kiri: geser
+   dulu di ruang lokal, baru diputar. Setelah rotate(90deg), sumbu Y lokal
+   menunjuk ke KIRI layar — jadi geseran positif itulah yang menarik ketebalan
+   pitanya masuk ke dalam layar. Yang negatif justru mendorongnya keluar, dan
+   hasilnya pita kanan yang seluruhnya berada di luar tepi kanan: tidak terlihat,
+   tidak error, dan tidak ada yang menunjukkan kenapa. */
+.tepi-kanan { top:0; left:100%; width:100vh; transform-origin:0 0; transform:rotate(90deg) translateY(100%); }
+.tepi-kiri  { top:100%; left:0; width:100vh; transform-origin:0 0; transform:rotate(-90deg); }
+
+/* ARAH PUTARAN — searah jarum jam: atas ke kanan, kanan ke bawah, bawah ke
+   kiri, kiri ke atas.
+   Menggeser wadah ke -50% membuat isinya berjalan ke arah X-lokal negatif. Yang
+   berbeda tiap sisi adalah ke mana X-lokal itu menunjuk setelah diputar:
+       atas   tanpa putaran   → X-lokal negatif = ke kiri layar
+       kanan  diputar  90deg  → X-lokal negatif = ke ATAS layar
+       bawah  tanpa putaran   → X-lokal negatif = ke kiri layar
+       kiri   diputar -90deg  → X-lokal negatif = ke BAWAH layar
+   Jadi hanya BAWAH yang memakai arah maju; tiga sisi lainnya mundur.
+   Ketimpangan itu bukan salah tulis — sisi kiri diputar ke arah berlawanan
+   dengan sisi kanan, jadi geseran yang sama menghasilkan arah layar yang
+   berlawanan pula. Sempat salah di sini: kiri diberi `maju` mengikuti bawah
+   (sama-sama "sisi seberang"), dan hasilnya pita kiri ikut turun bersama pita
+   kanan — dua sisi berjalan ke bawah, yang membuat lingkarannya patah tanpa
+   satu pun tanda error. Ketahuan cuma dengan mengukur posisi satu lencana di
+   dua tangkapan layar.
+
+   KECEPATAN: 110 detik, SAMA PERSIS di keempat sisi.
+   Isi tiap sisi lebarnya sama, jadi durasi yang sama berarti kecepatan piksel
+   yang sama — sekitar 39 piksel per detik di mana pun. Itulah yang membuatnya
+   terbaca sebagai SATU pita yang mengelilingi layar, bukan empat pita terpisah
+   yang kebetulan sejajar.
+   Versi sebelumnya sengaja dibuat timpang (30 dan 34 detik) supaya sudutnya
+   tidak pernah bertemu di titik yang sama. Itu masuk akal untuk hiasan yang
+   berdiri sendiri-sendiri, tapi salah untuk yang ini: begitu dua sisi berjalan
+   dengan kecepatan berbeda, sudutnya jadi tempat pita seolah putus dan
+   tersambung lagi. Disamakan, sudutnya justru hilang. */
+.tepi-atas  .tepi-jalan { animation:tepi-mundur 110s linear infinite; }
+.tepi-kanan .tepi-jalan { animation:tepi-mundur 110s linear infinite; }
+.tepi-bawah .tepi-jalan { animation:tepi-maju   110s linear infinite; }
+.tepi-kiri  .tepi-jalan { animation:tepi-mundur 110s linear infinite; }
+
+@keyframes tepi-maju   { from { transform:translateX(0); }    to { transform:translateX(-50%); } }
+@keyframes tepi-mundur { from { transform:translateX(-50%); } to { transform:translateX(0); } }
+
+@media (prefers-reduced-motion: reduce) { .tepi-jalan { animation:none !important; } }
+
+/* Lencana merek di Design Library. Warnanya disuntik lewat --bc dari
+   ui/brands.js — bukan ditulis penuh sebagai style inline, karena tema gelap
+   butuh warna yang sama tapi lebih terang, dan style inline mengalahkan aturan
+   CSS mana pun. Satu variabel, dua tema. */
+.badge-merek {
+  --bc:var(--accent);
+  color:var(--bc);
+  background:color-mix(in srgb, var(--bc) 13%, transparent);
+  border:1px solid color-mix(in srgb, var(--bc) 38%, transparent);
+}
+/* WESTLAKE #104629 dan ARISUN/CHAOYANG yang pekat nyaris tidak terbaca di latar
+   #0F1522. Yang naik cuma terangnya; ronanya tetap rona mereknya. */
+[data-theme="dark"] .badge-merek {
+  color:color-mix(in srgb, var(--bc) 55%, #EAEEF6);
+  background:color-mix(in srgb, var(--bc) 26%, transparent);
+  border-color:color-mix(in srgb, var(--bc) 55%, transparent);
+}

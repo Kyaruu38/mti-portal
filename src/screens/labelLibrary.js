@@ -8,6 +8,7 @@ import { linkOutbox } from '../core/driveOutbox.js';
 import { can } from '../auth/roles.js';
 import { blockWrite } from '../core/guard.js';
 import { renderThumb } from '../parsers/pdf.js';
+import { warnaMerek } from '../ui/brands.js';
 
 export function labelLibraryScreen() {
   const st = getState(); const ui = st.ui;
@@ -265,7 +266,7 @@ function card(d) {
     h('div.mono', { style: { fontSize: '13px', fontWeight: 700, color: 'var(--text)', marginTop: '11px' } }, d.erp),
     h('div.mono', { style: { fontSize: '11px', color: 'var(--text-3)', lineHeight: 1.45 } }, d.spec),
     h('div.row.gap8', { style: { marginTop: '7px' } }, [
-      badge(d.brand, brandTone(d.brand)),
+      badgeMerek(d.brand),
       h('span', { style: { fontSize: '10px', color: 'var(--text-3)' } }, d.market),
       // stopPropagation: the whole card opens the preview now, and a Drive link
       // that also opened the preview behind the new tab would be maddening.
@@ -274,7 +275,28 @@ function card(d) {
     h('div', { style: { fontSize: '9.5px', color: 'var(--text-3)', marginTop: '5px' } }, `${d.ver} · ${updatedText(d.updated)}`),
   ]);
 }
-function brandTone(b) { const m = { MATAROAD: 'navy', HARIMAU: 'accent', SOLARIS: 'amber', ARJUNA: 'green' }; return m[b] || 'gray'; }
+// Lencana merek memakai warna mereknya sendiri (ui/brands.js).
+//
+// Daftar lama isinya MATAROAD / HARIMAU / SOLARIS / ARJUNA — nama contoh dari
+// masa sebelum data sungguhan masuk. Tidak satu pun merek yang benar-benar
+// dicetak di sini ada di daftar itu, jadi SETIAP lencana jatuh ke 'gray'.
+// Lima puluh tujuh kartu dengan lencana abu-abu yang identik tidak menyampaikan
+// apa-apa, dan itulah kenapa tidak ada yang menyadari daftarnya salah.
+//
+// Merek di luar daftar tetap abu-abu — itu jawaban yang jujur untuk "portal
+// belum tahu warna merek ini", dan lebih baik daripada memberinya warna acak
+// yang lama-lama dianggap orang punya arti.
+function badgeMerek(b) {
+  const warna = warnaMerek(b);
+  if (!warna) return badge(b, 'gray');
+  // Warnanya disuntik sebagai --bc dan sisanya diurus CSS (.badge-merek), bukan
+  // ditulis penuh di sini. Alasannya bukan kerapian: tema gelap butuh warna yang
+  // sama tapi lebih terang, dan style inline mengalahkan aturan CSS mana pun —
+  // jadi warna yang ditulis lengkap di sini tidak akan pernah bisa disesuaikan
+  // per tema. Satu variabel, dua tema.
+  return h('span.badge.badge-merek', { style: { '--bc': warna } }, b);
+}
+
 
 async function uploadDesign() {
   if (blockWrite('upload desain label')) return;
