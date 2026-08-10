@@ -176,7 +176,21 @@ export function poDocument(po) {
           td(num(li.u, dp), { textAlign: 'right' }, true), td(num(li.a, dp), { textAlign: 'right' }, true),
         ])),
         totalRow('共计(不含税）/In total(exclude PPN)：', num(po.subtotal, dp)),
-        totalRow('增值税/PPN 11%：', po.ppnMode === 'paid' ? num(ppn11, dp) : '0'),
+        // Untuk PO KEK barisnya harus BERBUNYI ditangguhkan, bukan menampilkan
+        // angka nol di bawah label "PPN 11%". Nol di sebelah tarif 11% terbaca
+        // sebagai "PPN 11% senilai nol" — kalimat yang tidak berarti apa-apa —
+        // padahal yang benar adalah PPN-nya tidak dipungut karena barangnya
+        // masuk KEK. Layar portal sudah menulis "Ditangguhkan — KEK" sejak
+        // awal; PDF-nya yang tertinggal, dan PDF ini yang keluar gedung dan
+        // dibaca pemasok serta bea cukai.
+        // Kata "Ditangguhkan" ditaruh di kolom LABEL, bukan kolom nilai. Kolom
+        // nilai lebarnya 20% dari tabel tableLayout:fixed — sekitar 130px
+        // dikurangi padding, dengan IBM Plex Mono 10px. String tiga bahasa di
+        // sana membungkus jadi dua-tiga baris dan merusak perataan seluruh blok
+        // total, di SETIAP PO KEK — dan KEK adalah mode bawaannya.
+        po.ppnMode === 'paid'
+          ? totalRow('增值税/PPN 11%：', num(ppn11, dp))
+          : totalRow('增值税/PPN — 暂免征收 (KEK)：', 'Ditangguhkan'),
         totalRow('费用总计/Amount：', num(total, dp)),
       ]),
     ]),

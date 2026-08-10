@@ -24,6 +24,7 @@ import { fetchPrfs } from '../core/prfsApi.js';
 import { fetchPayments } from '../core/paymentsApi.js';
 import { fetchPpkek } from '../core/ppkekApi.js';
 import { fetchLabelStock, fetchLabelUploads, fetchLabelSettings, fetchLabelStockTrend } from '../core/labelStockApi.js';
+import { fetchLabelPrices } from '../core/labelPricesApi.js';
 
 // Log in by username. Uses Supabase Auth when configured; otherwise a demo check.
 export async function login(username, password) {
@@ -167,6 +168,12 @@ async function hydrate(user, username, preferScreen, preferLang) {
     // Agregat untuk grafik stok. Null selama view-nya belum dibuat — grafiknya
     // menggambar keadaan kosong dan tidak ada yang lain yang peduli.
     ['labelTrend',    () => fetchLabelStockTrend()],
+    // Ingatan harga label. RLS-nya membolehkan SELECT untuk semua yang login,
+    // jadi ini terisi untuk semua peran — tapi yang bisa MENULIS cuma pemegang
+    // poCreate. Kalau tabelnya belum dibuat, fetch-nya mengembalikan null dan
+    // st.labelPrices lokal dibiarkan kosong: kolom HARGA cuma jadi tidak
+    // mengisi sendiri, tidak ada yang lain yang rusak.
+    ['labelPrices',   () => fetchLabelPrices()],
     // Preferensi akun. Sengaja ikut gelombang ini juga; dipakai di bawah.
     ['prefs',         () => fetchProfilePrefs()],
   ];
@@ -209,6 +216,7 @@ async function hydrate(user, username, preferScreen, preferLang) {
   if (nilai.labelUploads)  st.labelUploads  = nilai.labelUploads;
   if (nilai.labelSettings) st.labelSettings = nilai.labelSettings;
   if (nilai.labelTrend)    st.labelTrend    = nilai.labelTrend;
+  if (nilai.labelPrices)   st.labelPrices   = nilai.labelPrices;
 
   // DRAIN THE DRIVE QUEUE. Anything that failed to reach Drive while it was
   // down goes up now, without anyone re-picking a file.

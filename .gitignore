@@ -86,3 +86,18 @@ PESAN-COMMIT-*.txt
 
 # Cadangan .gitignore dari sesi agent.
 .gitignore.bak
+
+# Harness Node dari sesi agent — dijalankan di luar browser buat menguji logika
+# murni (parser PPKEK, aturan pilih-semua, aturan harga label). Bukan bagian
+# portal: tidak ada satu pun berkas di src/ yang mengimpornya dan index.html
+# tidak menyebutnya.
+#
+# Ditulis SEBELUM git status sempat mengingatkan. Dua kali sebelumnya —
+# HANDOVER.md lalu AUDIT-8-Agustus.md — polanya baru ditambahkan SESUDAH
+# berkasnya muncul sebagai untracked di repo publik. Dan yang ini bukan sekadar
+# kode: harness harga label memuat nama pemasok dan kode ERP ASLI, karena aturan
+# 7 menuntut pengujian lawan angka dokumen sungguhan, bukan angka karangan.
+test-*.mjs
+test.mjs
+verify.mjs
+run.mjs

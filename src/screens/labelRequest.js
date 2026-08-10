@@ -11,6 +11,62 @@ import { insertLabelRequest, updateLabelRequest } from '../core/labelRequestsApi
 import { insertPO, newLineId, duplicatePoNumber } from '../core/posApi.js';
 import { blockWrite } from '../core/guard.js';
 import { UUID_RE } from '../core/supabase.js';
+import { ringkasHarga, kunciHarga, tidakBisaDiingat, hargaBentrok, bacaKetikanHarga, rememberLabelPrices } from '../core/labelPricesApi.js';
+
+// ---------------------------------------------------------------------------
+// HARGA LABEL
+//
+// Sampai v15.2 harga di sini adalah `r.unitPrice || 1000`, dengan komentar
+// `// demo price` yang tidak pernah dicabut. `unitPrice` tidak pernah diisi
+// oleh apa pun — grep seluruh src cuma menemukannya di baris itu sendiri —
+// jadi SETIAP PO label yang pernah keluar dari layar ini berharga Rp 1.000/pcs
+// dan totalnya karangan. Dua PO sudah terlanjur lahir begitu, salah satunya
+// sudah berstatus Approved.
+//
+// Sekarang harganya diketik. Tiga aturan yang menahan bentuknya:
+//
+// 1. TIDAK ADA ANGKA CADANGAN. Baris tanpa harga menahan Generate PO, bukan
+//    dikarang jadi nol atau seribu. Dokumen yang keluar dari gedung ini dibaca
+//    pemasok sebagai tawaran; angka yang ditebak portal lebih berbahaya
+//    daripada layar yang menolak jalan.
+// 2. HARGANYA DIINGAT PER (ERP, PEMASOK), lalu mengisi sendiri kali berikutnya.
+//    Lihat core/labelPricesApi.js untuk alasan kenapa bukan per item.
+// 3. KALAU BEDA DARI YANG DIINGAT, LAYAR MENYELA — tapi tidak menolak. Harga
+//    label memang naik; yang mengetik tahu hasil negonya, portal tidak.
+//
+// Nilai ketikan hidup di `ui.lrHarga`, indeks-nya indeks ke `labelResult.items`
+// (indeks yang sama yang dipakai `ui.labelSel`), BUKAN variabel lokal: mount()
+// tidak melakukan diffing, jadi draf apa pun yang disimpan sebagai lokal fungsi
+// mati di render pertama yang lewat.
+// ---------------------------------------------------------------------------
+
+// Apakah ada baris yang benar-benar disembunyikan filter — bukan "apakah ada
+// kotak filter yang terisi". jumlahFilterAktif() menjawab yang kedua, dan
+// filter yang cocok ke SEMUA baris tidak menyembunyikan apa pun.
+//
+// saring() dan MEDAN_BARIS() murni dan sudah diimpor, jadi ini aman dipanggil
+// dari luar render (segarkanHarga dipanggil dari onBlur dan dari setTimeout).
+function adaBarisTersembunyi() {
+  const res = getState().ui.labelResult;
+  const items = (res && res.items) || [];
+  if (!items.length) return false;
+  return saring(items, MEDAN_BARIS(items), nilaiFilter('lr-baris')).length < items.length;
+}
+
+// Satu-satunya pintu ke hitungan harga. Semua yang butuh angka di layar ini —
+// sel tabel, subtotal, tombol, penulis PO — lewat sini, supaya tidak ada dua
+// tempat yang menghitung uang dengan cara masing-masing. Aturannya sendiri
+// tinggal di core/labelPricesApi.js dan diuji di test-harga-label.mjs.
+function ringkasan(st) {
+  const res = st.ui.labelResult;
+  return ringkasHarga({
+    items: (res && res.items) || [],
+    sel: st.ui.labelSel || {},
+    ketikan: st.ui.lrHarga || {},
+    daftar: st.labelPrices,
+    supplier: st.ui.assignSup,
+  });
+}
 
 export function labelRequestScreen() {
   const st = getState();
@@ -221,7 +277,10 @@ function parseNow() {
     const res = parseLabelSheet(rows, { brandMap: st.brandMap, knownErps });
     if (!res.ok) { toast(res.error); return; }
     const sel = {}; res.items.forEach((_, i) => (sel[i] = true));
-    setUI({ labelResult: res, labelSel: sel, labelStep: 3, assignSup: (st.suppliers[0] || {}).name });
+    // lrHarga dikosongkan bareng labelSel: keduanya berkunci INDEKS ke
+    // labelResult.items, jadi ketikan dari workbook sebelumnya akan menempel
+    // ke POSISI baris, bukan ke barangnya. Lihat catatan panjang di openRequest().
+    setUI({ labelResult: res, labelSel: sel, lrHarga: {}, labelStep: 3, assignSup: (st.suppliers[0] || {}).name });
     // Auto-build item master via upsert on ERP CODE.
     upsertItems(res.items);
     st.labelBatches.unshift({ id: uid('lb'), file: ui.labelFile, sheet: ui.labelSheet, count: res.items.length, by: st.user.username, at: new Date().toISOString() });
@@ -265,6 +324,91 @@ const MEDAN_BARIS = (rows) => [
   { kunci: 'qty', label: t('col_qty'), tipe: 'teks', ambil: r => `${r.qty == null ? '' : r.qty} ${num(r.qty)}` },
 ];
 
+// Kotak harga per baris.
+//
+// Menyalin kontrak qtyInput() di suratJalan.js, dan alasannya sama persis:
+// commit di BLUR, dan JANGAN memanggil setUI() dari sini. Blur menyala sebelum
+// click ketika orang mengetik lalu langsung menekan tombol; setUI() yang
+// sinkron akan membangun ulang seluruh pohon DOM (mount() tanpa diffing) di
+// antara blur dan click, mengganti tombol yang sedang dituju browser, dan
+// klik-nya hilang tanpa suara. Angka hasilnya ditulis langsung ke node.
+function hargaInput(i, berlaku, bisaTulis) {
+  if (!bisaTulis) {
+    return h('span.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } }, berlaku == null ? '—' : num(berlaku));
+  }
+  return h('input.input.mono.r', {
+    // Angka polos tanpa pemisah ribuan. Kalau di sini ditulis "1,000",
+    // pembacaan berikutnya dengan locale 'id' akan membacanya sebagai 1 —
+    // koma adalah tanda desimal di Indonesia. Yang tampil rapi cukup kolom
+    // JUMLAH di sebelahnya, yang tidak pernah dibaca balik.
+    defaultValue: berlaku == null ? '' : String(berlaku),
+    placeholder: '0',
+    style: { width: '92px', textAlign: 'right', fontSize: '11.5px', padding: '4px 7px' },
+    onBlur: e => {
+      const s = getState();
+      const bag = s.ui.lrHarga || (s.ui.lrHarga = {});
+      // Aturan bacanya ada di bacaKetikanHarga() dan diuji di sana. Yang
+      // dikembalikan null, BUKAN undefined, dan itu bukan detail: `delete`
+      // cuma menghapus ketikan dan membiarkan INGATAN mengisi ulang — kotaknya
+      // kosong tapi barisnya tetap berharga, dan PO-nya terbit dengan angka
+      // yang tidak kelihatan di layar mana pun.
+      const n = bacaKetikanHarga(e.target.value);
+      bag[i] = n;
+      e.target.value = n == null ? '' : String(n);
+      segarkanHarga();
+    },
+    onKeydown: e => { if (e.key === 'Enter') e.target.blur(); },
+  });
+}
+
+// Menyegarkan angka turunan TANPA render ulang — lihat alasan di hargaInput().
+// Yang disentuh cuma teks di dalam node yang sudah ada, jadi aman dipanggil di
+// tengah gerakan mouse pengguna.
+function segarkanHarga() {
+  const st = getState();
+  if (!st.ui.labelResult || !st.ui.labelResult.items) return;
+  const { baris, total, kosong, beda } = ringkasan(st);
+
+  baris.forEach(b => {
+    const sAmt = document.getElementById(`lr-amt-${b.i}`);
+    if (sAmt) sAmt.textContent = b.jumlah == null ? '—' : num(b.jumlah);
+
+    const sWarn = document.getElementById(`lr-warn-${b.i}`);
+    if (!sWarn) return;
+    if (!b.berubah) { sWarn.textContent = ''; sWarn.style.display = 'none'; return; }
+    const naik = b.harga > b.ingat.harga;
+    const persen = Math.round((Math.abs(b.harga - b.ingat.harga) / b.ingat.harga) * 1000) / 10;
+    sWarn.textContent = `${naik ? '▲' : '▼'} ${num(b.ingat.harga)} → ${num(b.harga)} (${naik ? '+' : '−'}${persen}%)`;
+    sWarn.style.display = '';
+    sWarn.style.color = naik ? 'var(--st-amber-tx)' : 'var(--text-3)';
+  });
+
+  const sTot = document.getElementById('lr-total');
+  if (sTot) sTot.textContent = total == null ? '—' : `IDR ${num(total)}`;
+
+  const sNot = document.getElementById('lr-harga-note');
+  if (sNot) {
+    const bagian = [];
+    if (kosong) bagian.push(tr({ id: `${kosong} baris belum ada harga`, en: `${kosong} row(s) have no price`, zh: `${kosong} 行未填价格` }));
+    if (beda) bagian.push(tr({ id: `${beda} harga beda dari terakhir`, en: `${beda} price(s) differ from last time`, zh: `${beda} 项与上次不同` }));
+    // Centang menghitung SELURUH res.items, tabelnya cuma menggambar baris yang
+    // lolos filter. Tanpa kalimat ini, "12 baris belum ada harga" muncul di
+    // layar yang menampilkan tiga baris terisi semua, dan tidak ada apa pun
+    // yang menunjukkan filter penyebabnya.
+    //
+    // Diukur dari baris yang BENAR-BENAR tersembunyi, bukan dari jumlah kotak
+    // filter yang terisi. Filter yang cocok ke semua baris tidak menyembunyikan
+    // apa pun, dan mengaku menyembunyikan sesuatu adalah berbohong ke arah
+    // sebaliknya — hitunganSaring() tiga baris di atasnya sudah menampilkan
+    // "4 baris" tanpa "dari", jadi layarnya akan membantah dirinya sendiri.
+    if (bagian.length && adaBarisTersembunyi()) {
+      bagian.push(tr({ id: 'termasuk baris yang disembunyikan filter', en: 'including rows hidden by the filter', zh: '含被筛选隐藏的行' }));
+    }
+    sNot.textContent = bagian.join(' · ');
+    sNot.style.color = kosong ? 'var(--st-amber-tx)' : 'var(--text-3)';
+  }
+}
+
 function step3() {
   const st = getState(); const ui = st.ui;
   const res = ui.labelResult; if (!res) { setUI({ labelStep: 1 }); return h('div'); }
@@ -288,12 +432,25 @@ function step3() {
   const thead = h('thead', h('tr', [
     h('th', h('input', { type: 'checkbox', checked: selCount === res.items.length, onChange: e => { const s = {}; res.items.forEach((_, i) => (s[i] = e.target.checked)); setUI({ labelSel: s }); }, style: { accentColor: 'var(--accent)' } })),
     h('th', t('col_market')), h('th', t('col_spec')), h('th', t('col_erp')), h('th', t('col_brand')),
-    h('th', 'TT·PR'), h('th.r', t('col_qty')), h('th', t('col_design')), h('th', t('col_flags')),
+    h('th', 'TT·PR'), h('th.r', t('col_qty')),
+    // Harga hanya untuk yang boleh menerbitkan PO. Buat sona kolomnya tetap
+    // tampil tapi cuma dibaca: dia yang tahu apa yang harus dicetak, harga dan
+    // pemasoknya bukan miliknya untuk diputuskan — persis alasan yang sama
+    // dengan dropdown pemasok yang disembunyikan dari dia di bawah.
+    h('th.r', tr({ id: 'HARGA', en: 'PRICE', zh: '单价' })),
+    h('th.r', tr({ id: 'JUMLAH', en: 'AMOUNT', zh: '金额' })),
+    h('th', t('col_design')), h('th', t('col_flags')),
   ]));
+  const bisaHarga = can(st.user.role, 'poCreate');
+  // Satu hitungan untuk seluruh tabel, bukan satu per baris. Selain lebih
+  // murah, ini yang menjamin sel HARGA dan sel JUMLAH di baris yang sama tidak
+  // pernah dihitung dari dua pemanggilan berbeda.
+  const rk = ringkasan(st);
   const body = h('tbody', rows.length ? rows.map((r) => {
     const i = res.items.indexOf(r);
     const on = !!sel[i];
     const dz = hasDesign(r);
+    const b = rk.baris[i] || { harga: null, jumlah: null };
     return h('tr' + (on ? '.sel' : ''), [
       h('td', h('input', { type: 'checkbox', checked: on, onChange: () => { const s = { ...sel }; s[i] = !s[i]; setUI({ labelSel: s }); }, style: { accentColor: 'var(--accent)', cursor: 'pointer' } })),
       h('td', r.market || '—'),
@@ -302,10 +459,17 @@ function step3() {
       h('td.cell-strong', r.brand || '—'),
       h('td', `${r.ttl || '—'}·${r.pr || '—'}`),
       h('td.mono.r', num(r.qty)),
+      h('td.r', [
+        hargaInput(i, b.harga, bisaHarga),
+        // Diisi oleh segarkanHarga(), bukan di sini — supaya perubahan harga
+        // muncul tanpa render ulang yang akan mencuri fokus dari kotak isian.
+        h('div.mono', { id: `lr-warn-${i}`, style: { display: 'none', fontSize: '9.5px', marginTop: '3px', whiteSpace: 'nowrap' } }, ''),
+      ]),
+      h('td.mono.r', { id: `lr-amt-${i}` }, b.jumlah == null ? '—' : num(b.jumlah)),
       h('td', dz ? badge(t('design_ok'), 'green', { iconName: 'check' }) : badge(t('design_no'), 'red')),
       h('td', r.isNew ? h('span.tag-new', t('new_item')) : null),
     ]);
-  }) : barisTakCocok(9, { id: 'lr-baris', adaFilter: jumlahFilterAktif(nilai) > 0 }));
+  }) : barisTakCocok(11, { id: 'lr-baris', adaFilter: jumlahFilterAktif(nilai) > 0 }));
 
   const table = h('div.card', [
     h('div.card-head', [
@@ -324,7 +488,22 @@ function step3() {
 
   const supplierNames = st.suppliers.map(s => s.name);
   const actionBar = h('div.card', { style: { position: 'sticky', bottom: '14px', display: 'flex', alignItems: 'center', gap: '14px', border: '1.5px solid var(--accent)', boxShadow: 'var(--paper-shadow)', padding: '12px 18px' } }, [
-    h('div', [h('div', { style: { fontSize: '13px', fontWeight: 800 } }, [h('span.mono', { style: { color: 'var(--accent-tx)' } }, String(selCount)), ' ' + t('lr_selected')]), h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, t('lr_merge_note'))]),
+    h('div', [
+      h('div', { style: { fontSize: '13px', fontWeight: 800 } }, [h('span.mono', { style: { color: 'var(--accent-tx)' } }, String(selCount)), ' ' + t('lr_selected')]),
+      h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, t('lr_merge_note')),
+      // Diisi segarkanHarga(). Menyebut baris yang belum berharga DI SINI,
+      // sebelah tombolnya, bukan cuma sebagai toast sesudah diklik: yang
+      // menahan tombol harus kelihatan sebelum tombolnya ditekan.
+      //
+      // Hanya untuk yang boleh menerbitkan PO. Buat sona harga bukan syarat
+      // apa pun — tombolnya "Kirim Request" — jadi peringatan kuning permanen
+      // di sebelahnya cuma bikin layarnya terbaca macet padahal tidak.
+      bisaHarga ? h('div.mono', { id: 'lr-harga-note', style: { fontSize: '10px', marginTop: '3px' } }, '') : null,
+    ]),
+    bisaHarga ? h('div', { style: { textAlign: 'right' } }, [
+      h('div', { style: { fontSize: '9.5px', color: 'var(--text-3)', letterSpacing: '.04em' } }, tr({ id: 'SUBTOTAL', en: 'SUBTOTAL', zh: '小计' })),
+      h('div.mono', { id: 'lr-total', style: { fontSize: '14px', fontWeight: 800 } }, '—'),
+    ]) : null,
     h('div.mla.row.gap8', [
       // Hidden for the requester: offering a supplier picker to someone whose
       // choice is ignored is worse than not offering it — it reads as input.
@@ -343,6 +522,13 @@ function step3() {
           : badge(tr({ id: 'Read-only', en: 'Read-only', zh: '只读' }), 'gray', { iconName: 'eye' }),
     ]),
   ]);
+
+  // Sesudah pohon ini terpasang, isi angka turunannya sekali. Tidak bisa
+  // dihitung saat membangun node: lencana peringatan dan subtotal hidup di
+  // node yang baru ada setelah mount(), dan menghitungnya di sini berarti
+  // menduplikasi logika segarkanHarga() — dua salinan yang suatu hari
+  // berbeda pendapat. Yang ditulis cuma textContent, jadi aman.
+  setTimeout(segarkanHarga, 0);
 
   return h('div.stack', { style: { gap: '14px' } }, [summary, ...warn, table, actionBar]);
 }
@@ -380,7 +566,7 @@ async function submitRequest() {
   if (!local.id) local.id = uid('lr');
   st.labelRequests.unshift(local);
   logAudit({ entity: 'label', target: local.file, action: 'request', detail: `${chosen.length} baris · sheet ${local.sheet}` });
-  setUI({ labelStep: 1, labelResult: null, labelSel: {} });
+  setUI({ labelStep: 1, labelResult: null, labelSel: {}, lrHarga: {} });
   setState({ labelRequests: st.labelRequests });
   toast({
     id: `${chosen.length} baris dikirim ke Purchasing — mereka yang assign supplier & bikin PO`,
@@ -566,6 +752,7 @@ function catatanPortal(r) {
 // from the file — purchasing acts on exactly what sona submitted, which is the
 // entire reason the rows were stored rather than the filename.
 function openRequest(r) {
+  const st = getState();
   const rows = r.rows || [];
   setUI({
     labelStep: 3,
@@ -577,6 +764,31 @@ function openRequest(r) {
       stats: { total: rows.length, skipped: 0, headerRow: '—', newItems: rows.filter(x => x.isNew).length },
     },
     labelSel: Object.fromEntries(rows.map((_, i) => [i, true])),
+    // WAJIB dikosongkan bareng labelSel — keduanya berkunci INDEKS ke
+    // labelResult.items. Tanpa baris ini harga yang diketik untuk workbook
+    // sebelumnya tetap berlaku, tapi menempel ke POSISI, bukan ke barang: baris
+    // 0 workbook baru adalah kode ERP yang sama sekali lain dan mewarisi
+    // harganya. Ketikan menang atas ingatan, jadi harga hantu itu bahkan
+    // mengalahkan harga yang benar dan lolos kedua penjaga. Itu bug 1000 yang
+    // sama persis, cuma dengan angka yang berbeda.
+    lrHarga: {},
+    // assignSup HARUS ikut diisi di sini. Satu-satunya penulisnya dulu
+    // parseNow(), jadi jalur "buka request sona" meninggalkannya undefined
+    // sementara dropdown-nya MENAMPILKAN supplier pertama — `value: x || nama[0]`
+    // cuma mengubah tampilan, tidak mengubah state, dan memilih opsi yang sudah
+    // tampil tidak memicu change. Akibatnya bukan cuma harga ingatan tidak
+    // ketemu: genPO() mencari pemasok bernama undefined, dapat {}, dan PO-nya
+    // terbit dengan penjual undefined tercetak di PDF.
+    //
+    // Yang dipakai: pemasok yang TERAKHIR dipilih di sesi ini, kalau belum ada
+    // baru yang pertama di daftar. SENGAJA tidak membaca r.supplier — request
+    // yang bisa dibuka di sini statusnya selalu 'Diminta', dan sebuah request
+    // baru punya supplier pada detik yang SAMA status itu berubah jadi
+    // 'PO Terbit' (lihat patch di genPO). Field-nya selalu kosong di titik ini;
+    // menuliskannya cuma jadi cabang mati yang membuat pembaca berikutnya
+    // mengira pemasoknya datang dari request-nya sendiri. Pilihan ini kelihatan
+    // di dropdown dan bisa diubah sebelum PO dibuat.
+    assignSup: st.ui.assignSup || (st.suppliers[0] || {}).name,
     labelFillingReq: r.id,
   });
 }
@@ -586,10 +798,36 @@ function countOrders(items) { return new Set(items.map(i => i.market + '|' + i.b
 
 function openPoModal() {
   const st = getState();
-  const selItems = (st.ui.labelResult.items || []).filter((_, i) => st.ui.labelSel[i]);
-  const chosen = selItems; // assigned to one supplier per design (bulk assign)
-  const subtotal = chosen.reduce((s, r) => s + (r.qty * (r.unitPrice || 1000)), 0); // demo price
-  setUI({ poModal: true, poForm: { no: '', contract: '', terms: '45 hari setelah invoice', priority: 'Normal', ppn: 'kek', subtotal, count: chosen.length } });
+  const rk = ringkasan(st); // assigned to one supplier per design (bulk assign)
+  const chosen = rk.dipilih;
+  if (!chosen.length) {
+    toast({ id: 'Centang dulu baris yang mau di-PO', en: 'Tick the rows to raise a PO for first', zh: '请先勾选要开采购单的行' });
+    return;
+  }
+  // Menahan di sini, bukan mengarang angka. Sampai v15.2 baris tanpa harga
+  // diberi Rp 1.000/pcs oleh `|| 1000` dan PO-nya tetap terbit — PDF berisi
+  // nilai kontrak palsu yang bisa dikirim ke pemasok. Layar yang menolak jalan
+  // jauh lebih murah daripada surat penawaran yang salah angka.
+  const tanpaHarga = chosen.filter(x => x.harga == null);
+  if (tanpaHarga.length) {
+    const contoh = tanpaHarga.slice(0, 3).map(x => x.r.erp || x.r.spec || '?').join(', ');
+    const sisa = tanpaHarga.length > 3 ? ` (+${tanpaHarga.length - 3})` : '';
+    // Centangnya berlaku untuk SELURUH baris hasil baca, tabelnya cuma
+    // menggambar yang lolos filter. Menyebutkan kode ERP yang sedang tidak
+    // kelihatan tanpa mengatakan kenapa akan terbaca seperti portal ngaco.
+    const kabar = adaBarisTersembunyi() ? tr({
+      id: ' — sebagian sedang disembunyikan filter',
+      en: ' — some are hidden by the filter',
+      zh: ' — 部分行被筛选隐藏',
+    }) : '';
+    toast({
+      id: `${tanpaHarga.length} baris belum ada harga: ${contoh}${sisa} — isi dulu kolom HARGA${kabar}`,
+      en: `${tanpaHarga.length} row(s) have no price: ${contoh}${sisa} — fill the PRICE column first${kabar}`,
+      zh: `${tanpaHarga.length} 行未填单价：${contoh}${sisa} — 请先填写单价列${kabar}`,
+    });
+    return;
+  }
+  setUI({ poModal: true, poForm: { no: '', contract: '', terms: '45 hari setelah invoice', priority: 'Normal', ppn: 'kek', subtotal: rk.total, count: chosen.length } });
 }
 
 function poModal() {
@@ -647,8 +885,44 @@ async function genPO() {
   if (blockWrite('generate PO label')) return;
   const st = getState(); const f = st.ui.poForm;
   if (!f.no || !f.no.trim()) { toast({ id: 'No. PO wajib diisi', en: 'PO number is required', zh: '必须填写采购单号' }); return; }
-  const selItems = (st.ui.labelResult.items || []).filter((_, i) => st.ui.labelSel[i]);
+  // Penjaga kedua, dan dihitung ULANG dari state — bukan dari f.subtotal yang
+  // dibekukan saat jendela dibuka. Jendela ini bisa terbuka lama dan centangnya
+  // masih bisa diubah di belakangnya. Yang menulis ke database memeriksa ulang
+  // syaratnya sendiri; tidak pernah mengandalkan layar sebelumnya sudah benar.
+  const rk = ringkasan(st);
+  const dipilih = rk.dipilih;
+  const selItems = dipilih.map(x => x.r);
+  if (!selItems.length || rk.total == null) {
+    toast({ id: 'Ada baris tanpa harga — PO dibatalkan', en: 'A row has no price — PO aborted', zh: '有行未填单价 — 已中止开单' });
+    return;
+  }
+  // Kalau centangnya berubah sesudah jendela dibuka, angka di jendela sudah
+  // basi. Menolak dan menyuruh buka ulang lebih baik daripada menerbitkan PO
+  // yang subtotalnya bukan jumlah dari baris-barisnya sendiri.
+  if (rk.total !== f.subtotal) {
+    toast({
+      id: 'Pilihan baris berubah — tutup dan buka lagi Generate PO biar angkanya ikut',
+      en: 'The row selection changed — close and reopen Generate PO so the figures follow',
+      zh: '勾选已变更 — 请关闭后重新打开生成采购单，使金额同步',
+    });
+    return;
+  }
   const supplier = st.suppliers.find(s => s.name === st.ui.assignSup) || {};
+  // Penjaga pemasok. `|| {}` di atas sudah ada sejak lama dan diam-diam
+  // meloloskan PO dengan supplier undefined — PDF-nya mencetak "The
+  // seller/卖方: undefined" dan alamatnya kosong. Jalur yang memicunya nyata:
+  // openRequest() dulu tidak mengisi assignSup, sementara dropdown-nya
+  // MENAMPILKAN pemasok pertama, jadi layarnya terlihat benar. openRequest()
+  // sudah diperbaiki, tapi penjaganya tetap dipasang di sini: yang menulis
+  // memeriksa syaratnya sendiri.
+  if (!supplier.name) {
+    toast({
+      id: 'Pemasoknya belum kepilih — pilih dulu di kotak Assign supplier',
+      en: 'No supplier selected — pick one in the Assign supplier box first',
+      zh: '尚未选择供应商 — 请先在指定供应商处选择',
+    });
+    return;
+  }
   const ppnMode = ppnModeFromForm(f.ppn);
   const ppn = ppnFor(f.subtotal, ppnMode);
   // Capability, not a username string. The literal comparison paired with the
@@ -665,7 +939,10 @@ async function genPO() {
     status: isWilbert ? 'Approved' : 'Menunggu Approval', createdAt: new Date().toISOString(), source: 'label',
     contact: supplier.contact, phone: supplier.phone,
     // Opaque lineId minted up front — see posApi.js newLineId().
-    items: selItems.map(r => ({ erp: r.erp, d: r.nameEn || r.spec, dimension: r.spec, cn: r.nameZh || '', qty: r.qty, u: r.unitPrice || 1000, a: r.qty * (r.unitPrice || 1000), unit: '张/PC', lineId: newLineId() })),
+    // `u` dan `a` datang dari harga yang DIKETIK. Tidak ada `|| 1000` lagi —
+    // baris tanpa harga sudah dihentikan dua kali di atas, jadi kalau eksekusi
+    // sampai sini harganya pasti ada.
+    items: dipilih.map(({ r, harga }) => ({ erp: r.erp, d: r.nameEn || r.spec, dimension: r.spec, cn: r.nameZh || '', qty: r.qty, u: harga, a: harga * (Number(r.qty) || 0), unit: '张/PC', lineId: newLineId() })),
   };
   if (isWilbert) { po.approvedAt = new Date().toISOString(); po.approvedBy = 'wilbert'; }
   // Mirror to Supabase so the delete-request workflow (item 3) has a real row
@@ -699,6 +976,73 @@ async function genPO() {
   st.pos.unshift(po);
   logAudit({ entity: 'po', target: po.no, action: 'generate', detail: `${supplier.name} · ${selItems.length} lines` });
 
+  // Ingat harganya untuk kali berikutnya.
+  //
+  // SESUDAH PO-nya aman, dan TIDAK PERNAH menjatuhkan alur kalau gagal. Nomor
+  // PO sudah terpakai dan barisnya sudah masuk; menampilkan "gagal" karena
+  // catatan sampingan tidak tersimpan akan membuat orang mengulang PO yang
+  // sebenarnya sudah jadi — dan nomor PO kembar itu utang teknis yang sudah
+  // pernah bikin Reports salah Rp 226 juta. Aturan kerja 5: fitur inti tidak
+  // boleh jatuh karena fitur pinggiran.
+  const catatan = dipilih.map(({ r, harga }) => ({
+    erp: r.erp, supplier: supplier.name, harga, poNo: po.no, oleh: st.user.username,
+  }));
+  // Baris tanpa kode ERP tidak bisa diingat — tidak ada yang bisa dijadikan
+  // kunci. Itu bentuk yang SAH di jalur BUY NOW (labelStock.js menandainya
+  // isNew dengan erp kosong), jadi bilang terus terang alih-alih membuangnya
+  // diam-diam lalu membiarkan orang bingung bulan depan waktu kolomnya kosong.
+  //
+  // DIKUMPULKAN, TIDAK LANGSUNG DI-TOAST. toast() cuma punya satu slot —
+  // store.js mengganti st.toast dan main.js menggambar satu. Memanggilnya di
+  // sini akan ditimpa oleh toast "PO dibuat" di ujung fungsi beberapa baris
+  // kemudian, dan pada jalur Supabase-belum-dikonfigurasi penggantiannya
+  // terjadi dalam satu microtask — peringatannya tidak pernah sempat digambar
+  // sama sekali. Peringatan yang tidak pernah terlihat sama saja dengan diam,
+  // yang persis keadaan yang mau diperbaiki.
+  const peringatan = [];
+  const tanpaKunci = tidakBisaDiingat(catatan).length;
+  if (tanpaKunci) {
+    peringatan.push(tr({
+      id: `${tanpaKunci} baris tanpa kode ERP: harganya tidak bisa diingat`,
+      en: `${tanpaKunci} row(s) without an ERP code: their prices cannot be remembered`,
+      zh: `${tanpaKunci} 行没有 ERP 编码：其单价无法记住`,
+    }));
+  }
+  // Dua baris berkode ERP SAMA dengan harga BERBEDA: cuma satu yang bisa
+  // diingat. Kode ganda itu keadaan yang sah di sini — labelBuyList.js punya
+  // tandaiKodeGanda() dan layar ini menampilkan lencana "N kode ganda" —
+  // jadi tanpa kalimat ini, harga yang kalah lenyap tanpa suara dan bulan
+  // depan KEDUA barisnya terisi harga yang menang.
+  const bentrok = hargaBentrok(catatan);
+  if (bentrok.length) {
+    peringatan.push(tr({
+      id: `${bentrok.length} kode ERP ganda berbeda harga: yang diingat ${bentrok.map(x => num(x.dipakai)).join(', ')}`,
+      en: `${bentrok.length} duplicate ERP code(s) with different prices: remembered ${bentrok.map(x => num(x.dipakai)).join(', ')}`,
+      zh: `${bentrok.length} 个 ERP 编码重复且单价不同：记住的是 ${bentrok.map(x => num(x.dipakai)).join(', ')}`,
+    }));
+  }
+  try {
+    const tersimpan = await rememberLabelPrices(catatan);
+    // Perbarui salinan lokal supaya upload berikutnya di sesi yang sama sudah
+    // terisi sendiri, tanpa menunggu login ulang.
+    //
+    // Dicocokkan lewat kunciHarga(), BUKAN `p.erp === n.erp`: yang tersimpan
+    // sudah dinormalkan huruf besar, yang lokal belum tentu. Perbandingan
+    // mentah membiarkan baris lama berbeda huruf tetap hidup di state, dan
+    // petaHarga() akan menggabungkan keduanya dengan pemenang yang bergantung
+    // urutan array.
+    const kunciBaru = new Set(tersimpan.map(n => kunciHarga(n.erp, n.supplier)));
+    const sisa = (st.labelPrices || []).filter(p => !kunciBaru.has(kunciHarga(p.erp, p.supplier)));
+    setState({ labelPrices: [...sisa, ...tersimpan] });
+  } catch (e) {
+    console.error('rememberLabelPrices failed', e);
+    peringatan.push(tr({
+      id: 'harganya gagal diingat — kali depan kolom HARGA kosong lagi',
+      en: 'the prices were not remembered — the PRICE column will be empty next time',
+      zh: '单价未能记住 — 下次单价列仍为空',
+    }));
+  }
+
   // If this PO came from one of sona's requests, close it — and record WHICH
   // PO answered it. That link is the whole point: months later, "was this the
   // label she asked for?" is answerable by opening the request beside the PO.
@@ -717,24 +1061,38 @@ async function genPO() {
         // The PO exists either way; only the link failed. Say so plainly rather
         // than rolling back a purchase order over a status field.
         console.error('label request close failed', e);
-        toast({
-          id: `PO ${po.no} dibuat, tapi status request-nya gagal diupdate — tandai manual.`,
-          en: `PO ${po.no} created, but the request status failed to update — mark it by hand.`,
-          zh: `采购单 ${po.no} 已创建，但申请状态更新失败 — 请手动标记。`,
-        });
+        peringatan.push(tr({
+          id: 'status request-nya gagal diupdate — tandai manual',
+          en: 'the request status failed to update — mark it by hand',
+          zh: '申请状态更新失败 — 请手动标记',
+        }));
       }
       logAudit({ entity: 'label', target: req.file, action: 'request_filled', detail: `${po.no} · ${supplier.name}` });
     }
   }
-  setUI({ poModal: false, labelFillingReq: null });
+  // MEJA KERJANYA DIBERESKAN, bukan cuma harganya.
+  //
+  // Membuang lrHarga saja meninggalkan baris yang sama masih tercentang dengan
+  // labelResult utuh. Untuk cania/visca layarnya kembali ke step 3 yang sama,
+  // dan baris BUY NOW tanpa kode ERP — yang harganya memang tidak bisa
+  // diingat — kotak harganya kosong lagi, subtotalnya jadi tanda strip, dan
+  // catatan kuning "N baris belum ada harga" menyala TEPAT SESUDAH PO yang
+  // memuat harga-harga itu terbit. Layar yang membantah dirinya sendiri.
+  //
+  // Lebih buruk lagi, labelFillingReq sudah null: menekan Generate PO sekali
+  // lagi pada baris yang masih tercentang itu menghasilkan PO kedua yang tidak
+  // tertaut ke request mana pun. Pekerjaannya selesai — mejanya dikosongkan,
+  // sama seperti yang sudah dilakukan submitRequest().
+  setUI({ poModal: false, labelFillingReq: null, lrHarga: {}, labelSel: {}, labelResult: null, labelStep: 1 });
+  const ekor = peringatan.length ? ` · ${peringatan.join(' · ')}` : '';
   toast(isWilbert ? {
-    id: `PO ${po.no} dibuat & di-approve (skip queue)`,
-    en: `PO ${po.no} created & approved (queue skipped)`,
-    zh: `采购单 ${po.no} 已创建并批准（跳过审批队列）`,
+    id: `PO ${po.no} dibuat & di-approve (skip queue)${ekor}`,
+    en: `PO ${po.no} created & approved (queue skipped)${ekor}`,
+    zh: `采购单 ${po.no} 已创建并批准（跳过审批队列）${ekor}`,
   } : {
-    id: `PO ${po.no} dibuat & dikirim untuk approval supervisor`,
-    en: `PO ${po.no} created & sent to the supervisor for approval`,
-    zh: `采购单 ${po.no} 已创建并提交主管审批`,
+    id: `PO ${po.no} dibuat & dikirim untuk approval supervisor${ekor}`,
+    en: `PO ${po.no} created & sent to the supervisor for approval${ekor}`,
+    zh: `采购单 ${po.no} 已创建并提交主管审批${ekor}`,
   });
   setState({ screen: isWilbert ? 'approval' : 'label-request' });
 }

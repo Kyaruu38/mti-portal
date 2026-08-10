@@ -38,6 +38,11 @@ const state = {
   labelUploads: [],    // upload history (who/when/counts/quarantined rows)
   labelSettings: null, // { moq, leadNormal, leadUrgent, leadSuper, overstockMultiple }
   labelTrend: [],      // total stock per upload day, for the dashboard chart
+  // Ingatan harga label: { erp, supplier, harga, poNo, oleh, tanggal }, satu
+  // baris per pasangan (ERP, pemasok). Mengisi kolom HARGA di Label Request
+  // dan jadi pembanding untuk peringatan "harga berubah". BUKAN daftar harga
+  // resmi dan tidak menahan apa pun — lihat core/labelPricesApi.js.
+  labelPrices: [],
 
   // Sheet order (local / export / newitems / 加急优先下单) dari workbook yang
   // sama dengan tracker — APA YANG SONA MINTA DIBELI, mentah, sebelum diadu
