@@ -3,11 +3,12 @@ import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.j
 import { t, tr } from '../i18n/index.js';
 import { badge, btn, icon, driveLink, inputEl, modal, field, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring } from '../ui/components.js';
 import { uploadToDrive } from '../core/drive.js';
-import { insertDesign, updateDesign, deleteDesign } from '../core/designsApi.js';
+import { insertDesign, updateDesign, deleteDesign, replaceArtwork } from '../core/designsApi.js';
 import { linkOutbox } from '../core/driveOutbox.js';
 import { can } from '../auth/roles.js';
 import { blockWrite } from '../core/guard.js';
 import { renderThumb } from '../parsers/pdf.js';
+import { fmtDate } from '../core/format.js';
 import { warnaMerek } from '../ui/brands.js';
 
 // Kotak di jendela saring Design Library. Persis apa yang tertulis di kartunya:
@@ -175,7 +176,8 @@ function previewModal(st, d) {
 // link: those come from an upload, and letting them be typed here would create
 // a card that claims a file nobody can open.
 function editModal(st, d) {
-  const draft = { erp: d.erp || '', spec: d.spec || '', brand: d.brand || '', market: d.market || '', ver: d.ver || '' };
+  // `ver` sengaja TIDAK ada di draft: dia bukan lagi field yang diketik.
+  const draft = { erp: d.erp || '', spec: d.spec || '', brand: d.brand || '', market: d.market || '' };
   const close = () => setUI({ libEdit: false });
 
   const f = (label, key, ph) => field(label, inputEl({
@@ -192,18 +194,154 @@ function editModal(st, d) {
         f(tr({ id: 'Brand', en: 'Brand', zh: '品牌' }), 'brand', 'NEBULA'),
         f(tr({ id: 'Market', en: 'Market', zh: '市场' }), 'market', 'ID-…'),
       ]),
-      f(tr({ id: 'Versi', en: 'Version', zh: '版本' }), 'ver', 'v1'),
-      h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', lineHeight: 1.5 } }, tr({
-        id: 'Gambar dan link Drive tidak diedit di sini — keduanya datang dari file yang diupload. Untuk mengganti gambarnya, upload desain baru.',
-        en: 'The image and Drive link are not edited here — both come from the uploaded file. To change the artwork, upload a new design.',
-        zh: '图片与 Drive 链接不在此处编辑 — 两者均来自上传的文件。如需更换图稿，请上传新设计。',
-      })),
+      // VERSI TIDAK BISA DIKETIK. Dia naik sendiri setiap artwork diganti —
+      // lihat gantiArtwork(). Kotak yang bisa diketik berarti suatu hari ada dua
+      // artwork berbeda yang memakai nomor yang sama, dan riwayat yang dua
+      // barisnya bernama v2 tidak bisa menjawab pertanyaan apa pun.
+      field(tr({ id: 'Versi', en: 'Version', zh: '版本' }), h('div.row.gap8', { style: { alignItems: 'center' } }, [
+        badge(d.ver || 'v1', 'blue'),
+        h('span', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, tr({
+          id: 'naik sendiri tiap artwork diganti',
+          en: 'increments automatically when the artwork is replaced',
+          zh: '更换图稿时自动递增',
+        })),
+      ])),
+
+      // GANTI ARTWORK. Sampai v15.1 blok ini cuma kalimat yang bilang "upload
+      // desain baru" — dan yang menurutinya mendapat kartu KEDUA untuk kode ERP
+      // yang sama, bukan versi baru dari yang lama. Label berubah karena SNI dan
+      // NPB diperbarui, dan itu penggantian, bukan desain baru.
+      h('div', { style: { borderTop: '1px solid var(--line)', paddingTop: '10px', marginTop: '2px' } }, [
+        h('div', { style: { fontSize: '11px', fontWeight: 700, marginBottom: '6px' } }, tr({
+          id: 'Artwork', en: 'Artwork', zh: '图稿',
+        })),
+        h('div.row.gap12', { style: { alignItems: 'flex-start' } }, [
+          d.thumb
+            ? h('img', { src: d.thumb, alt: d.erp, style: { width: '58px', height: '82px', objectFit: 'contain', background: 'var(--bg-2)', borderRadius: '4px', border: '1px solid var(--line)' } })
+            : h('div', { style: { width: '58px', height: '82px', borderRadius: '4px', background: 'var(--bg-2)', border: '1px solid var(--line)' } }),
+          h('div.stack', { style: { gap: '6px', flex: 1 } }, [
+            btn(tr({ id: 'Ganti artwork…', en: 'Replace artwork…', zh: '更换图稿…' }), {
+              sm: true, iconName: 'upload', onClick: () => gantiArtwork(d),
+            }),
+            h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', lineHeight: 1.5 } }, tr({
+              id: `Upload berkas baru untuk SNI/NPB yang diperbarui. Versinya naik sendiri, dan artwork lama disimpan di riwayat — tidak ada yang hilang.`,
+              en: `Upload a new file for an updated SNI/NPB. The version increments itself and the old artwork is kept in the history — nothing is lost.`,
+              zh: `为更新后的 SNI/NPB 上传新文件。版本会自动递增，旧图稿保留在历史记录中 — 不会丢失任何内容。`,
+            })),
+          ]),
+        ]),
+        riwayatBlok(d),
+      ]),
     ]),
     footer: h('div.row.gap8', { style: { justifyContent: 'flex-end', width: '100%' } }, [
       btn(t('cancel'), { onClick: close }),
       btn(t('save'), { variant: 'primary', onClick: () => saveEdit(d, draft) }),
     ]),
   });
+}
+
+// Versi berikutnya dari yang sekarang. "v3" -> "v4". Apa pun yang tidak berpola
+// vN — penomoran supplier, sesuatu yang diketik sebelum kotaknya dikunci —
+// diberi akhiran ".1" daripada ditebak: menebak berarti dua artwork bisa berbagi
+// satu nomor, dan itu persis yang riwayat ini ada untuk mencegahnya.
+function versiBerikut(ver) {
+  const m = String(ver || '').match(/^v(\d+)$/i);
+  if (m) return 'v' + (Number(m[1]) + 1);
+  return (String(ver || '').trim() || 'v1') + '.1';
+}
+
+// Riwayat artwork: versi-versi sebelumnya, yang terbaru di atas. Ditampilkan
+// sebagai gambar, bukan daftar tautan — yang bertanya "SNI yang lama bentuknya
+// gimana" sedang mencari GAMBAR, dan nama berkas tidak menjawabnya.
+function riwayatBlok(d) {
+  const riw = (d.riwayat || []).slice().reverse();
+  if (!riw.length) return null;
+  return h('div', { style: { marginTop: '10px' } }, [
+    h('div', { style: { fontSize: '10.5px', fontWeight: 700, color: 'var(--text-3)', marginBottom: '6px' } }, tr({
+      id: `Riwayat artwork (${riw.length})`, en: `Artwork history (${riw.length})`, zh: `图稿历史（${riw.length}）`,
+    })),
+    h('div.row.gap8.wrap', riw.map(r => h('div', {
+      style: { width: '72px', fontSize: '9.5px', color: 'var(--text-3)', textAlign: 'center' },
+      title: `${r.ver} · ${r.tanggal || '—'} · ${r.oleh || '—'}`,
+    }, [
+      r.thumb
+        ? h('img', { src: r.thumb, alt: r.ver, style: { width: '72px', height: '96px', objectFit: 'contain', background: 'var(--bg-2)', borderRadius: '4px', border: '1px solid var(--line)' } })
+        : h('div', { style: { width: '72px', height: '96px', borderRadius: '4px', background: 'var(--bg-2)', border: '1px solid var(--line)' } }),
+      h('div', { style: { marginTop: '3px', fontWeight: 700 } }, r.ver || '—'),
+      h('div', r.tanggal || '—'),
+      // Berkas lamanya tidak pernah dihapus dari Drive; tautannya disimpan di
+      // sini supaya tetap bisa ditemukan sesudah baris ini menunjuk ke yang baru.
+      r.driveUrl ? driveLink(r.driveUrl) : null,
+    ]))),
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// GANTI ARTWORK.
+//
+// Urutannya SENGAJA: unggah dulu, baru tulis basis data, dan status lokal paling
+// akhir. Kalau unggahannya gagal, tidak ada yang berubah sama sekali; kalau
+// tulis basis datanya gagal, kartunya masih menunjuk artwork LAMA — yang benar,
+// karena penggantiannya memang tidak jadi.
+//
+// Kebalikannya — menaikkan versi lebih dulu lalu mengunggah — menghasilkan kartu
+// bertuliskan v2 yang gambarnya masih v1, dan tidak ada di layar yang
+// membedakannya dari penggantian yang berhasil.
+//
+// Berkas yatim di Drive tetap mungkin kalau tulis basis datanya gagal sesudah
+// unggahannya sukses. Itu utang teknis yang sudah dikenal untuk ketiga alur
+// unggah lain (lihat guard.js), bukan yang baru di sini.
+async function gantiArtwork(d) {
+  if (blockWrite('upload desain label')) return;
+  const files = await pickFiles({ accept: 'image/*,.pdf', multiple: false });
+  if (!files || !files[0]) return;
+  const file = files[0];
+
+  toast(t('loading'));
+  const up = await uploadToDrive(file, 'LabelDesigns/', file.name);
+  const url = up.placeholder ? '' : up.url;
+  // Dirender dari berkas yang MASIH DI TANGAN, bukan ditarik balik dari Drive —
+  // sama seperti uploadDesign(). Gagal render tidak fatal: kartunya jatuh ke
+  // warna merek, persis seperti desain tanpa thumb.
+  const thumb = await renderThumb(file).catch(() => '');
+
+  const st = getState();
+  const verBaru = versiBerikut(d.ver);
+  // Yang LAMA yang masuk riwayat, bukan yang baru. Baris ini selalu memegang
+  // artwork yang berlaku sekarang; riwayat memegang yang sudah tidak.
+  const riwayat = [...(d.riwayat || []), {
+    ver: d.ver || 'v1',
+    driveUrl: d.driveUrl || '',
+    thumb: d.thumb || '',
+    tanggal: fmtDate(new Date()),
+    oleh: st.user.username,
+  }];
+  const patch = { driveUrl: url, thumb, ver: verBaru, updated: fmtDate(new Date()), riwayat };
+
+  try {
+    await replaceArtwork(d.id, patch);
+    if (up.outboxId) await linkOutbox(up.outboxId, 'designs', d.id, 'url');
+  } catch (e) {
+    console.error('replaceArtwork failed', e);
+    toast({
+      id: 'Gagal ganti artwork: ' + (e.message || e) + ' — artwork lama masih terpakai.',
+      en: 'Failed to replace the artwork: ' + (e.message || e) + ' — the old artwork is still in use.',
+      zh: '更换图稿失败：' + (e.message || e) + ' — 仍在使用旧图稿。',
+    });
+    return;
+  }
+
+  Object.assign(d, patch, { designUrl: URL.createObjectURL(file) });
+  logAudit({
+    entity: 'design', target: d.erp, action: 'ganti artwork',
+    detail: `${riwayat[riwayat.length - 1].ver} → ${verBaru} · ${file.name}`,
+  });
+  toast({
+    id: `Artwork diganti — sekarang ${verBaru}. Versi lama tersimpan di riwayat.`,
+    en: `Artwork replaced — now ${verBaru}. The previous version is kept in the history.`,
+    zh: `图稿已更换 — 当前为 ${verBaru}。上一版本已保留在历史记录中。`,
+  });
+  setState({});
 }
 
 async function saveEdit(d, draft) {
@@ -213,7 +351,8 @@ async function saveEdit(d, draft) {
     toast({ id: 'Kode ERP tidak boleh kosong.', en: 'The ERP code cannot be empty.', zh: 'ERP 编码不能为空。' });
     return;
   }
-  const patch = { erp, spec: (draft.spec || '').trim() || '—', brand: (draft.brand || '').trim() || '—', market: (draft.market || '').trim() || '—', ver: (draft.ver || '').trim() || d.ver };
+  // Tanpa `ver`: nomornya cuma bergerak lewat gantiArtwork(), tidak lewat form.
+  const patch = { erp, spec: (draft.spec || '').trim() || '—', brand: (draft.brand || '').trim() || '—', market: (draft.market || '').trim() || '—' };
   const before = { ...d };
   try {
     await updateDesign(d.id, patch);

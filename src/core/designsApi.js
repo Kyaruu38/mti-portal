@@ -17,10 +17,10 @@
 import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
 
 function fromRow(row) {
-  return { id: row.id, erp: row.erp, spec: row.spec, brand: row.brand, market: row.market, ver: row.ver, updated: row.updated, driveUrl: row.drive_url, thumb: row.thumb || '', status: row.status };
+  return { id: row.id, erp: row.erp, spec: row.spec, brand: row.brand, market: row.market, ver: row.ver, updated: row.updated, driveUrl: row.drive_url, thumb: row.thumb || '', status: row.status, riwayat: row.riwayat || [] };
 }
 function toRow(d) {
-  return { erp: d.erp || null, spec: d.spec || null, brand: d.brand || null, market: d.market || null, ver: d.ver || null, updated: d.updated || null, drive_url: d.driveUrl || null, thumb: d.thumb || null, status: d.status || 'active' };
+  return { erp: d.erp || null, spec: d.spec || null, brand: d.brand || null, market: d.market || null, ver: d.ver || null, updated: d.updated || null, drive_url: d.driveUrl || null, thumb: d.thumb || null, status: d.status || 'active', riwayat: d.riwayat || [] };
 }
 
 export async function fetchDesigns() {
@@ -57,6 +57,52 @@ export async function updateDesign(id, patch) {
   if ('ver' in patch) row.ver = patch.ver;
   if (!Object.keys(row).length) return;
   const { error } = await c.from('designs').update(row).eq('id', id);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// MENGGANTI ARTWORK — satu-satunya jalan yang boleh menyentuh thumb + drive_url.
+//
+// updateDesign() di atas SENGAJA tidak bisa, dan itu tetap benar: form teks yang
+// bisa menulis ulang dua kolom itu menghasilkan kartu yang menyebut berkas yang
+// tidak bisa dibuka siapa pun. Yang berubah di sini bukan aturannya — tapi
+// sumbernya: nilai-nilai ini datang dari UNGGAHAN, sama persis seperti waktu
+// desainnya pertama kali masuk.
+//
+// KENAPA VERSI LAMA DISIMPAN, BUKAN DITIMPA
+// SNI dan NPB adalah kewajiban regulasi, dan artwork yang berlaku bulan lalu
+// bisa berbeda dari yang berlaku sekarang. Menimpa di tempat membuat portal
+// berhenti bisa menjawab "label versi mana yang berlaku waktu kiriman Juli
+// dicetak" — dan itu justru pertanyaan yang muncul waktu ada audit atau barang
+// tertahan. Berkas lamanya memang tidak pernah dihapus dari Drive, tapi
+// tautannya di baris ini ikut tertimpa, jadi praktis tidak bisa ditemukan lagi.
+//
+// riwayat[] menyimpan {ver, driveUrl, thumb, tanggal, oleh} tiap versi
+// sebelumnya. Pola yang sama dengan ppkek.docs dan pos.items: kolom jsonb di
+// baris yang sama, bukan tabel anak — datanya tidak pernah ditanya sendirian dan
+// selalu dibaca bersama desain yang memilikinya.
+//
+// Butuh supabase_designs_riwayat.sql. TANPA kolom itu penggantian artwork tetap
+// jalan dan versinya tetap naik; yang hilang cuma riwayatnya — PostgREST menolak
+// kolom yang tidak dikenal, jadi kirim ulang tanpa field itu daripada
+// menggagalkan seluruh penggantiannya.
+export async function replaceArtwork(id, patch) {
+  if (!isConfigured()) return;
+  const c = await getClient();
+  if (!c) throw new Error('Supabase client unavailable');
+  const row = {
+    drive_url: patch.driveUrl || null,
+    thumb: patch.thumb || null,
+    ver: patch.ver,
+    updated: patch.updated || null,
+    riwayat: patch.riwayat || [],
+  };
+  let { error } = await c.from('designs').update(row).eq('id', id);
+  if (error && /riwayat/i.test(error.message || '')) {
+    console.warn('Kolom designs.riwayat belum ada — artwork tetap diganti, riwayat tidak tersimpan. Jalankan supabase_designs_riwayat.sql.');
+    delete row.riwayat;
+    ({ error } = await c.from('designs').update(row).eq('id', id));
+  }
   if (error) throw error;
 }
 
