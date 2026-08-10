@@ -62,7 +62,12 @@ samples/
 *.rar
 *.zip
 
-HANDOVER-*.md
+# HANDOVER*.md tanpa tanda hubung — polanya dulu "HANDOVER-*.md", yang TIDAK
+# cocok dengan HANDOVER.md. Ketahuan waktu git status menampilkannya sebagai
+# untracked sesudah handover berhenti memakai tanggal di namanya. Repo ini
+# publik dan berkas itu memuat nama pemasok, nomor pendaftaran pabean, dan nilai
+# pembelian.
+HANDOVER*.md
 PANDUAN*.md
 PPKEK-ANALISA.md
 PESAN-COMMIT-*.txt
