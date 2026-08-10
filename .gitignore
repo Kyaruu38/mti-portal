@@ -68,6 +68,18 @@ samples/
 # publik dan berkas itu memuat nama pemasok, nomor pendaftaran pabean, dan nilai
 # pembelian.
 HANDOVER*.md
+
+# Laporan audit — dan ini yang PALING tidak boleh masuk repo publik dari seluruh
+# daftar ini. Isinya bukan sekadar nama pemasok dan nilai pembelian, tapi peta
+# lengkap di mana lubangnya berada dan bagaimana mencapainya.
+#
+# Ketahuan dari `git status --short` yang menampilkannya sebagai untracked —
+# persis cara HANDOVER.md ketahuan sehari sebelumnya. Dua kali dari sebab yang
+# sama: berkas kerja baru dibuat di root dengan nama yang tidak cocok pola mana
+# pun. Sebelum menambah berkas kerja apa pun ke root, tambahkan polanya di sini
+# LEBIH DULU — bukan sesudah git status mengingatkan.
+AUDIT*.md
+
 PANDUAN*.md
 PPKEK-ANALISA.md
 PESAN-COMMIT-*.txt
