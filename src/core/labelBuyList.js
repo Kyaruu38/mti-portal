@@ -319,4 +319,19 @@ export function gabungDenganPortal(st, daftar) {
 // barang yang stoknya sudah berlebih harus mencentangnya sendiri, satu per satu,
 // dan portal mencatat siapa yang melakukannya. Sekali "Pilih semua" ikut
 // mencentangnya, seluruh peringatannya jadi hiasan.
-export const bolehPilihSemua = r => r.tanda !== TANDA.STOP;
+// BARIS PORTAL JUGA TIDAK IKUT — alasan yang sama, dari arah berlawanan.
+//
+// Baris STOP dilewati karena SUDAH diminta padahal stoknya berlebih. Baris
+// portal dilewati karena BELUM diminta siapa pun: dia usulan aritmatika stok,
+// bukan permintaan seseorang.
+//
+// Ketahuan waktu Kyaru membuka BUY NOW dan bertanya mana yang sudah disetujui
+// sona. Jawabannya NOL dari dua puluh dua — berkas order bulan itu belum
+// diunggah sama sekali — sementara layarnya menawarkan "Pilih semua yang aman"
+// yang akan mencentang kedua puluh duanya sekaligus.
+//
+// Tetap BISA dicentang satu per satu. Portal menemukan kekurangan yang nyata
+// (v13.5: 140 spec, 345.400 pcs yang labelnya tidak pernah dihitung), dan
+// menyembunyikan temuan itu jauh lebih mahal daripada meminta satu klik. Yang
+// dicabut cuma kemudahan memesannya massal tanpa melihatnya satu-satu.
+export const bolehPilihSemua = r => r.tanda !== TANDA.STOP && r.asal !== 'portal';

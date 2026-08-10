@@ -1124,6 +1124,33 @@ const TANDA_UI = {
   [TANDA.OK]:   { tone: 'green', label: { id: '✓ aman', en: '✓ clear', zh: '✓ 可采购' } },
 };
 
+// SIAPA YANG MENARUH BARIS INI DI SINI.
+//
+// BUY NOW menjawab DUA pertanyaan sekaligus — "apa yang sona minta" dan "apa
+// yang menurut angka kurang" — dan sampai v15.0 keduanya tampil identik: badge
+// hijau ✓ aman yang sama, kolom Pesan yang sama-sama terisi, dan ikut tercentang
+// oleh "Pilih semua yang aman" yang sama. Satu-satunya pembeda adalah dua kolom
+// teks abu-abu kecil.
+//
+// Ketahuan waktu Kyaru bertanya mana dari 22 baris yang sudah disetujui sona.
+// Jawabannya NOL, dan tidak ada satu pun elemen di layar yang mengatakannya.
+// Layar ini dipakai untuk memutuskan pengeluaran; sumber sebuah baris adalah hal
+// PERTAMA yang harus terbaca, bukan yang terakhir.
+//
+// Hijau "✓ aman" pada baris portal juga pernyataan yang KELIRU: hijau berarti
+// "file dan portal sepakat", dan pada baris portal tidak ada file yang bisa
+// diajak sepakat.
+const SUMBER_UI = {
+  file:   { tone: 'blue', label: { id: 'SONA',   en: 'SONA',   zh: '索娜' } },
+  portal: { tone: 'gray', label: { id: 'PORTAL', en: 'PORTAL', zh: '门户' } },
+};
+const sumberDari = r => (r.asal === 'portal' ? 'portal' : 'file');
+
+// Menggantikan hijau "✓ aman" pada baris portal. Bukan karena barisnya
+// bermasalah — tapi karena belum ada yang memintanya, dan itu fakta yang
+// berbeda dari "aman untuk dibeli".
+const USULAN_PORTAL = { id: 'usulan portal — belum diminta', en: 'portal suggestion — not requested', zh: '门户建议 — 尚未申请' };
+
 // Disusun ulang tiap render dari data mentah — lihat catatan labelBuyRaw di
 // core/store.js. Tanpa berkas order, hasilnya persis daftar lama: baris BUY NOW
 // hitungan portal, tidak lebih dan tidak kurang.
@@ -1172,6 +1199,14 @@ const MEDAN_BELI = (semua) => {
     { kunci: 'erp', label: tr({ id: 'ERP', en: 'ERP', zh: 'ERP' }), tipe: 'teks', mono: true, ambil: r => r.erp },
     { kunci: 'market', label: tr({ id: 'Market', en: 'Market', zh: '市场' }), tipe: 'pilih', opsi: unik(r => r.market), ambil: r => r.market },
     { kunci: 'brand', label: tr({ id: 'Brand', en: 'Brand', zh: '品牌' }), tipe: 'pilih', opsi: unik(r => r.brand), ambil: r => r.brand },
+    // Menyaring ke PORTAL saja adalah cara tercepat menjawab "apa yang belum
+    // diminta siapa pun" — pertanyaan yang sebelumnya cuma bisa dijawab dengan
+    // membuka tiap halaman dan membaca kolom Kategori satu per satu.
+    {
+      kunci: 'sumber', label: tr({ id: 'Sumber', en: 'Source', zh: '来源' }), tipe: 'pilih',
+      opsi: ['file', 'portal'].filter(k => (semua || []).some(r => sumberDari(r) === k)).map(k => tr(SUMBER_UI[k].label)),
+      ambil: r => tr(SUMBER_UI[sumberDari(r)].label),
+    },
     kategori.length ? {
       kunci: 'kategori', label: tr({ id: 'Kategori', en: 'Category', zh: '类别' }), tipe: 'pilih',
       // Opsi DAN isi yang dibandingkan sama-sama teks terjemahannya, persis
@@ -1209,18 +1244,52 @@ function buyNowTab(st) {
     sub ? h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', marginTop: '2px' } }, sub) : null,
   ]);
 
+  // KARTUNYA SELALU TAMPIL, TERMASUK WAKTU NOL.
+  //
+  // Dulu seluruh deretan ini disembunyikan kalau `dariFile === 0`, jadi layarnya
+  // paling diam justru pada satu keadaan yang paling perlu diucapkan: sona belum
+  // mengunggah apa pun, dan setiap baris di bawah adalah usulan portal yang
+  // tidak diminta siapa pun. Yang membukanya melihat daftar hijau rapi dan
+  // menyimpulkan daftar itu sudah disetujui.
+  //
+  // "DIMINTA SONA: 0" adalah kalimat. Kartu yang hilang bukan apa-apa.
+  const nSheet = ((st.labelBuyRaw || {}).bagian || []).length;
   return h('div.stack', [
-    dariFile ? h('div.row.gap8.wrap', [
-      tile(tr({ id: 'DIMINTA DI FILE', en: 'REQUESTED IN FILE', zh: '文件中申请' }), num(dariFile),
-        tr({ id: `${(st.labelBuyRaw.bagian || []).length} sheet order`, en: `${(st.labelBuyRaw.bagian || []).length} order sheets`, zh: `${(st.labelBuyRaw.bagian || []).length} 个订单工作表` })),
+    h('div.row.gap8.wrap', [
+      tile(tr({ id: 'DIMINTA SONA', en: 'REQUESTED BY SONA', zh: '索娜申请' }), num(dariFile),
+        nSheet
+          ? tr({ id: `${nSheet} sheet order`, en: `${nSheet} order sheets`, zh: `${nSheet} 个订单工作表` })
+          : tr({ id: 'belum ada berkas order', en: 'no order file yet', zh: '尚无订单文件' }),
+        dariFile ? 'blue' : null),
       tile(tr({ id: 'PORTAL: HARUS BELI', en: 'PORTAL: MUST BUY', zh: '门户：需采购' }), num(dariPortal),
-        tr({ id: 'tidak diminta di file', en: 'not requested in the file', zh: '文件中未申请' }), 'red'),
+        tr({ id: 'belum diminta siapa pun', en: 'not requested by anyone', zh: '无人申请' }), dariPortal ? 'red' : null),
       tile(tr({ id: '⛔ STOP', en: '⛔ STOP', zh: '⛔ 停止' }), num(s.stop),
         tr({ id: 'diminta tapi stok berlebih', en: 'requested but overstocked', zh: '已申请但库存过剩' }), s.stop ? 'red' : null),
       tile(tr({ id: 'TAK BISA DICEK', en: 'CANNOT CHECK', zh: '无法核对' }), num(s.cek),
         tr({ id: 'belum ada di tracker', en: 'not in the tracker yet', zh: '跟踪表中尚无' }), s.cek ? 'amber' : null),
-      tile(tr({ id: 'AMAN', en: 'CLEAR', zh: '可采购' }), num(s.ok + dariPortal),
-        tr({ id: 'file & portal sepakat', en: 'file and portal agree', zh: '文件与门户一致' }), 'green'),
+      // s.ok saja, TANPA dariPortal. Angka ini berarti "diminta sona DAN portal
+      // setuju"; menambahkan baris yang tidak ada di file mana pun ke dalamnya
+      // membuat satu-satunya angka hijau di layar menghitung barang yang belum
+      // diminta siapa pun.
+      tile(tr({ id: 'AMAN', en: 'CLEAR', zh: '可采购' }), num(s.ok),
+        tr({ id: 'diminta sona & portal setuju', en: 'requested by sona, portal agrees', zh: '索娜已申请且门户认可' }), s.ok ? 'green' : null),
+    ]),
+
+    // Spanduknya terpisah dari kartunya, dan sengaja: angka 0 masih bisa
+    // terlewat oleh mata yang sedang mencari daftar belanja. Kalimat tidak.
+    !dariFile && dariPortal ? h('div.cfg-banner', {
+      style: { display: 'block', background: 'var(--st-amber-bg)', color: 'var(--st-amber-tx)', borderColor: 'var(--st-amber-tx)' },
+    }, [
+      h('div', { style: { fontWeight: 700 } }, [icon('warn', 14), tr({
+        id: ` Sona belum mengunggah berkas order bulan ini — belum ada satu baris pun yang diminta.`,
+        en: ` Sona has not uploaded this month's order file — not one row here has been requested.`,
+        zh: ` 索娜尚未上传本月订单文件 — 此处没有任何一行是被申请的。`,
+      })]),
+      h('div', { style: { fontSize: '11.5px', marginTop: '4px', fontWeight: 400 } }, tr({
+        id: `Seluruh ${dariPortal} baris di bawah adalah hitungan portal: stok di bawah kebutuhan menurut rencana produksi. Berguna sebagai peringatan, tapi belum tentu perlu dibeli sekarang — angkanya belum dilihat orang yang memegang labelnya. "Pilih semua" sengaja melewatinya.`,
+        en: `All ${dariPortal} rows below are the portal's own arithmetic: stock below requirement according to the production plan. Useful as a warning, but not necessarily something to buy today — nobody who handles the labels has looked at these numbers yet. "Select all" deliberately skips them.`,
+        zh: `下方全部 ${dariPortal} 行均为门户自身的计算：按生产计划，库存低于需求量。可作为提醒，但未必现在就需要采购 — 负责标签的人尚未看过这些数字。“全选”会有意跳过它们。`,
+      })),
     ]) : null,
 
     s.stop ? bannerStop(semua) : null,
@@ -1293,6 +1362,18 @@ function qtyPesan(st, r) {
 // rows = yang LOLOS saringan (yang kelihatan di tabel), semua = seluruh daftar
 // beli. Perbedaan keduanya adalah seluruh isi catatan panjang di bawah ini.
 function barKirim(st, rows, semua) {
+  // SELURUH BARIS AKSI HILANG UNTUK YANG TIDAK BISA MENGIRIM.
+  //
+  // "Kirim ke Label Request" sudah lama dijaga `labelRequestAsk`, dan cuma sona
+  // yang punya — jadi pembagiannya sudah benar sejak v14.5: sona yang meminta,
+  // purchasing yang menjadikannya PO. Yang tertinggal adalah SISA layarnya.
+  //
+  // wilbert, cania, visca, sekar dan cenjc tetap melihat "Pilih semua yang
+  // aman", tetap bisa mencentang 22 baris, tetap bisa mengubah angka di kolom
+  // Pesan — lalu tidak menemukan tombol apa pun untuk mengirimkannya. Kontrol
+  // yang tidak menuju ke mana-mana bukan sekadar berantakan; dia mengajarkan
+  // bahwa mencentang di layar ini berarti sesuatu, padahal tidak.
+  if (!can(st.user.role, 'labelRequestAsk')) return null;
   const sel = st.ui.lsPick || {};
   // DIHITUNG DARI SELURUH DAFTAR, BUKAN DARI YANG TAMPIL.
   //
@@ -1614,12 +1695,14 @@ function tabelBeli(st, rows, semua, adaFilter) {
     }))]);
   }
   const sel = st.ui.lsPick || {};
+  // Kolom centang ikut hilang untuk yang tidak bisa mengirim — lihat barKirim().
+  const bisaCentang = can(st.user.role, 'labelRequestAsk');
   const hal = halaman(rows, st, 'lsbPage', 'lsbSize');
   const head = [
     tr({ id: 'Spec', en: 'Spec', zh: '规格' }),
     tr({ id: 'Market', en: 'Market', zh: '市场' }),
     tr({ id: 'Brand', en: 'Brand', zh: '品牌' }),
-    tr({ id: 'Kategori', en: 'Category', zh: '类别' }),
+    tr({ id: 'Sumber', en: 'Source', zh: '来源' }),
     tr({ id: 'Stok', en: 'Stock', zh: '库存' }),
     tr({ id: 'Kebutuhan', en: 'Requirement', zh: '需求量' }),
     tr({ id: 'Status', en: 'Status', zh: '状态' }),
@@ -1628,7 +1711,7 @@ function tabelBeli(st, rows, semua, adaFilter) {
   ];
   return h('div.card', [h('div.tbl-wrap', h('table.tbl', [
     h('thead', h('tr', [
-      h('th', { style: { width: '34px' } }),
+      bisaCentang ? h('th', { style: { width: '34px' } }) : null,
       ...head.map((c, i) => h('th' + (i >= 4 && i !== 6 ? '.r' : ''), c)),
     ])),
     h('tbody', hal.items.length ? hal.items.map(r => {
@@ -1639,7 +1722,7 @@ function tabelBeli(st, rows, semua, adaFilter) {
         // bukan barisnya menghilang.
         style: r.tanda === TANDA.STOP ? { background: 'var(--st-red-bg)' } : {},
       }, [
-        h('td', h('input', {
+        bisaCentang ? h('td', h('input', {
           type: 'checkbox', checked: !!sel[r.kunci],
           style: { accentColor: 'var(--accent)', cursor: 'pointer' },
           onChange: () => {
@@ -1647,7 +1730,7 @@ function tabelBeli(st, rows, semua, adaFilter) {
             if (s[r.kunci]) delete s[r.kunci]; else s[r.kunci] = true;
             setUI({ lsPick: s });
           },
-        })),
+        })) : null,
         h('td.cell-strong', { style: { maxWidth: '300px' } }, [
           r.spec,
           r.erp ? h('div.mono', { style: { fontSize: '9.5px', color: 'var(--text-3)' } }, r.erp) : null,
@@ -1682,13 +1765,27 @@ function tabelBeli(st, rows, semua, adaFilter) {
             : null,
         ]),
         h('td', { style: { fontSize: '11px' } }, r.brand || '—'),
-        h('td', r.kategori
-          ? badge(tr(labelKategori(r.kategori)), r.kategori === 'urgent' ? 'red' : 'blue')
-          : h('span', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, tr({ id: 'dari portal', en: 'from portal', zh: '来自门户' }))),
+        // SUMBER dulu, kategori sesudahnya. Yang lama menaruh kategori di sini
+        // dan menulis "dari portal" sebagai teks abu-abu 10.5px — terbaca
+        // sebagai keterangan kaki, bukan sebagai jawaban atas "siapa yang minta
+        // ini". Sekarang dua-duanya lencana, dan yang menjawab pertanyaan
+        // terpenting berdiri di depan.
+        h('td', [
+          badge(tr(SUMBER_UI[sumberDari(r)].label), SUMBER_UI[sumberDari(r)].tone),
+          r.kategori
+            ? h('span', { style: { marginLeft: '4px' } },
+                badge(tr(labelKategori(r.kategori)), r.kategori === 'urgent' ? 'red' : 'blue'))
+            : null,
+        ]),
         h('td.mono.r', { style: { color: 'var(--text-3)' } }, r.stok == null ? '—' : num(r.stok)),
         h('td.mono.r', { style: { color: 'var(--text-3)' } }, r.kebutuhan == null ? '—' : num(r.kebutuhan)),
         h('td', [
-          badge(tr(t.label), t.tone),
+          // Baris portal TIDAK memakai hijau. Hijau di kolom ini berarti "file
+          // dan portal sepakat", dan pada baris yang tidak ada di file mana pun
+          // itu bukan penilaian yang lebih lunak — itu penilaian yang keliru.
+          r.asal === 'portal'
+            ? badge(tr(USULAN_PORTAL), 'gray')
+            : badge(tr(t.label), t.tone),
           r.status ? h('span', { style: { marginLeft: '4px' } }, badge(statusLabel(r.status), TONE[r.status] || 'gray')) : null,
         ]),
         h('td.mono.r', { style: { color: 'var(--text-2)' } }, r.minta == null ? '—' : num(r.minta)),
@@ -1710,7 +1807,10 @@ function tabelBeli(st, rows, semua, adaFilter) {
           },
         })),
       ]);
-    }) : barisTakCocok(head.length + 1, { id: 'ls-beli', adaFilter })),
+    // +1 hanya kalau kolom centangnya memang ada. Angka mati di sini membuat
+    // baris "tidak ada yang cocok" melar satu kolom melewati tabelnya sendiri
+    // untuk setiap peran selain sona.
+    }) : barisTakCocok(head.length + (bisaCentang ? 1 : 0), { id: 'ls-beli', adaFilter })),
   ])),
   // Pager disembunyikan waktu tidak ada hasil: "Tampilkan 10 · kosong" di bawah
   // tabel yang sudah bilang tidak ada yang cocok cuma mengulang kabar buruk
