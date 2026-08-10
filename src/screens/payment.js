@@ -1,6 +1,7 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { blockWrite } from '../core/guard.js';
+import { parseNumber } from '../parsers/numbers.js';
 import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, statusTone, driveLink, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
 import { money, num, fmtDate, romanMonth, daysUntil, topDays, addDays, ccyTone, CURRENCIES } from '../core/format.js';
@@ -716,11 +717,32 @@ function invoiceTable(st, opts) {
 //
 // Now it asks for the number and the file, and refuses to save a number that
 // cannot be one.
+// DRAFNYA DI TINGKAT MODUL, BUKAN VARIABEL LOKAL — pola yang sama dengan DRAF
+// Map di ui/components.js, dan alasannya persis sama.
+//
+// mount() tidak punya diffing: dia membangun ulang seluruh pohon. Draf yang
+// hidup sebagai `const` di dalam fungsi render dibuat ulang oleh render apa pun,
+// dari mana pun. Dan modal ini MEMICU sendiri render itu — dropzone-nya
+// memanggil setUI({}) supaya nama berkasnya muncul.
+//
+// Akibatnya yang menjatuhkan PDF faktur kehilangan berkasnya DAN nomor yang
+// sudah diketiknya, dan layarnya kembali seperti belum ada apa-apa. Diketik
+// ulang lalu Save menyimpan nomornya TANPA lampiran, dengan centang hijau —
+// dokumen yang tenggatnya jalan terus terlihat sudah beres.
+//
+// invoiceModal() di berkas yang sama melakukan hal identik dan JALAN, karena
+// drafnya st.ui.invoiceForm. Ini satu-satunya yang tertinggal di luar state.
+//
+// Dikunci per-invoice: dua invoice yang dibuka bergantian tidak boleh saling
+// mewarisi ketikan.
+const FAKTUR_DRAF = new Map();
+
 function fakturModal(st) {
   const inv = st.invoices.find(i => i.id === st.ui.fakturFor);
   if (!inv) return null;
-  const draft = { no: inv.faktur || '', file: null };
-  const close = () => setUI({ fakturFor: null });
+  if (!FAKTUR_DRAF.has(inv.id)) FAKTUR_DRAF.set(inv.id, { no: inv.faktur || '', file: null });
+  const draft = FAKTUR_DRAF.get(inv.id);
+  const close = () => { FAKTUR_DRAF.delete(inv.id); setUI({ fakturFor: null }); };
 
   const numInput = inputEl({
     value: draft.no, mono: true, placeholder: '010.005-26.12345678',
@@ -812,6 +834,10 @@ async function saveFaktur(inv, draft) {
     entity: 'invoice', target: inv.no, action: before ? 'ubah faktur' : 'tambah faktur',
     detail: before ? `${before} → ${no}` : `${no}${draft.file ? ` · ${draft.file.name}` : ' · tanpa file'}`,
   });
+  // Draf dibuang di sini juga, bukan cuma di close(): tanpa ini invoice yang
+  // sama dibuka lagi akan menampilkan draf lama alih-alih nilai yang barusan
+  // tersimpan.
+  FAKTUR_DRAF.delete(inv.id);
   setUI({ fakturFor: null });
   toast({
     id: `Faktur pajak ${no} tersimpan`, en: `Tax invoice ${no} saved`, zh: `税票 ${no} 已保存`,
@@ -1147,7 +1173,13 @@ function invoiceModal() {
       field('PO Ref', inputEl({ value: f.poRef, onInput: v => (f.poRef = v) })),
       h('div.grid.g2', [
         field(tr({ id: 'Currency', en: 'Currency', zh: '币种' }), selectEl(['IDR', 'USD', 'CNY', 'EUR'], { value: f.currency, onChange: v => (f.currency = v) })),
-        field(t('col_amount'), inputEl({ mono: true, value: f.amount || '', onInput: v => (f.amount = Number(String(v).replace(/[,\s]/g, '')) || 0) })),
+        // parseNumber, BUKAN Number(replace(/[,\s]/g)). Yang lama adalah contoh cacat
+        // yang parsers/numbers.js:6 ditulis untuk menggantikan: dia membuang koma
+        // dan spasi tapi TIDAK membuang titik. Setiap nominal rupiah yang diketik
+        // apa adanya rusak — 12.500.000 tersimpan 0, dan 12.500 tersimpan 12,5.
+        // Tidak ada render ulang saat mengetik, jadi kotaknya TETAP menampilkan
+        // angka aslinya waktu Save ditekan, dan invoice IDR 0 lolos ke PRF.
+        field(t('col_amount'), inputEl({ mono: true, value: f.amount || '', onInput: v => { const n = parseNumber(v, 'id'); f.amount = Number.isFinite(n) ? n : 0; } })),
       ]),
       field(t('col_due'), h('input.input', { type: 'date', value: f.due, onInput: e => (f.due = e.target.value) })),
       field(tr({ id: 'Lampiran invoice', en: 'Invoice attachment', zh: '发票附件' }), attachment),
@@ -1507,8 +1539,16 @@ async function openPrf(chosen, currency, supplierObj) {
 // Learning bilingual description dictionary: prefill from prior entries.
 function descFor(inv) {
   const st = getState();
-  const po = st.pos.find(p => (p.contract && inv.poRef.includes(p.contract)) || p.no.includes((inv.poRef || '').replace('PO ', '')));
-  const hint = po && po.items[0] ? po.items[0].d : inv.poRef;
+  // PO Ref itu OPSIONAL, dan invoicesApi menulis po_ref: inv.poRef || null —
+  // jadi sesudah satu kali reload nilainya benar-benar null. Operan kedua sudah
+  // dijaga sejak dulu; yang pertama tidak, dan begitu ada satu PO dengan
+  // contract terisi, null.includes() melempar TypeError. openPrf() async, jadi
+  // hasilnya unhandled rejection: tombol "Preview PRF" tidak melakukan APA PUN,
+  // tanpa toast, tanpa kotak error, dan invoice itu tidak bisa dibayar lewat
+  // portal selamanya. Persis crash yang sudah diperbaiki di poPpnPaid().
+  const ref = String(inv.poRef || '');
+  const po = st.pos.find(p => (p.contract && ref.includes(p.contract)) || (p.no && p.no.includes(ref.replace('PO ', ''))));
+  const hint = po && po.items && po.items[0] ? po.items[0].d : (ref || '');
   const dictHit = st.descDict.find(d => hint && (hint.includes(d.en) || (d.zh && hint.includes(d.zh))));
   return dictHit ? `${dictHit.en} / ${dictHit.zh}` : hint;
 }

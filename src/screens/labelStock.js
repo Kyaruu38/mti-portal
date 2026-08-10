@@ -974,7 +974,17 @@ async function applyUpload() {
     detail: `${res.stats.imported} SKU masuk · ${res.stats.duplicated} dobel dilewati · ${res.stats.mismatched} rumus tidak cocok`
       + (plan ? ` · ${plan.stats.touched} angka rencana dikoreksi dari file (${plan.stats.toBuyNow} jadi BUY NOW)` : ''),
   });
-  setUI({ lsPreview: null, lsWb: null, lsSheets: null, lsSheet: null, lsFile: null, lsBox1: null, lsBox2: null, lsBox3: null, lsOrder: null });
+  // lsQty DAN lsPick ikut dibuang — dulu tertinggal, dan kuncinya (ERP##SPEC)
+  // stabil antar unggahan, jadi keduanya bertahan melewati berkas baru.
+  //
+  // Akibatnya: angka yang diedit tangan bulan lalu MENIMPA angka bulan ini —
+  // qtyPesan() dan kotak Pesan sama-sama mendahulukan ui.lsQty — dan di layar
+  // tidak bisa dibedakan dari usulan portal. Centangan yang belum sempat dikirim
+  // juga ikut hidup terus dan tetap dihitung oleh tombol kirim.
+  //
+  // Unggahan baru berarti angka baru. Apa pun yang diketik terhadap angka LAMA
+  // tidak punya arti lagi terhadap yang baru.
+  setUI({ lsPreview: null, lsWb: null, lsSheets: null, lsSheet: null, lsFile: null, lsBox1: null, lsBox2: null, lsBox3: null, lsOrder: null, lsQty: {}, lsPick: {} });
   toast(plan && plan.stats.touched
     ? {
         id: `${res.stats.imported} SKU tersimpan · ${plan.stats.touched} angka rencana dikoreksi dari file`,

@@ -4,7 +4,7 @@
 // any PO whose insert failed to sync) by partitioning on UUID_RE: the two
 // live in disjoint id spaces, so seed data can never be shadowed by a real
 // PO and a real PO can never be wiped by an empty/failing fetch (A3).
-import { getClient, isConfigured, UUID_RE, fetchAllPaged } from './supabase.js';
+import { getClient, isConfigured, UUID_RE, fetchAllPaged, assertWrote } from './supabase.js';
 
 export { UUID_RE };
 
@@ -121,8 +121,7 @@ export async function updatePoStatus(poId, patch) {
   if ('approvedBy' in patch) row.approved_by = patch.approvedBy;
   if ('approvedAt' in patch) row.approved_at = patch.approvedAt;
   if ('rejectNote' in patch) row.reject_note = patch.rejectNote;
-  const { error } = await c.from('pos').update(row).eq('id', poId);
-  if (error) throw error;
+  assertWrote(await c.from('pos').update(row).eq('id', poId).select('id'), 'ubah status PO');
 }
 
 // Full in-place edit (Edit PO feature) — overwrites every editable column via
@@ -139,8 +138,7 @@ export async function updatePO(poId, po) {
   // id — an empty lineId falls through to fromRow()'s positional fallback on
   // the next fetch and adopts a deleted line's shipment history.
   po.items = stampLineIds(po.items);
-  const { error } = await c.from('pos').update(toRow(po)).eq('id', poId);
-  if (error) throw error;
+  assertWrote(await c.from('pos').update(toRow(po)).eq('id', poId).select('id'), 'simpan perubahan PO');
 }
 
 // PENERIMAAN BARANG MENULIS SATU KOLOM SAJA: items.
@@ -161,8 +159,7 @@ export async function setPoItems(poId, items) {
   if (!isConfigured()) return;
   const c = await getClient();
   if (!c) throw new Error('Supabase client unavailable');
-  const { error } = await c.from('pos').update({ items }).eq('id', poId);
-  if (error) throw error;
+  assertWrote(await c.from('pos').update({ items }).eq('id', poId).select('id'), 'simpan baris PO');
 }
 
 export async function requestPoDelete(poId, reason) {

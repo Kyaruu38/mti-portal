@@ -180,3 +180,36 @@ export async function fetchAllPaged(makeQuery, pageSize = PAGE_SIZE) {
   }
   return { data: out, error: null };
 }
+
+// ---------------------------------------------------------------------------
+// PENOLAKAN RLS TERBACA SEBAGAI KEBERHASILAN — kecuali baris yang kena dihitung.
+//
+// PostgREST mengembalikan 204 TANPA error ketika RLS menyaring habis baris
+// kandidat sebuah UPDATE atau DELETE. Tidak ada `error`, tidak ada isi. Jadi
+//
+//     const { error } = await c.from('pos').update(row).eq('id', id);
+//     if (error) throw error;                    // <- tidak pernah menyala
+//
+// membaca penolakan total persis seperti keberhasilan. Enam belas dari tujuh
+// belas operasi tulis di repo ini berbentuk begitu, dan akibat terburuknya bukan
+// datanya tidak tersimpan — tapi lapisan di atasnya melanjutkan ke jalur sukses:
+// approve PO tetap membubuhkan cap perusahaan dan mengirim PDF bercap ke
+// supplier untuk PO yang di database masih "Menunggu Approval"; pembatalan PRF
+// melaporkan sukses lalu PRF-nya kembali besok, sesudah penggantinya dibuat.
+//
+// Dengan .select('id'), PostgREST mengembalikan baris yang BENAR-BENAR tersentuh.
+// Nol baris berarti RLS menolak, atau id-nya tidak ada. Keduanya kegagalan, dan
+// keduanya harus melempar supaya pemanggilnya masuk ke catch yang sudah ditulis.
+//
+// SENGAJA melempar, bukan mengembalikan false: tiap pemanggil sudah punya blok
+// catch yang menampilkan pesan dan menahan modalnya tetap terbuka. Nilai balik
+// baru berarti menambah cabang yang harus diingat orang, dan yang lupa
+// mengingatnya kembali ke perilaku hari ini.
+// ---------------------------------------------------------------------------
+export function assertWrote({ data, error }, apa) {
+  if (error) throw error;
+  if (!data || !data.length) {
+    throw new Error(`${apa}: server menolak — 0 baris tersentuh (kemungkinan besar hak akses, atau barisnya sudah tidak ada).`);
+  }
+  return data;
+}

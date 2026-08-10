@@ -181,9 +181,19 @@ function render() {
     if (!allowed.includes(st.screen) && !SELF_SERVICE.includes(st.screen)) { setState({ screen: allowed[0] }); return; }
     syncHash(st.screen);
     let screenEl;
-    const buat = fungsiLayar(st.screen);
-    if (gagal[st.screen]) {
-      screenEl = gagalMuat(st.screen, gagal[st.screen]);
+    // gagal[] DIBACA DULU, sebelum fungsiLayar() menghapusnya.
+    //
+    // fungsiLayar() melakukan `delete gagal[id]` sebelum memulai percobaan baru
+    // (baris ~78). Waktu pemanggilannya berdiri di ATAS pemeriksaan ini,
+    // benderanya selalu sudah terhapus sebelum sempat dibaca: kartu "Layar gagal
+    // dimuat" beserta tombol Coba lagi jadi kode mati, dan tiap kegagalan
+    // langsung memicu import ulang yang barusan gagal — tanpa batas. Koneksi
+    // kantor putus dua detik berarti layarnya berputar selamanya dan cuma F5
+    // yang keluar.
+    const errorSebelumnya = gagal[st.screen];
+    const buat = errorSebelumnya ? null : fungsiLayar(st.screen);
+    if (errorSebelumnya) {
+      screenEl = gagalMuat(st.screen, errorSebelumnya);
     } else if (!buat) {
       // Cangkangnya tetap terpasang — sidebar, header, menu akun semuanya hidup.
       // Yang menunggu cuma isi layarnya, dan cuma sekali per layar per sesi.

@@ -1,6 +1,7 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, logAudit } from '../core/store.js';
 import { blockWrite } from '../core/guard.js';
+import { parseNumber } from '../parsers/numbers.js';
 import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, modal, field, inputEl, selectEl, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring } from '../ui/components.js';
 import { money, num, fmtDate, ppnFor, poTermDays, isAdvanceTerm } from '../core/format.js';
@@ -534,8 +535,8 @@ function poEditModal() {
     amountCells[i] = amountCell;
     return h('div.row.gap8', { style: { alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' } }, [
       h('div', { style: { flex: '2' } }, inputEl({ value: it.d || '', placeholder: tr({ id: 'Deskripsi', en: 'Description', zh: '描述' }), onInput: v => { it.d = v; } })),
-      h('div', { style: { width: '70px' } }, inputEl({ value: String(it.qty || 0), mono: true, onInput: v => { it.qty = Number(v) || 0; recompute(); } })),
-      h('div', { style: { width: '90px' } }, inputEl({ value: String(it.u || 0), mono: true, onInput: v => { it.u = Number(v) || 0; recompute(); } })),
+      h('div', { style: { width: '70px' } }, inputEl({ value: String(it.qty || 0), mono: true, onInput: v => { const n = parseNumber(v, 'id'); it.qty = Number.isFinite(n) ? n : 0; recompute(); } })),
+      h('div', { style: { width: '90px' } }, inputEl({ value: String(it.u || 0), mono: true, onInput: v => { const n = parseNumber(v, 'id'); it.u = Number.isFinite(n) ? n : 0; recompute(); } })),
       h('div', { style: { width: '130px' } }, selectEl(unitOpts, { value: it.unit, onChange: v => { it.unit = v; } })),
       h('div', { style: { width: '90px', textAlign: 'right' } }, amountCell),
       btn(tr({ id: 'Hapus', en: 'Delete', zh: '删除' }), { sm: true, variant: 'danger', onClick: () => { f.items.splice(i, 1); setUI({}); } }),

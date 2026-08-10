@@ -11,7 +11,7 @@ export async function fetchDescDict() {
   if (!isConfigured()) return null;
   const c = await getClient();
   if (!c) return null;
-  const { data, error } = await c.from('desc_dict').select('*').order('en', { ascending: true });
+  const { data, error } = await fetchAllPaged((a, b) => c.from('desc_dict').select('*').order('en', { ascending: true }).range(a, b));
   if (error) { console.error('fetchDescDict failed:', error); return null; }
   return data.map(fromRow);
 }

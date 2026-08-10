@@ -203,7 +203,27 @@ function globalSearchBox() {
     setState({ screen: target });
     if (r.type === 'PO') setUI({ selPO: r.ref.id });
     else if (r.type === 'PPKEK') {
-      setUI({ pkExtract: { name: r.ref.name || `PPKEK ${r.ref.nopen}`, files: r.ref.files || [] }, pkParsed: r.ref });
+      // BARIS REGISTER HARUS DITERJEMAHKAN, bukan dioper apa adanya.
+      //
+      // Panel PARSED membaca bentuk DOKUMEN HASIL PARSE; yang ada di st.ppkek
+      // adalah bentuk BARIS REGISTER, dan nama medannya berbeda semua:
+      // date/kurs/usd/idr/jalur lawan ppkekDate/kursNDPBM/valueForeign/
+      // valueIDR/asal. Dioper mentah, panelnya menyala hijau "PARSED" dengan
+      // nopen yang benar dan SETIAP angka statutori '—' — terbaca sebagai
+      // "portal kehilangan catatan pabean ini", untuk satu jenis dokumen yang
+      // angkanya diatur undang-undang.
+      //
+      // Penerjemahan yang sama sudah ada di screens/ppkek.js pada handler klik
+      // barisnya; pencarian global melewatinya.
+      const g = r.ref;
+      setUI({
+        pkExtract: { name: g.name || `PPKEK ${g.nopen}`, format: 'register', files: g.files || [] },
+        pkParsed: {
+          nopen: g.nopen, ppkekDate: g.date, eta: g.eta, supplier: g.supplier,
+          address: g.address, contractNo: g.contractNo, kursNDPBM: g.kurs,
+          valuta: g.valuta || 'USD', valueForeign: g.usd, valueIDR: g.idr, asal: g.jalur,
+        },
+      });
     }
     input.value = '';
     close();

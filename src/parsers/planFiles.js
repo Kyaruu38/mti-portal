@@ -63,7 +63,8 @@ function cellText(v) {
 function toQty(v) {
   if (v == null || v === '') return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
-  const n = Number(String(v).replace(/[,\s]/g, ''));
+  // parseNumber: pola lama tidak membuang titik, jadi 1.200 -> 1,2.
+  const n = parseNumber(v, 'id');
   return Number.isFinite(n) ? n : null;
 }
 

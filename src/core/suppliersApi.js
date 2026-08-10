@@ -1,7 +1,7 @@
 // Supabase persistence for Suppliers (needed so the item-4 audit trigger has
 // something real to fire on — masterData.js previously only mutated
 // st.suppliers in-memory). Same demo-mode-fallback shape as suratJalanApi.js.
-import { getClient, isConfigured } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
 
 // ---------------------------------------------------------------------------
 // bank / acct / bank_address / swift = the supplier's payment instruction, and
@@ -95,7 +95,7 @@ export async function fetchSuppliers() {
   if (!isConfigured()) return null;
   const c = await getClient();
   if (!c) return null;
-  const { data, error } = await c.from('suppliers').select('*').order('name', { ascending: true });
+  const { data, error } = await fetchAllPaged((a, b) => c.from('suppliers').select('*').order('name', { ascending: true }).range(a, b));
   if (error) { console.error('fetchSuppliers failed:', error); return null; }
   return data.map(fromRow);
 }

@@ -58,8 +58,8 @@ const ICBC_BIFAST = {
   detect: (t) => /Cek Status BI-?FAST/i.test(t) || (/BI-?FAST/i.test(t) && /ICBC/i.test(t)),
   parse: (t) => {
     const amt = firstMatch(t, [
-      /Nominal[^\d]*(?:IDR|Rp)?\s*([\d.,]+)/i,
-      /Jumlah[^\d]*(?:IDR|Rp)?\s*([\d.,]+)/i,
+      /Nominal[^\d\n]*(?:IDR|Rp)?[^\d\n]*([\d.,]+)/i,
+      /Jumlah[^\d\n]*(?:IDR|Rp)?[^\d\n]*([\d.,]+)/i,
       /(?:IDR|Rp)\s*([\d.,]+)/i,
     ]);
     // Indonesian receipt: "2.862.720.000,00". Explicit 'id' locale so a value
@@ -71,7 +71,7 @@ const ICBC_BIFAST = {
       /Penerima[^\n:：]*[:：]?\s*([A-Z][A-Za-z0-9 .,&'-]{3,})/i,
     ]);
     const beneficiary = ben ? ben[1].trim() : '';
-    const date = (t.match(/Tanggal[^\d]*(\d{1,2}[\/\- ][A-Za-z0-9]{2,}[\/\- ]\d{2,4})/i) || [])[1] || '';
+    const date = (t.match(/Tanggal[^\d\n]*(\d{1,2}[\/\- ][A-Za-z0-9]{2,}[\/\- ]\d{2,4})/i) || [])[1] || '';
     const ref = (t.match(/(?:No\.?\s*Referensi|Reference|Ref)[^\n]*?([A-Z0-9]{8,})/i) || [])[1] || '';
     const po = (t.match(/CGDD\d{8,}/i) || [])[0] || '';
     return { currency: 'IDR', amount, beneficiary, date, poNo: po, reference: ref, method: 'ICBC BI-FAST', confidence: 0.9 };

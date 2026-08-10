@@ -11,6 +11,7 @@
 // QTY column (must be numeric) and auto-correct, surfacing a warning.
 
 import { parseItemName } from './itemName.js';
+import { parseNumber } from './numbers.js';
 
 // Header alias -> canonical key. Matched case-insensitively as substrings.
 const ALIASES = [
@@ -65,8 +66,13 @@ export function findHeaderRow(rows, scan = 8) {
   return best;
 }
 
-const NUMERIC = v => v !== '' && v != null && !isNaN(Number(String(v).replace(/[,\s]/g, '')));
-const toNum = v => Number(String(v).replace(/[,\s]/g, ''));
+// parseNumber, BUKAN Number(replace(/[,\s]/g)) — pola lama membuang koma dan
+// spasi tapi TIDAK membuang titik, jadi sel Excel yang tersimpan sebagai TEKS
+// "1.200" terbaca 1,2 dan "1.200.000" terbaca NaN lalu ditolak NUMERIC. Sel
+// yang benar-benar bertipe angka tidak terpengaruh; yang berbahaya adalah yang
+// diketik tangan, dan itu justru yang paling sering di berkas order bulanan.
+const toNum = v => { const n = parseNumber(v, 'id'); return Number.isFinite(n) ? n : NaN; };
+const NUMERIC = v => v !== '' && v != null && Number.isFinite(toNum(v));
 const ERP_RE = /^\d{6,}[A-Za-z]{0,3}$|^MTI-|^\d{4,}ID$/;
 
 // Validate & auto-correct the QTY column via type inspection of data rows.

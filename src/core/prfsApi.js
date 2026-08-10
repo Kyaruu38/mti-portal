@@ -3,7 +3,7 @@
 // around that, it just calls plain insert/update and lets Postgres accept or
 // reject based on the caller's role + the stage transition, same as every
 // other module here.
-import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged, assertWrote } from './supabase.js';
 
 function fromRow(row) {
   return {
@@ -52,8 +52,7 @@ export async function updatePrfStage(id, patch) {
   if ('stage' in patch) row.stage = patch.stage;
   if ('receivedAt' in patch) row.received_at = patch.receivedAt;
   if ('receiveChecklist' in patch) row.receive_checklist = patch.receiveChecklist;
-  const { error } = await c.from('prfs').update(row).eq('id', id);
-  if (error) throw error;
+  assertWrote(await c.from('prfs').update(row).eq('id', id).select('id'), 'ubah PRF');
 }
 
 // Delete a PRF. Only reachable before Finance has it — see payment.js.
@@ -67,6 +66,5 @@ export async function deletePrf(id) {
   if (!isConfigured()) return;
   const c = await getClient();
   if (!c) throw new Error('Supabase client unavailable');
-  const { error } = await c.from('prfs').delete().eq('id', id);
-  if (error) throw error;
+  assertWrote(await c.from('prfs').delete().eq('id', id).select('id'), 'hapus PRF');
 }

@@ -175,10 +175,35 @@ function previewModal(st, d) {
 // EDIT — the four fields a human types. Deliberately NOT the image or the Drive
 // link: those come from an upload, and letting them be typed here would create
 // a card that claims a file nobody can open.
+// DRAFNYA DI TINGKAT MODUL — pola yang sama dengan DRAF Map di ui/components.js.
+//
+// Draf yang hidup sebagai `const` di dalam fungsi render dibuat ulang oleh
+// render apa pun, dan mount() membangun ulang seluruh pohon tiap setState().
+// Sebelum v15.1 modal ini tidak punya apa pun di dalamnya yang memicu render,
+// jadi cacatnya diam. v15.1 menaruh tombol "Ganti artwork…" di sini, dan
+// gantiArtwork() membuka dengan toast(t('loading')) — dan toast() memanggil
+// setState (core/store.js:98).
+//
+// Urutan yang rusak: cania membuka Edit, membetulkan kode ERP dan spec, lalu
+// menekan Ganti artwork. Toast → render ulang → draf kembali ke nilai lama →
+// kedua kotak diam-diam balik. Matanya di dialog unggahan, bukan di kotak yang
+// barusan berubah. Dia menekan Save, dan saveEdit() menulis NILAI ASLINYA.
+//
+// Toast yang kedaluwarsa sendiri (3,6 detik) melakukan hal yang sama untuk
+// ketikan apa pun sesudah toast mana pun — jadi memindahkan draf ke luar render
+// adalah perbaikannya, bukan membuang toast-nya.
+//
+// Dikunci per-desain supaya dua kartu yang dibuka bergantian tidak saling
+// mewarisi ketikan.
+const EDIT_DRAF = new Map();
+
 function editModal(st, d) {
   // `ver` sengaja TIDAK ada di draft: dia bukan lagi field yang diketik.
-  const draft = { erp: d.erp || '', spec: d.spec || '', brand: d.brand || '', market: d.market || '' };
-  const close = () => setUI({ libEdit: false });
+  if (!EDIT_DRAF.has(d.id)) {
+    EDIT_DRAF.set(d.id, { erp: d.erp || '', spec: d.spec || '', brand: d.brand || '', market: d.market || '' });
+  }
+  const draft = EDIT_DRAF.get(d.id);
+  const close = () => { EDIT_DRAF.delete(d.id); setUI({ libEdit: false }); };
 
   const f = (label, key, ph) => field(label, inputEl({
     value: draft[key], placeholder: ph, mono: key === 'erp',
@@ -370,6 +395,9 @@ async function saveEdit(d, draft) {
   // does not say what changed is the same as no History line.
   const changed = Object.keys(patch).filter(k => String(before[k] || '') !== String(patch[k] || ''));
   logAudit({ entity: 'design', target: erp, action: 'edit', detail: changed.length ? changed.map(k => `${k}: ${before[k] || '—'} → ${patch[k]}`).join(' · ') : 'tidak ada perubahan' });
+  // Draf dibuang di sini juga, bukan cuma di close(): tanpa ini kartu yang sama
+  // dibuka lagi menampilkan draf lama alih-alih nilai yang barusan tersimpan.
+  EDIT_DRAF.delete(d.id);
   setUI({ libEdit: false });
   toast({ id: `Desain ${erp} disimpan`, en: `Design ${erp} saved`, zh: `设计 ${erp} 已保存` });
   setState({});
