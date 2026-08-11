@@ -43,6 +43,16 @@ const state = {
   // dan jadi pembanding untuk peringatan "harga berubah". BUKAN daftar harga
   // resmi dan tidak menahan apa pun — lihat core/labelPricesApi.js.
   labelPrices: [],
+  // Riwayat tarikan 采购申请 per baris PO: { poId, lineId, tahap, qty, tanggal,
+  // penanda, oleh }. KAS dihitung dari sini, tidak disimpan sebagai saldo —
+  // alasannya panjang dan ada di core/kasLabel.js. Kosong itu keadaan yang sah
+  // (belum ada yang pernah menarik excel); yang TIDAK sah adalah mengisinya
+  // dengan [] setelah fetch gagal, karena kas jadi terlihat penuh lagi.
+  erpTarikan: [],
+  // true kalau fetchErpTarikan() gagal di login terakhir. Bukan hiasan: kas
+  // yang dihitung dari riwayat kosong terbaca PENUH, dan layar tidak boleh
+  // menawarkan tarikan berikutnya berdasarkan angka yang belum tentu benar.
+  erpTarikanGagal: false,
 
   // Sheet order (local / export / newitems / 加急优先下单) dari workbook yang
   // sama dengan tracker — APA YANG SONA MINTA DIBELI, mentah, sebelum diadu

@@ -25,6 +25,7 @@ import { fetchPayments } from '../core/paymentsApi.js';
 import { fetchPpkek } from '../core/ppkekApi.js';
 import { fetchLabelStock, fetchLabelUploads, fetchLabelSettings, fetchLabelStockTrend } from '../core/labelStockApi.js';
 import { fetchLabelPrices } from '../core/labelPricesApi.js';
+import { fetchErpTarikan } from '../core/erpTarikanApi.js';
 
 // Log in by username. Uses Supabase Auth when configured; otherwise a demo check.
 export async function login(username, password) {
@@ -174,6 +175,12 @@ async function hydrate(user, username, preferScreen, preferLang) {
     // st.labelPrices lokal dibiarkan kosong: kolom HARGA cuma jadi tidak
     // mengisi sendiri, tidak ada yang lain yang rusak.
     ['labelPrices',   () => fetchLabelPrices()],
+    // Riwayat tarikan 采购申请. Dari sinilah KAS dihitung — lihat
+    // core/kasLabel.js. Kalau ini null, kas terlihat PENUH lagi, dan itu bukan
+    // kegagalan yang boleh diam: orangnya akan menarik excel tahap berikutnya
+    // berisi jumlah yang sudah pernah diminta ke ERP. Penanganannya ada di
+    // bawah — st.erpTarikan TIDAK ditimpa kalau fetch-nya gagal.
+    ['erpTarikan',    () => fetchErpTarikan()],
     // Preferensi akun. Sengaja ikut gelombang ini juga; dipakai di bawah.
     ['prefs',         () => fetchProfilePrefs()],
   ];
@@ -213,6 +220,17 @@ async function hydrate(user, username, preferScreen, preferLang) {
     }));
   }
   if (nilai.labelStock)    st.labelStock    = nilai.labelStock;
+  // Kas dihitung dari erpTarikan, jadi fetch yang GAGAL punya akibat khusus:
+  // st.erpTarikan tetap [] (nilai awalnya di store.js), dan kas terlihat PENUH
+  // untuk setiap PO. Orangnya menarik excel tahap 2 berisi jumlah yang sudah
+  // pernah diminta, dan 采购申请 ganda masuk ke ERP.
+  //
+  // Menimpa dengan [] jelas salah — tapi TIDAK menimpanya saja juga tidak cukup,
+  // karena pada login segar hasilnya tetap array kosong. Jadi kegagalannya
+  // DITANDAI, dan layar Kas serta jendela tarikan menolak bekerja sampai
+  // datanya benar-benar ada. Diam di sini adalah diam yang mahal.
+  if (nilai.erpTarikan) { st.erpTarikan = nilai.erpTarikan; st.erpTarikanGagal = false; }
+  else { st.erpTarikanGagal = true; }
   if (nilai.labelUploads)  st.labelUploads  = nilai.labelUploads;
   if (nilai.labelSettings) st.labelSettings = nilai.labelSettings;
   if (nilai.labelTrend)    st.labelTrend    = nilai.labelTrend;
@@ -282,7 +300,13 @@ export async function logout() {
   try { await signOut(); } catch { /* ignore */ }
   // Module-level drafts live outside the store, so resetting state isn't enough
   // — a typed rejection reason survived logout into the next user's session.
-  try { const m = await import('../screens/approval.js'); m.resetApprovalDrafts(); } catch { /* ignore */ }
+  // resetErpDraft ikut: draf tarikan 采购申请 juga hidup di tingkat modul, dan
+  // dia lebih berbahaya daripada catatan reject. Draf yang tertinggal membuat
+  // drafTarikan() melewati pengisian ulang (kunci per PO), jadi pengguna
+  // BERIKUTNYA membuka Template ERP untuk PO yang sama dan menemukan jumlah dan
+  // 需求日期 milik orang sebelumnya sudah terisi — lalu menekan Unduh, dan
+  // angka itu masuk ke ERP atas namanya sendiri.
+  try { const m = await import('../screens/approval.js'); m.resetApprovalDrafts(); m.resetErpDraft(); } catch { /* ignore */ }
   // Wipe EVERYTHING, not just the user.
   //
   // This used to clear only user/screen/menuOpen, leaving state.ui and every
@@ -304,5 +328,10 @@ export async function logout() {
     pos: [], labelBatches: [], ppkek: [], invoices: [], prfs: [], payments: [],
     audit: [], suratJalan: [],
     labelStock: [], labelUploads: [], labelSettings: null,
+    // erpTarikan WAJIB ikut dibuang. Kas dihitung darinya, dan riwayat tarikan
+    // pengguna sebelumnya yang tertinggal membuat kas terlihat lebih kecil dari
+    // yang sebenarnya untuk pengguna berikutnya — atau, kalau PO-nya berbeda,
+    // sama sekali tidak nyambung.
+    erpTarikan: [], erpTarikanGagal: false,
   });
 }

@@ -56,6 +56,10 @@ const LAZY = {
   // persetujuan, dan menumpangkan layar kedua di dalamnya berarti setiap
   // perubahan di salah satunya harus dipikirkan untuk keduanya.
   'po-saya':        () => import('./screens/poSaya.js').then(m => m.poSayaScreen),
+  // Kas Label: sisa PO label yang belum ditarik ke 采购申请. Modul terpisah
+  // walaupun jendelanya dipinjam dari approval.js — layar ini dibuka orang
+  // yang tidak punya Approval sama sekali.
+  'kas-label':      () => import('./screens/kasLabel.js').then(m => m.kasLabelScreen),
   ppkek:            () => import('./screens/ppkek.js').then(m => m.ppkekScreen),
   payment:          () => import('./screens/payment.js').then(m => m.paymentScreen),
   // Modul yang SAMA dengan 'payment' — import() menyimpan hasilnya, jadi

@@ -12,6 +12,7 @@ import { insertPO, newLineId, duplicatePoNumber } from '../core/posApi.js';
 import { blockWrite } from '../core/guard.js';
 import { UUID_RE } from '../core/supabase.js';
 import { ringkasHarga, kunciHarga, tidakBisaDiingat, hargaBentrok, bacaKetikanHarga, rememberLabelPrices } from '../core/labelPricesApi.js';
+import { parseNumber } from '../parsers/numbers.js';
 
 // ---------------------------------------------------------------------------
 // HARGA LABEL
@@ -57,14 +58,86 @@ function adaBarisTersembunyi() {
 // sel tabel, subtotal, tombol, penulis PO — lewat sini, supaya tidak ada dua
 // tempat yang menghitung uang dengan cara masing-masing. Aturannya sendiri
 // tinggal di core/labelPricesApi.js dan diuji di test-harga-label.mjs.
+// MARK UP diterapkan DI SINI, sebelum ringkasHarga() menghitung apa pun.
+//
+// Alasannya supaya cuma ada SATU tempat yang tahu soal mark up. ringkasHarga()
+// kontraknya tidak berubah sedikit pun (74 assertion-nya tetap berlaku), dan
+// kolom JUMLAH, total PO, serta baris yang masuk ke genPO() semuanya membaca
+// angka yang sama. Kalau mark up diterapkan belakangan di genPO(), layar akan
+// menampilkan nilai permintaan sona sementara PO-nya terbit dengan nilai
+// markup — dua angka berbeda untuk dokumen yang sama, dan yang menandatangani
+// melihat yang salah.
+//
+// qtyMinta menyimpan permintaan ASLI sona. Itu yang dipakai jendela Template
+// ERP sebagai isian awal tahap 1: yang perlu didatangkan duluan adalah yang
+// benar-benar diminta, sisanya kas.
+function terapkanMarkup(items, markup) {
+  const mk = markup || {};
+  return (items || []).map((it, i) => {
+    const m = Number(mk[i]);
+    const asli = Number(it.qty) || 0;
+    if (!Number.isFinite(m) || m <= 0 || m === asli) return it;
+    return { ...it, qty: m, qtyMinta: asli };
+  });
+}
+
 function ringkasan(st) {
   const res = st.ui.labelResult;
   return ringkasHarga({
-    items: (res && res.items) || [],
+    items: terapkanMarkup((res && res.items) || [], st.ui.lrMarkup),
     sel: st.ui.labelSel || {},
     ketikan: st.ui.lrHarga || {},
     daftar: st.labelPrices,
     supplier: st.ui.assignSup,
+  });
+}
+
+// Kotak MARK UP. Pola sama persis dengan hargaInput(): commit di blur, tulis
+// balik langsung ke node-nya, TIDAK pernah setUI per ketikan — mount() tidak
+// punya diffing dan akan mengganti kotak ini di tengah orang mengetik.
+function markupInput(i, qtyAsli, bisaTulis) {
+  const st = getState();
+  const nilai = (st.ui.lrMarkup || {})[i];
+  if (!bisaTulis) {
+    return h('span.mono', { style: { fontSize: '11px', color: 'var(--text-3)' } },
+      nilai && nilai !== qtyAsli ? num(nilai) : '—');
+  }
+  return h('input.input.mono.r', {
+    defaultValue: nilai && nilai !== qtyAsli ? String(nilai) : '',
+    placeholder: num(qtyAsli),
+    title: 'MOQ supplier di atas permintaan? Isi jumlah PO yang sebenarnya di sini.',
+    style: { width: '86px', textAlign: 'right', fontSize: '11.5px', padding: '4px 7px' },
+    onBlur: e => {
+      const s = getState();
+      const bag = s.ui.lrMarkup || (s.ui.lrMarkup = {});
+      const teks = String(e.target.value || '').trim();
+      // parseNumber('id'): "3.000" harus terbaca 3000. Number('3.000') = 3, dan
+      // pola itu dilarang di repo ini.
+      const n = teks ? parseNumber(teks, 'id') : NaN;
+      // DI BAWAH permintaan sona bukan mark up — itu memotong permintaan diam-
+      // diam, dan sona tidak punya cara tahu jumlahnya dikurangi. Ditolak, dan
+      // disebutkan alasannya.
+      // DITULIS KE NODE, BUKAN toast(). toast() memanggil setState, dan
+      // setState menjadwalkan mount() ulang di microtask yang jalan DI ANTARA
+      // mousedown dan click — tombol Generate PO yang sedang ditekan diganti di
+      // tengah gerakan dan kliknya hilang tanpa suara. Berkas ini sendiri sudah
+      // menjelaskan kelas kegagalan itu di komentar hargaInput() dua fungsi di
+      // atas, dan versi pertama markupInput() tetap melanggarnya.
+      const nota = document.getElementById(`lr-mk-${i}`);
+      const lapor = (teks) => { if (nota) { nota.textContent = teks; nota.style.display = teks ? 'block' : 'none'; } };
+      if (Number.isFinite(n) && n > 0 && n < qtyAsli) {
+        lapor(tr({ id: `min ${num(qtyAsli)}`, en: `min ${num(qtyAsli)}`, zh: `最少 ${num(qtyAsli)}` }));
+        delete bag[i];
+        e.target.value = '';
+        segarkanHarga();
+        return;
+      }
+      lapor('');
+      if (!Number.isFinite(n) || n <= 0 || n === qtyAsli) { delete bag[i]; e.target.value = ''; }
+      else { bag[i] = Math.round(n); e.target.value = String(Math.round(n)); }
+      segarkanHarga();
+    },
+    onKeydown: e => { if (e.key === 'Enter') e.target.blur(); },
   });
 }
 
@@ -280,7 +353,7 @@ function parseNow() {
     // lrHarga dikosongkan bareng labelSel: keduanya berkunci INDEKS ke
     // labelResult.items, jadi ketikan dari workbook sebelumnya akan menempel
     // ke POSISI baris, bukan ke barangnya. Lihat catatan panjang di openRequest().
-    setUI({ labelResult: res, labelSel: sel, lrHarga: {}, labelStep: 3, assignSup: (st.suppliers[0] || {}).name });
+    setUI({ labelResult: res, labelSel: sel, lrHarga: {}, lrMarkup: {}, labelStep: 3, assignSup: (st.suppliers[0] || {}).name });
     // Auto-build item master via upsert on ERP CODE.
     upsertItems(res.items);
     st.labelBatches.unshift({ id: uid('lb'), file: ui.labelFile, sheet: ui.labelSheet, count: res.items.length, by: st.user.username, at: new Date().toISOString() });
@@ -437,6 +510,7 @@ function step3() {
     // tampil tapi cuma dibaca: dia yang tahu apa yang harus dicetak, harga dan
     // pemasoknya bukan miliknya untuk diputuskan — persis alasan yang sama
     // dengan dropdown pemasok yang disembunyikan dari dia di bawah.
+    h('th.r', tr({ id: 'MARK UP', en: 'MARK UP', zh: '上调数量' })),
     h('th.r', tr({ id: 'HARGA', en: 'PRICE', zh: '单价' })),
     h('th.r', tr({ id: 'JUMLAH', en: 'AMOUNT', zh: '金额' })),
     h('th', t('col_design')), h('th', t('col_flags')),
@@ -459,6 +533,12 @@ function step3() {
       h('td.cell-strong', r.brand || '—'),
       h('td', `${r.ttl || '—'}·${r.pr || '—'}`),
       h('td.mono.r', num(r.qty)),
+      // MARK UP: jumlah PO yang sebenarnya, waktu MOQ supplier di atas
+      // permintaan sona. Kosong = PO sebesar permintaan, seperti sebelumnya.
+      h('td.r', [
+        markupInput(i, Number(r.qty) || 0, bisaHarga),
+        h('div.mono', { id: `lr-mk-${i}`, style: { display: 'none', fontSize: '9.5px', marginTop: '3px', color: 'var(--st-red-tx)', whiteSpace: 'nowrap' } }, ''),
+      ]),
       h('td.r', [
         hargaInput(i, b.harga, bisaHarga),
         // Diisi oleh segarkanHarga(), bukan di sini — supaya perubahan harga
@@ -469,7 +549,7 @@ function step3() {
       h('td', dz ? badge(t('design_ok'), 'green', { iconName: 'check' }) : badge(t('design_no'), 'red')),
       h('td', r.isNew ? h('span.tag-new', t('new_item')) : null),
     ]);
-  }) : barisTakCocok(11, { id: 'lr-baris', adaFilter: jumlahFilterAktif(nilai) > 0 }));
+  }) : barisTakCocok(12, { id: 'lr-baris', adaFilter: jumlahFilterAktif(nilai) > 0 }));
 
   const table = h('div.card', [
     h('div.card-head', [
@@ -566,7 +646,7 @@ async function submitRequest() {
   if (!local.id) local.id = uid('lr');
   st.labelRequests.unshift(local);
   logAudit({ entity: 'label', target: local.file, action: 'request', detail: `${chosen.length} baris · sheet ${local.sheet}` });
-  setUI({ labelStep: 1, labelResult: null, labelSel: {}, lrHarga: {} });
+  setUI({ labelStep: 1, labelResult: null, labelSel: {}, lrHarga: {}, lrMarkup: {} });
   setState({ labelRequests: st.labelRequests });
   toast({
     id: `${chosen.length} baris dikirim ke Purchasing — mereka yang assign supplier & bikin PO`,
@@ -772,6 +852,7 @@ function openRequest(r) {
     // mengalahkan harga yang benar dan lolos kedua penjaga. Itu bug 1000 yang
     // sama persis, cuma dengan angka yang berbeda.
     lrHarga: {},
+    lrMarkup: {},
     // assignSup HARUS ikut diisi di sini. Satu-satunya penulisnya dulu
     // parseNow(), jadi jalur "buka request sona" meninggalkannya undefined
     // sementara dropdown-nya MENAMPILKAN supplier pertama — `value: x || nama[0]`
@@ -942,7 +1023,19 @@ async function genPO() {
     // `u` dan `a` datang dari harga yang DIKETIK. Tidak ada `|| 1000` lagi —
     // baris tanpa harga sudah dihentikan dua kali di atas, jadi kalau eksekusi
     // sampai sini harganya pasti ada.
-    items: dipilih.map(({ r, harga }) => ({ erp: r.erp, d: r.nameEn || r.spec, dimension: r.spec, cn: r.nameZh || '', qty: r.qty, u: harga, a: harga * (Number(r.qty) || 0), unit: '张/PC', lineId: newLineId() })),
+    // `r.qty` DI SINI SUDAH JUMLAH SETELAH MARK UP — terapkanMarkup() dipakai
+    // di dalam ringkasan(), jadi angka yang tercetak di layar dan angka yang
+    // masuk PO tidak mungkin berbeda.
+    //
+    // `qtyMinta` cuma ada di baris yang di-Mark Up: permintaan ASLI sona,
+    // sebelum dinaikkan ke MOQ supplier. Bukan hiasan — jendela Template ERP
+    // memakainya sebagai isian awal tahap 1, karena yang perlu didatangkan
+    // duluan adalah yang benar-benar diminta dan sisanya jadi kas.
+    items: dipilih.map(({ r, harga }) => {
+      const it = { erp: r.erp, d: r.nameEn || r.spec, dimension: r.spec, cn: r.nameZh || '', qty: r.qty, u: harga, a: harga * (Number(r.qty) || 0), unit: '张/PC', lineId: newLineId() };
+      if (Number(r.qtyMinta) > 0 && Number(r.qtyMinta) !== Number(r.qty)) it.qtyMinta = Number(r.qtyMinta);
+      return it;
+    }),
   };
   if (isWilbert) { po.approvedAt = new Date().toISOString(); po.approvedBy = 'wilbert'; }
   // Peringatan yang harus ikut terbaca bareng pesan suksesnya. Dideklarasikan
@@ -1097,7 +1190,7 @@ async function genPO() {
   // lagi pada baris yang masih tercentang itu menghasilkan PO kedua yang tidak
   // tertaut ke request mana pun. Pekerjaannya selesai — mejanya dikosongkan,
   // sama seperti yang sudah dilakukan submitRequest().
-  setUI({ poModal: false, labelFillingReq: null, lrHarga: {}, labelSel: {}, labelResult: null, labelStep: 1 });
+  setUI({ poModal: false, labelFillingReq: null, lrHarga: {}, lrMarkup: {}, labelSel: {}, labelResult: null, labelStep: 1 });
   const ekor = peringatan.length ? ` · ${peringatan.join(' · ')}` : '';
   toast(isWilbert ? {
     id: `PO ${po.no} dibuat & di-approve (skip queue)${ekor}`,

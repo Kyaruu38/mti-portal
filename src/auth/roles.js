@@ -32,6 +32,12 @@ export const USERS = {
 //  financemti = Finance dashboard only
 //  sona       = Label Request + Label Stock (weekly Excel upload) only
 export const ACCESS = {
+  // 'kas-label': sisa PO label yang belum ditarik ke 采购申请. Dipegang tiga
+  // peran yang sama dengan po-saya — RLS di erp_tarikan juga cuma mengizinkan
+  // INSERT dari ketiganya, jadi layar dan basis data sepakat. cenjc TIDAK
+  // dapat: dia tidak menarik dokumen, dan penjaga di next_doc_seq sudah
+  // menolaknya di sisi server dengan alasan yang sama.
+  //
   // 'po-saya': daftar PO buatan sendiri. Wilbert ikut dapat supaya klik dari
   // kartu PO Saya di Dashboard tidak buntu untuk siapa pun; tombol Edit dan
   // Hapus di sana tetap TIDAK muncul untuknya (bolehUrusSendiri menolak
@@ -41,9 +47,9 @@ export const ACCESS = {
   // (pos_insert mensyaratkan is_label_staff()), jadi layarnya akan selalu
   // kosong. Menu yang selalu kosong adalah menu yang diklik sekali lalu
   // dianggap rusak.
-  wilbert: ['dashboard', 'approval', 'po-saya', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports'],
-  cania:   ['dashboard', 'po-saya', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
-  visca:   ['dashboard', 'po-saya', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
+  wilbert: ['dashboard', 'approval', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports'],
+  cania:   ['dashboard', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
+  visca:   ['dashboard', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
   // 'finance' added 31 Jul 2026 so sekar can post the transfer proof. Finance
   // shares proofs into a group chat rather than entering them one by one, so
   // the person who actually transcribes them is sekar. She gets the SCREEN, not

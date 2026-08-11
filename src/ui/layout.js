@@ -42,6 +42,7 @@ const NAV = [
     // memegangnya bukan yang menyetujui PO, tapi yang membuatnya — dan dia
     // mencarinya di tempat pekerjaan PO-nya, bukan di ringkasan.
     { id: 'po-saya', t: 's_po_saya', ic: 'clip' },
+    { id: 'kas-label', t: 's_kas_label', ic: 'dollar' },
     { id: 'outstanding-po', t: 's_outstanding', ic: 'box' },
   ] },
   { label: 'nav_compliance', items: [{ id: 'ppkek', t: 's_ppkek', ic: 'box' }] },
@@ -58,7 +59,7 @@ const NAV = [
 
 const TITLES = {
   dashboard: 's_dashboard', approval: 's_approval', 'label-request': 's_label',
-  'label-library': 's_library', 'label-stock': 's_labelstock', 'surat-jalan': 's_surat', 'po-converter': 's_converter', 'po-saya': 's_po_saya', 'outstanding-po': 's_outstanding',
+  'label-library': 's_library', 'label-stock': 's_labelstock', 'surat-jalan': 's_surat', 'po-converter': 's_converter', 'po-saya': 's_po_saya', 'kas-label': 's_kas_label', 'outstanding-po': 's_outstanding',
   ppkek: 's_ppkek', payment: 's_payment', finance: 's_finance', 'master-data': 's_master', reports: 's_reports',
 };
 

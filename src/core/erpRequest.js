@@ -112,28 +112,60 @@ function namaBaris(it) {
 //   baris   siap tulis, urut seperti di PO
 //   kurang  baris yang kode ERP-nya tidak ketemu — kalau tidak kosong, JANGAN
 //           membuat berkasnya
-export function susunBarisErp(st, po) {
-  const items = (po.items || []).filter(it => Number(it.qty) > 0);
-  const tanggal = tanggalKebutuhan(st, po);
+// PARSIAL (v15.6). Tiga argumen opsional, dan tanpa ketiganya fungsi ini
+// berperilaku PERSIS seperti sebelumnya — satu berkas, qty penuh, 备注 berisi
+// nomor PO. Itu disengaja: pemanggil lama tidak perlu tahu apa-apa soal kas.
+//
+//   opsi.qty      { [lineId]: jumlah }  jumlah yang ditarik tahap ini. Baris
+//                                       yang tidak disebut, atau disebut <= 0,
+//                                       TIDAK ikut ke berkasnya sama sekali —
+//                                       satu berkas boleh memuat sebagian SKU.
+//   opsi.tahap    nomor tahap. Kalau ada, 备注 dan nama berkas memakai penanda
+//                 'NO-PO-tahap'. Tanpanya, 备注 tetap nomor PO polos.
+//   opsi.tanggal  'YYYY-MM-DD' pengganti 需求日期. Tahap 2 dan 3 dikirim
+//                 belakangan dan tenggatnya memang beda; tanpa ini ketiganya
+//                 menulis tanggal approve + lead time yang sama persis, dan
+//                 ERP menerima tiga permintaan yang seolah dibutuhkan di hari
+//                 yang sama.
+//
+// `kurang` HANYA berisi baris yang benar-benar ikut ditarik. Kalau sebuah SKU
+// tidak punya kode ERP tapi juga tidak diminta tahap ini, memblokir berkasnya
+// berarti menahan tahap yang isinya sama sekali tidak bergantung padanya.
+export function susunBarisErp(st, po, opsi = {}) {
+  const pilih = opsi.qty || null;
+  const tanggal = opsi.tanggal || tanggalKebutuhan(st, po);
+  const penanda = opsi.tahap ? `${String(po.no || 'PO')}-${opsi.tahap}` : String(po.no || '');
+
   const baris = [];
   const kurang = [];
 
-  for (const it of items) {
+  for (const it of (po.items || [])) {
+    // Berapa yang ditarik tahap ini. Tanpa `pilih`, seluruh qty baris PO —
+    // perilaku lama, apa adanya.
+    const minta = pilih ? Number(pilih[it.lineId]) || 0 : Number(it.qty) || 0;
+    if (minta <= 0) continue;
+
     const erp = kodeErp(st, it);
-    if (!erp) { kurang.push({ spec: it.dimension || it.d || '(tanpa nama)', qty: Number(it.qty) || 0 }); continue; }
+    if (!erp) { kurang.push({ spec: it.dimension || it.d || '(tanpa nama)', qty: minta }); continue; }
     baris.push({
       erp,
       nama: namaBaris(it),
       spesifikasi: '',                    // 规格型号 — kosong di semua baris yang ERP-nya terima
       satuan: SATUAN_LABEL,
-      qty: Number(it.qty) || 0,
+      qty: minta,
       proyekNo: '',                       // 项目编号 — kosong
       proyekNama: '',                     // 项目名称 — kosong
       tanggal,
-      catatan: po.no || '',               // 备注 — nomor PO portal, supaya dua sistem bisa disandingkan
+      // 备注 — penanda tahap kalau parsial, nomor PO kalau tidak. Ini
+      // SATU-SATUNYA tempat kedua sistem bisa disandingkan: tanpa penandanya,
+      // tiga 采购申请 dari PO yang sama terbaca seperti tiga permintaan yang
+      // tidak berhubungan, dan yang mencocokkannya enam bulan lagi harus
+      // menebak.
+      catatan: penanda,
+      lineId: it.lineId,                  // tidak ditulis ke berkas — dipakai pemanggil untuk mencatat tarikan
     });
   }
-  return { baris, kurang, tanggal };
+  return { baris, kurang, tanggal, penanda };
 }
 
 // Tulis .xls BIFF8 dan unduh.
@@ -176,7 +208,8 @@ export async function unduhTemplateErp(namaFile, baris) {
 // Nama berkas: nomor PO, supaya yang mengunggah tahu berkas ini milik PO mana
 // tanpa membukanya. Garis miring dan titik dua tidak boleh ada di nama berkas
 // Windows, dan No PO portal penuh dengan garis miring.
-export function namaFileErp(po) {
-  const aman = String(po.no || 'PO').replace(/[\\/:*?"<>|]/g, '-');
+export function namaFileErp(po, tahap) {
+  const dasar = tahap ? `${String(po.no || 'PO')}-${tahap}` : String(po.no || 'PO');
+  const aman = dasar.replace(/[\\/:*?"<>|]/g, '-');
   return `CG3001 - ${aman}.xls`;
 }

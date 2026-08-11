@@ -10,7 +10,9 @@ import { poDocument, ensureCap } from '../ui/documents.js';
 import { can } from '../auth/roles.js';
 import { downloadBlob } from '../core/dom.js';
 import { approvePoDelete, rejectPoDelete, updatePoStatus, updatePO, UUID_RE } from '../core/posApi.js';
-import { canBuildErp, susunBarisErp, unduhTemplateErp, namaFileErp } from '../core/erpRequest.js';
+import { canBuildErp, susunBarisErp, unduhTemplateErp, namaFileErp, tanggalKebutuhan } from '../core/erpRequest.js';
+import { kasBaris, sudahDitarik, kelebihanTarik, tahapBerikut, langgarKas, catatTarikanLokal } from '../core/kasLabel.js';
+import { catatTarikan, tahapKembar } from '../core/erpTarikanApi.js';
 import { bolehUrusSendiri, hapusPoSendiri, bolehMintaHapus, mintaHapusPo } from '../core/poAkses.js';
 
 // Reject-note draft. Lives OUTSIDE the store on purpose: writing it into
@@ -346,24 +348,160 @@ export function approvalScreen() {
 // Diekspor untuk layar PO Saya. Dipakai bersama, bukan disalin: jendela ini
 // menyusun baris 采购申请明细 dari isi PO, dan dua salinan penyusun itu adalah
 // dua salinan yang suatu hari menghasilkan Excel berbeda dari PO yang sama.
+// ---------------------------------------------------------------------------
+// DRAF TARIKAN — hidup DI LUAR store, sama seperti rejectDraft di atas.
+//
+// Kotak qty di jendela ini diketik manusia. setUI() membangun ulang seluruh
+// pohon (mount() tidak punya diffing), jadi menyimpan ketikan ke state berarti
+// kotaknya diganti di tengah orang mengetik dan fokusnya jatuh ke <body> —
+// kegagalan yang sama persis dengan alasan textarea reject dan kolom HARGA di
+// Label Request ditulis begini.
+//
+// Dikunci per PO: draf yang tertinggal dari PO sebelumnya akan menarik jumlah
+// milik PO lain ke berkas yang salah, dan angkanya kelihatan wajar.
+const tarikDraft = { kunci: null, poId: null, qty: {}, tanggal: '' };
+
+function drafTarikan(st, po) {
+  // `erpLine` dibaca sebagai bagian dari KUNCI, bukan cuma sebagai penyaring.
+  //
+  // Layar Kas Label menampilkan satu baris PER BARIS PO dan tombolnya membuka
+  // jendela ini. Tanpa ini, mengklik "Tarik excel" di baris SKU B mengisi
+  // SELURUH baris PO itu sampai penuh — termasuk SKU A — dan sekali Unduh
+  // ditekan, kas SKU A ikut habis untuk berkas yang tidak pernah dimaksudkan
+  // memuatnya. Tabel erp_tarikan sengaja tidak punya policy UPDATE maupun
+  // DELETE, jadi kesalahan itu tidak bisa dibatalkan dari aplikasi sama sekali.
+  const fokus = st.ui.erpLine || null;
+  const kunci = `${po.id}::${fokus || '*'}`;
+  if (tarikDraft.kunci !== kunci) {
+    tarikDraft.kunci = kunci;
+    tarikDraft.poId = po.id;
+    tarikDraft.qty = {};
+    tarikDraft.tanggal = '';
+    // Isian awal. Tahap 1 memakai qtyMinta — jumlah yang BENAR-BENAR diminta
+    // sona sebelum di-Mark Up — karena itulah yang perlu didatangkan duluan.
+    // Tahap berikutnya tidak punya permintaan yang menempel padanya (kaitan
+    // request→kas baru datang di v15.7), jadi isian awalnya seluruh sisa kas
+    // dan orangnya menurunkan sendiri kalau kirimannya lebih kecil.
+    const tahap = tahapBerikut(st, po.id);
+    for (const it of (po.items || [])) {
+      if (fokus && it.lineId !== fokus) continue;
+      const sisa = kasBaris(st, po, it);
+      if (sisa <= 0) continue;
+      const minta = tahap === 1 ? (Number(it.qtyMinta) || sisa) : sisa;
+      tarikDraft.qty[it.lineId] = Math.max(0, Math.min(sisa, minta));
+    }
+  }
+  return tarikDraft;
+}
+
+export function resetErpDraft() { tarikDraft.kunci = null; tarikDraft.poId = null; tarikDraft.qty = {}; tarikDraft.tanggal = ''; }
+
+// Membaca ketikan jumlah. parseNumber('id') supaya "1.000" terbaca 1000 —
+// Number('1.000') menghasilkan 1, dan itu pola yang dilarang di repo ini.
+// Label dihitung per lembar, jadi dibulatkan dan tidak pernah negatif.
+function bacaQty(mentah) {
+  const t = String(mentah == null ? '' : mentah).trim();
+  if (!t) return 0;
+  const n = parseNumber(t, 'id');
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.round(n);
+}
+
+// Menyegarkan angka turunan TANPA render ulang. Yang disentuh cuma teks di
+// dalam node yang sudah ada, jadi aman dipanggil di tengah gerakan mouse —
+// termasuk saat blur mendahului klik tombol Unduh.
+function segarkanTarikan(st, po) {
+  const d = tarikDraft;
+  let total = 0;
+  for (const it of (po.items || [])) {
+    const minta = Number(d.qty[it.lineId]) || 0;
+    total += minta;
+    const sisa = kasBaris(st, po, it);
+    const el = document.getElementById(`erp-sisa-${it.lineId}`);
+    if (el) {
+      const sesudah = sisa - minta;
+      el.textContent = num(Math.max(0, sesudah), 0);
+      el.style.color = sesudah < 0 ? 'var(--st-red-tx)' : 'var(--text-3)';
+    }
+  }
+  const tot = document.getElementById('erp-total-tarik');
+  if (tot) tot.textContent = num(total, 0);
+}
+
 export function erpModal() {
   const st = getState();
   const po = (st.pos || []).find(p => p.id === st.ui.erpPo);
   if (!po) return null;
-  const { baris, kurang, tanggal } = susunBarisErp(st, po);
-  const tutup = () => setUI({ erpPo: null });
-  const bisa = kurang.length === 0 && baris.length > 0;
+
+  const tahap = tahapBerikut(st, po.id);
+  const d = drafTarikan(st, po);
+  const tanggalOtomatis = tanggalKebutuhan(st, po);
+  const tanggalDipakai = d.tanggal || tanggalOtomatis;
+
+  const { baris, kurang, penanda } = susunBarisErp(st, po, { qty: d.qty, tahap, tanggal: tanggalDipakai });
+  const tutup = () => { resetErpDraft(); setUI({ erpPo: null, erpLine: null }); };
+
+  // Baris PO yang masih punya kas. Baris yang kasnya habis TIDAK ditampilkan —
+  // kotak isian yang maksimumnya nol cuma mengundang orang mengetik angka lalu
+  // ditolak.
+  const barisKas = (po.items || [])
+    .map(it => ({ it, sisa: kasBaris(st, po, it), ditarik: sudahDitarik(st, po.id, it.lineId), lebih: kelebihanTarik(st, po, it) }))
+    .filter(x => x.sisa > 0 || x.lebih > 0);
+
+  const totalMinta = Object.values(d.qty).reduce((a, b) => a + (Number(b) || 0), 0);
+  const adaKasHabis = (po.items || []).length > barisKas.length;
 
   const info = (k, v) => h('div.row', { style: { justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px dashed var(--border)', fontSize: '12px' } },
     [h('span', { style: { color: 'var(--text-3)' } }, k), h('span.mono', { style: { fontWeight: 700 } }, v)]);
 
+  const kotakQty = (x) => h('input.input.mono.r', {
+    // Angka polos tanpa pemisah ribuan — alasannya sama seperti kolom HARGA di
+    // Label Request: "1,000" akan dibaca ulang sebagai 1 dengan locale 'id'.
+    defaultValue: String(Number(d.qty[x.it.lineId]) || 0),
+    style: { width: '96px', textAlign: 'right', fontSize: '11.5px', padding: '4px 7px' },
+    onBlur: e => {
+      const n = bacaQty(e.target.value);
+      // Dijepit ke sisa kas DI SINI, bukan cuma diperiksa waktu Unduh. Angka
+      // yang dibiarkan berdiri lalu ditolak belakangan memaksa orang menebak
+      // batasnya; angka yang langsung turun sendiri menyebutkan batasnya.
+      const jepit = Math.min(n, x.sisa);
+      d.qty[x.it.lineId] = jepit;
+      e.target.value = String(jepit);
+      // DITULIS LANGSUNG KE NODE, BUKAN toast().
+      //
+      // toast() memanggil setState, dan setState menjadwalkan mount() ulang di
+      // microtask. Microtask itu jalan DI ANTARA mousedown dan click — jadi
+      // tombol Unduh yang sedang ditekan orangnya diganti di tengah gerakan dan
+      // kliknya jatuh ke ruang kosong. Tidak ada error, tidak ada unduhan, dan
+      // klik keduanya baru berhasil. Persis kegagalan yang komentar
+      // segarkanTarikan() di atas ada untuk mencegahnya, dan versi pertama
+      // fungsi ini melanggarnya sendiri.
+      const nota = document.getElementById(`erp-nota-${x.it.lineId}`);
+      if (nota) {
+        const kena = jepit !== n && n > 0;
+        nota.textContent = kena ? `maks ${num(x.sisa, 0)}` : '';
+        nota.style.display = kena ? 'block' : 'none';
+      }
+      segarkanTarikan(st, po);
+    },
+    onKeydown: e => { if (e.key === 'Enter') e.target.blur(); },
+  });
+
   return modal({
-    title: tr({ id: `Template ERP — ${po.no}`, en: `ERP template — ${po.no}`, zh: `ERP 模板 — ${po.no}` }),
-    width: 640, onClose: tutup,
+    title: tr({
+      id: `Template ERP — ${penanda}`,
+      en: `ERP template — ${penanda}`,
+      zh: `ERP 模板 — ${penanda}`,
+    }),
+    width: 760, onClose: tutup,
     body: [
       // Blokir SELURUH berkas kalau ada satu saja SKU tanpa kode ERP. Membuang
       // barisnya diam-diam menghasilkan berkas yang terlihat wajar, terunggah
       // tanpa keluhan, dan baru ketahuan sebagai label yang tidak pernah dipesan.
+      //
+      // Sejak v15.6 yang diperiksa cuma baris yang IKUT DITARIK tahap ini —
+      // memblokir tahap 2 karena SKU yang tidak diminta di tahap 2 itu menahan
+      // berkas yang isinya sama sekali tidak bergantung padanya.
       kurang.length ? h('div', {
         style: {
           background: 'var(--st-red-bg)', border: '1px solid var(--st-red-tx)', borderRadius: '10px',
@@ -383,51 +521,253 @@ export function erpModal() {
         ...kurang.map(k => h('div.mono', { style: { fontSize: '11px', color: 'var(--text-2)' } }, `${k.spec} · ${num(k.qty, 0)}`)),
       ]) : null,
 
-      info(tr({ id: 'Prioritas PO', en: 'PO priority', zh: '采购单优先级' }), po.priority || 'Normal'),
-      info(tr({ id: '需求日期 yang ditulis', en: '需求日期 written', zh: '写入的需求日期' }), tanggal || '—'),
-      info(tr({ id: 'Baris siap', en: 'Rows ready', zh: '就绪行数' }), String(baris.length)),
-      info(tr({ id: 'Nama file', en: 'File name', zh: '文件名' }), namaFileErp(po)),
+      // Baris yang SUDAH ditarik melebihi pesanannya. Seharusnya mustahil —
+      // kotaknya menjepit dan Unduh memeriksa lagi — tapi dua tab yang menarik
+      // bersamaan masih bisa lolos. Kalau terjadi, yang salah adalah 采购申请
+      // yang sudah masuk ERP, dan itu harus DISEBUT, bukan ditampilkan sebagai
+      // sisa nol lalu didiamkan.
+      barisKas.some(x => x.lebih > 0) ? h('div', {
+        style: {
+          background: 'var(--st-red-bg)', border: '1px solid var(--st-red-tx)', borderRadius: '10px',
+          padding: '12px 14px', marginBottom: '14px', fontSize: '12px', color: 'var(--st-red-tx)', fontWeight: 700,
+        },
+      }, tr({
+        id: 'Ada baris yang sudah ditarik MELEBIHI jumlah PO-nya. Cek 采购申请 di ERP sebelum menarik lagi.',
+        en: 'Some lines have been pulled BEYOND their PO quantity. Check 采购申请 in the ERP before pulling again.',
+        zh: '有行的取数已超过采购单数量。再次取数前请先核对 ERP 中的采购申请。',
+      })) : null,
 
-      baris.length ? h('div', { style: { marginTop: '14px', maxHeight: '260px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '8px' } }, [
+      st.erpTarikanGagal ? h('div', {
+        style: {
+          background: 'var(--st-red-bg)', border: '1px solid var(--st-red-tx)', borderRadius: '10px',
+          padding: '12px 14px', marginBottom: '14px', fontSize: '12px', color: 'var(--st-red-tx)', fontWeight: 700,
+        },
+      }, tr({
+        id: 'Riwayat tarikan gagal dimuat — sisa kas di bawah belum tentu benar. Muat ulang halaman sebelum menarik.',
+        en: 'The pull history failed to load — the balances below may be wrong. Reload the page before pulling.',
+        zh: '取数历史加载失败 — 下方额度可能不准确。请先刷新页面再取数。',
+      })) : null,
+
+      info(tr({ id: 'Tahap ke', en: 'Stage', zh: '第几批' }), String(tahap)),
+      info(tr({ id: 'Penanda (备注 & nama file)', en: 'Marker (备注 & file name)', zh: '标记（备注与文件名）' }), penanda),
+      info(tr({ id: 'Prioritas PO', en: 'PO priority', zh: '采购单优先级' }), po.priority || 'Normal'),
+      info(tr({ id: 'Baris siap', en: 'Rows ready', zh: '就绪行数' }), String(baris.length)),
+      info(tr({ id: 'Nama file', en: 'File name', zh: '文件名' }), namaFileErp(po, tahap)),
+
+      // 需求日期 BISA DIUBAH sejak v15.6.
+      //
+      // Sebelumnya dia selalu tanggal approve + lead time prioritas. Untuk satu
+      // tarikan itu benar; untuk tiga tahap itu berarti tahap 1, 2 dan 3 menulis
+      // tanggal yang sama persis, dan ERP menerima tiga permintaan yang seolah
+      // dibutuhkan di hari yang sama padahal kirimannya berbulan-bulan terpisah.
+      h('div.row', { style: { justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderBottom: '1px dashed var(--border)', fontSize: '12px' } }, [
+        h('span', { style: { color: 'var(--text-3)' } }, tr({ id: '需求日期 yang ditulis', en: '需求日期 written', zh: '写入的需求日期' })),
+        h('input.input.mono', {
+          type: 'date',
+          defaultValue: tanggalDipakai,
+          style: { width: '170px', fontSize: '11.5px', padding: '4px 7px' },
+          // Sama seperti kotak qty: commit di blur, tanpa setUI. Kalau
+          // dikosongkan, kembali ke hitungan otomatis — bukan ke string kosong,
+          // karena 需求日期 kosong membuat impornya ditolak ERP.
+          onBlur: e => {
+            const v = String(e.target.value || '').trim();
+            d.tanggal = /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '';
+            e.target.value = d.tanggal || tanggalOtomatis;
+          },
+        }),
+      ]),
+
+      barisKas.length ? h('div', { style: { marginTop: '14px', maxHeight: '300px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '8px' } }, [
         h('table.tbl', { style: { width: '100%' } }, [
           h('thead', h('tr', [
-            h('th', '物料编号'), h('th', '物料名称'), h('th', { style: { textAlign: 'right' } }, '申请数量'),
+            h('th', '物料编号'),
+            h('th', '物料名称'),
+            h('th', { style: { textAlign: 'right' } }, tr({ id: 'PO', en: 'PO', zh: '采购单' })),
+            h('th', { style: { textAlign: 'right' } }, tr({ id: 'Ditarik', en: 'Pulled', zh: '已取' })),
+            h('th', { style: { textAlign: 'right' } }, tr({ id: 'Tarik skrg', en: 'Pull now', zh: '本次取数' })),
+            h('th', { style: { textAlign: 'right' } }, tr({ id: 'Sisa kas', en: 'Balance left', zh: '剩余额度' })),
           ])),
-          h('tbody', baris.map(b => h('tr', [
-            h('td.mono', { style: { fontSize: '11px' } }, b.erp),
-            h('td', { style: { fontSize: '11px', color: 'var(--text-2)' } }, b.nama.slice(0, 46)),
-            h('td.mono', { style: { fontSize: '11px', textAlign: 'right' } }, num(b.qty, 0)),
+          h('tbody', barisKas.map(x => h('tr', [
+            h('td.mono', { style: { fontSize: '11px' } }, String(x.it.erp || '—')),
+            h('td', { style: { fontSize: '11px', color: 'var(--text-2)' } }, String(x.it.cn || x.it.d || x.it.dimension || '(label)').slice(0, 40)),
+            h('td.mono', { style: { fontSize: '11px', textAlign: 'right' } }, num(Number(x.it.qty) || 0, 0)),
+            h('td.mono', { style: { fontSize: '11px', textAlign: 'right', color: 'var(--text-3)' } }, num(x.ditarik, 0)),
+            h('td', { style: { textAlign: 'right' } }, [
+              kotakQty(x),
+              // Diisi oleh onBlur di atas lewat tulisan DOM langsung. Kosong dan
+              // tersembunyi sampai ada yang mengetik di atas sisa kasnya.
+              h('div.mono', {
+                id: `erp-nota-${x.it.lineId}`,
+                style: { display: 'none', fontSize: '9.5px', marginTop: '3px', color: 'var(--st-red-tx)', whiteSpace: 'nowrap' },
+              }, ''),
+            ]),
+            h('td.mono', {
+              id: `erp-sisa-${x.it.lineId}`,
+              style: { fontSize: '11px', textAlign: 'right', color: 'var(--text-3)' },
+            }, num(Math.max(0, x.sisa - (Number(d.qty[x.it.lineId]) || 0)), 0)),
           ]))),
+          h('tfoot', h('tr', [
+            h('td', { colSpan: 4, style: { textAlign: 'right', fontSize: '11.5px', fontWeight: 700 } },
+              tr({ id: 'Total ditarik tahap ini', en: 'Total pulled this stage', zh: '本批合计' })),
+            h('td.mono', { id: 'erp-total-tarik', style: { textAlign: 'right', fontSize: '11.5px', fontWeight: 800 } }, num(totalMinta, 0)),
+            h('td', ''),
+          ])),
         ]),
-      ]) : null,
+      ]) : h('div', { style: { marginTop: '14px', padding: '18px', textAlign: 'center', fontSize: '12px', color: 'var(--text-3)' } }, tr({
+        id: 'Kas PO ini sudah habis — seluruh jumlahnya sudah pernah ditarik ke 采购申请.',
+        en: 'This PO has no balance left — its full quantity has already been pulled into 采购申请.',
+        zh: '该采购单额度已用完 — 全部数量均已取入采购申请。',
+      })),
+
+      adaKasHabis && barisKas.length ? h('div', { style: { marginTop: '8px', fontSize: '11px', color: 'var(--text-3)' } }, tr({
+        id: 'Baris yang kasnya sudah habis tidak ditampilkan.',
+        en: 'Lines with no balance left are hidden.',
+        zh: '额度已用完的行不予显示。',
+      })) : null,
 
       h('div', { style: { marginTop: '12px', fontSize: '11px', color: 'var(--text-3)', lineHeight: 1.5 } }, tr({
-        id: '需求日期 = tanggal approve + lead time prioritas (Label Settings). Di ERP: 采购申请 → 新增 → isi dulu 计划类别/需求来源/流向/用途类别 → baru 导入明细.',
-        en: '需求日期 = approval date + the priority lead time (Label Settings). In the ERP: 采购申请 → 新增 → fill 计划类别/需求来源/流向/用途类别 FIRST → then 导入明细.',
-        zh: '需求日期 = 审批日期 + 优先级对应的提前期（标签设置）。在 ERP 中：采购申请 → 新增 → 先填写计划类别/需求来源/流向/用途类别 → 再点击导入明细。',
+        id: '需求日期 awalnya = tanggal approve + lead time prioritas (Label Settings), boleh diubah per tahap. Di ERP: 采购申请 → 新增 → isi dulu 计划类别/需求来源/流向/用途类别 → baru 导入明细.',
+        en: '需求日期 defaults to the approval date + the priority lead time (Label Settings) and can be changed per stage. In the ERP: 采购申请 → 新增 → fill 计划类别/需求来源/流向/用途类别 FIRST → then 导入明细.',
+        zh: '需求日期 默认为审批日期加优先级提前期（标签设置），可按批次修改。在 ERP 中：采购申请 → 新增 → 先填写计划类别/需求来源/流向/用途类别 → 再点击导入明细。',
       })),
     ],
     footer: [
       btn(t('cancel'), { onClick: tutup }),
-      bisa ? btn(tr({ id: 'Unduh .xls', en: 'Download .xls', zh: '下载 .xls' }), {
+      btn(tr({ id: 'Unduh .xls', en: 'Download .xls', zh: '下载 .xls' }), {
         variant: 'primary', iconName: 'download',
+        // Diperiksa DI DALAM onClick, bukan dengan menyembunyikan tombolnya.
+        // Tombol yang muncul-hilang mengikuti isian akan hilang tepat saat blur
+        // mendahului klik, dan klik yang sah jatuh ke ruang kosong — kegagalan
+        // yang sudah pernah terjadi di layar Label Request.
         onClick: async () => {
-          try {
-            await unduhTemplateErp(namaFileErp(po), baris);
-            logAudit({ entity: 'po', target: po.no, action: 'erp_template', detail: `${baris.length} baris · ${tanggal}` });
+          const s2 = getState();
+          const po2 = (s2.pos || []).find(p => p.id === s2.ui.erpPo);
+          if (!po2) return;
+          if (blockWrite('tarik template ERP')) return;
+          // PO yang belum tersinkron tidak punya baris di server, jadi
+          // erp_tarikan.po_id (uuid, references pos.id) menolaknya dengan 22P02
+          // apa pun isinya. Dihentikan DI SINI dengan kalimat yang menyebut
+          // sebabnya, bukan dibiarkan jatuh ke pesan Postgres mentah.
+          //
+          // Dan bukan cuma soal pesan: sebelum v15.6 berkas ini terunduh tanpa
+          // dicatat. Sekarang pencatatan itulah yang menurunkan kas, jadi
+          // membiarkannya lewat berarti menerbitkan 采购申请 yang tidak pernah
+          // terhitung — persis lubang yang rilis ini ada untuk menutupnya.
+          if (!UUID_RE.test(String(po2.id))) {
             toast({
-              id: `Template ERP ${po.no} diunduh — ${baris.length} baris`,
-              en: `ERP template ${po.no} downloaded — ${baris.length} rows`,
-              zh: `ERP 模板 ${po.no} 已下载 — ${baris.length} 行`,
+              id: `PO ${po2.no} belum tersinkron ke server — tarikannya tidak bisa dicatat, jadi filenya tidak dibuat. Muat ulang halaman; kalau tetap begini, kabari Wilbert.`,
+              en: `PO ${po2.no} never synced to the server — the pull cannot be recorded, so no file was created.`,
+              zh: `采购单 ${po2.no} 未同步到服务器 — 无法记录取数，因此未生成文件。`,
             });
-            tutup();
-          } catch (e) {
-            // Gagal membuat berkas tidak boleh menjatuhkan layar approval.
-            console.error('template ERP gagal:', e);
-            toast({ id: 'Gagal membuat file: ' + (e.message || e), en: 'Failed to build the file: ' + (e.message || e), zh: '生成文件失败：' + (e.message || e) });
+            return;
           }
+          // Riwayat tarikan GAGAL DIMUAT saat login. Kas dihitung darinya, jadi
+          // yang tampil di layar ini adalah kas PENUH untuk setiap PO — angka
+          // yang kelihatan wajar dan salah. Menariknya sekarang berarti
+          // menerbitkan 采购申请 untuk jumlah yang mungkin sudah pernah diminta.
+          if (s2.erpTarikanGagal) {
+            toast({
+              id: 'Riwayat tarikan gagal dimuat, jadi sisa kas di layar ini belum tentu benar. Muat ulang halaman dulu sebelum menarik.',
+              en: 'The pull history failed to load, so the balance shown here may be wrong. Reload the page before pulling.',
+              zh: '取数历史加载失败，此处显示的额度可能不准确。请先刷新页面再取数。',
+            });
+            return;
+          }
+
+          const tahapKini = tahapBerikut(s2, po2.id);
+          const tglKini = tarikDraft.tanggal || tanggalKebutuhan(s2, po2);
+          const susun = susunBarisErp(s2, po2, { qty: tarikDraft.qty, tahap: tahapKini, tanggal: tglKini });
+
+          if (susun.kurang.length) {
+            toast({
+              id: `${susun.kurang.length} SKU belum punya kode ERP — file tidak dibuat`,
+              en: `${susun.kurang.length} SKU have no ERP code — the file was not created`,
+              zh: `${susun.kurang.length} 个 SKU 没有 ERP 编号 — 未生成文件`,
+            });
+            return;
+          }
+          if (!susun.baris.length) {
+            toast({
+              id: 'Belum ada jumlah yang diisi — isi minimal satu baris',
+              en: 'No quantity entered — fill at least one row',
+              zh: '尚未填写数量 — 请至少填写一行',
+            });
+            return;
+          }
+          // Pemeriksaan TERAKHIR terhadap kas. Kotaknya sudah menjepit waktu
+          // diketik, tapi kas bisa berubah di antara membuka jendela dan
+          // menekan tombol — tab lain, orang lain, tarikan yang baru masuk.
+          const langgar = langgarKas(s2, po2, tarikDraft.qty);
+          if (langgar.length) {
+            const l = langgar[0];
+            toast({
+              id: `Kas tidak cukup untuk ${l.erp || 'baris ini'}: minta ${num(l.minta, 0)}, sisa ${num(l.sisa, 0)}. Buka ulang jendelanya.`,
+              en: `Not enough balance for ${l.erp || 'this line'}: asked ${num(l.minta, 0)}, left ${num(l.sisa, 0)}. Reopen this window.`,
+              zh: `${l.erp || '该行'} 额度不足：申请 ${num(l.minta, 0)}，剩余 ${num(l.sisa, 0)}。请重新打开此窗口。`,
+            });
+            return;
+          }
+
+          // DICATAT DULU, BARU DIUNDUH. Urutannya bukan selera: kalau berkasnya
+          // diunduh lebih dulu lalu pencatatannya gagal, berkasnya sudah ada di
+          // tangan orangnya sementara kasnya masih penuh — dan tahap berikutnya
+          // menarik jumlah yang sama sekali lagi ke ERP.
+          const catatan = susun.baris.map(b => ({
+            poId: po2.id, lineId: b.lineId, tahap: tahapKini, qty: b.qty,
+            tanggal: tglKini, penanda: susun.penanda, oleh: s2.user.username,
+          }));
+          let tersimpan;
+          try {
+            tersimpan = await catatTarikan(catatan);
+          } catch (e) {
+            console.error('catat tarikan gagal', e);
+            toast(tahapKembar(e)
+              ? {
+                  id: `Tahap ${tahapKini} sudah pernah dicatat — buka ulang jendelanya, mungkin ada yang menarik barusan`,
+                  en: `Stage ${tahapKini} is already recorded — reopen this window, someone may have just pulled it`,
+                  zh: `第 ${tahapKini} 批已记录 — 请重新打开窗口，可能刚有人取过数`,
+                }
+              : {
+                  id: 'Gagal mencatat tarikan, file TIDAK dibuat: ' + (e.message || e),
+                  en: 'Failed to record the pull, the file was NOT created: ' + (e.message || e),
+                  zh: '记录取数失败，未生成文件：' + (e.message || e),
+                });
+            return;
+          }
+          catatTarikanLokal(tersimpan.length ? tersimpan : catatan);
+
+          try {
+            await unduhTemplateErp(namaFileErp(po2, tahapKini), susun.baris);
+          } catch (e) {
+            // Tarikannya SUDAH tercatat dan kasnya sudah turun. Itu keadaan yang
+            // benar — 采购申请-nya memang belum dibuat, tapi nomornya sudah
+            // dipesan. Katakan apa adanya, jangan diam-diam membatalkan catatan:
+            // menghapusnya membuka celah dua orang menarik tahap yang sama.
+            console.error('template ERP gagal:', e);
+            toast({
+              id: `Tarikan tahap ${tahapKini} tercatat, tapi file gagal dibuat: ${e.message || e}. Buka lagi jendela ini untuk mengunduh ulang tahap berikutnya.`,
+              en: `Stage ${tahapKini} was recorded, but the file failed: ${e.message || e}.`,
+              zh: `第 ${tahapKini} 批已记录，但文件生成失败：${e.message || e}。`,
+            });
+            resetErpDraft();
+            setUI({ erpPo: null, erpLine: null });
+            return;
+          }
+
+          const total = susun.baris.reduce((a, b) => a + b.qty, 0);
+          logAudit({
+            entity: 'po', target: po2.no, action: 'erp_template',
+            detail: `${susun.penanda} · ${susun.baris.length} baris · ${num(total, 0)} pcs · ${tglKini}`,
+          });
+          toast({
+            id: `${susun.penanda} diunduh — ${num(total, 0)} pcs, ${susun.baris.length} baris`,
+            en: `${susun.penanda} downloaded — ${num(total, 0)} pcs across ${susun.baris.length} rows`,
+            zh: `${susun.penanda} 已下载 — ${num(total, 0)} 件，${susun.baris.length} 行`,
+          });
+          resetErpDraft();
+          setUI({ erpPo: null, erpLine: null });
         },
-      }) : null,
+      }),
     ],
   });
 }
