@@ -162,6 +162,23 @@ export async function setPoItems(poId, items) {
   assertWrote(await c.from('pos').update({ items }).eq('id', poId).select('id'), 'simpan baris PO');
 }
 
+// Pembuat menghapus PO-nya SENDIRI, selama belum disetujui — tanpa antre ke
+// wilbert. Sengaja RPC yang BERBEDA dari approve_po_delete, bukan pelebarannya:
+// yang itu jalur untuk PO yang SUDAH disetujui dan memang harus lewat
+// supervisor. Satu fungsi yang menjawab dua pertanyaan keamanan sekaligus
+// selalu berakhir longgar di salah satu sisinya.
+//
+// Syaratnya diperiksa DI DALAM fungsi terhadap baris yang sesungguhnya —
+// kepemilikan DAN status — jadi memanggilnya dengan id PO orang lain, atau
+// dengan PO yang sudah Approved, tetap ditolak server walaupun tombolnya
+// diakali. Lihat supabase_po_edit_hapus.sql PART 1.
+export async function deleteOwnPendingPo(poId, reason) {
+  const c = await getClient();
+  if (!c) throw new Error('Supabase client unavailable');
+  const { error } = await c.rpc('delete_own_pending_po', { p_po_id: poId, p_reason: reason || null });
+  if (error) throw error;
+}
+
 export async function requestPoDelete(poId, reason) {
   const c = await getClient();
   if (!c) throw new Error('Supabase client unavailable');
