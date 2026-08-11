@@ -242,6 +242,9 @@ async function genConverterPO() {
     items,
   };
   if (isWilbert) { po.approvedAt = new Date().toISOString(); po.approvedBy = 'wilbert'; }
+  // Peringatan yang harus ikut terbaca bareng pesan suksesnya, bukan
+  // menggantikannya. toast() cuma punya SATU slot — alasannya di dalam catch().
+  const peringatan = [];
   try {
     const supabaseId = await insertPO(po);
     if (supabaseId) po.id = supabaseId;
@@ -261,21 +264,38 @@ async function genConverterPO() {
     }
     // Anything else (network, timeout) may well succeed on a retry, so the
     // original behaviour stands: keep it locally and say so.
-    toast({
-      id: 'PO tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e),
-      en: 'PO saved locally, but syncing to the server failed: ' + (e.message || e),
-      zh: '采购单已本地保存，但同步到服务器失败：' + (e.message || e),
-    });
+    //
+    // DIKUMPULKAN, TIDAK LANGSUNG DI-TOAST. toast() cuma punya SATU slot, dan
+    // beberapa baris di bawah ada toast sukses "dikirim ke approval queue" yang
+    // pasti jalan — jadi peringatan ini dulu tertimpa sebelum sempat terlihat,
+    // dan cania membaca "terkirim" untuk PO yang cuma ada di tab-nya sendiri
+    // dan lenyap saat login berikutnya. Pola `ekor` ini disalin dari
+    // labelRequest.js, yang sudah kena persis di tempat yang sama.
+    peringatan.push(tr({
+      id: 'TAPI GAGAL SYNC KE SERVER, tersimpan lokal saja: ' + (e.message || e),
+      en: 'BUT SYNCING TO THE SERVER FAILED, saved locally only: ' + (e.message || e),
+      zh: '但同步到服务器失败，仅本地保存：' + (e.message || e),
+    }));
   }
   // No post-insert lineId patch any more — the ids were minted above and are
   // identical in the local copy and the persisted row.
   st.pos.unshift(po);
   logAudit({ entity: 'po', target: no, action: 'convert', detail: `from ${contract || no}` });
   setUI({ cvPopup: false, cvResult: null });
+  const ekor = peringatan.length ? ` · ${peringatan.join(' · ')}` : '';
   toast(isWilbert
-    ? { id: `PO ${no} dibuat & di-approve`, en: `PO ${no} created & approved`, zh: `采购单 ${no} 已创建并批准` }
-    : { id: `PO ${no} dikirim ke approval queue supervisor`, en: `PO ${no} sent to the supervisor's approval queue`, zh: `采购单 ${no} 已提交至主管审批队列` });
-  setState({ screen: 'approval' });
+    ? { id: `PO ${no} dibuat & di-approve${ekor}`, en: `PO ${no} created & approved${ekor}`, zh: `采购单 ${no} 已创建并批准${ekor}` }
+    : { id: `PO ${no} dikirim ke approval queue supervisor${ekor}`, en: `PO ${no} sent to the supervisor's approval queue${ekor}`, zh: `采购单 ${no} 已提交至主管审批队列${ekor}` });
+  // Tujuannya mengikuti PERAN, bukan satu layar untuk semua.
+  //
+  // Dulu baris ini selalu 'approval'. cania dan visca tidak memilikinya, jadi
+  // penjaga di main.js menulis ulang layarnya ke yang pertama yang mereka
+  // punya — Dashboard. Mereka menekan Generate, dapat toast tentang antrean
+  // yang tidak bisa mereka buka, lalu mendarat jauh dari PO yang barusan
+  // mereka buat. Sekarang mereka mendarat DI PO-nya.
+  if (isWilbert) { setState({ screen: 'approval' }); return; }
+  setUI({ poSayaSel: po.id, selPO: po.id });
+  setState({ screen: 'po-saya' });
 }
 
 

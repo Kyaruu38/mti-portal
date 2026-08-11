@@ -7,6 +7,7 @@ import { outstandingPOs } from '../core/outstanding.js';
 import { statusText } from '../core/statusText.js';
 import { poDocument, ensureCap } from '../ui/documents.js';
 import { wrapPrintable } from './approval.js';
+import { poMilikku } from '../core/poAkses.js';
 
 function stat(label, value, sub, accent) {
   return card([
@@ -137,8 +138,11 @@ const MEDAN_PO_SAYA = (rows) => [
 //
 // Still no approve button here. That separation is the point.
 function myPoCard(st, u) {
-  const semua = st.pos.filter(p => p.by === u.username)
-    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  // poMilikku(), BUKAN filter sendiri. Kartu ini dan layar PO Saya harus
+  // menampilkan himpunan yang sama persis — kalau tidak, orang mengklik baris
+  // di sini dan sampai di layar yang daftarnya berbeda. Urutan dan penyaringan
+  // kepemilikannya tinggal satu tempat.
+  const semua = poMilikku(st);
   const medan = MEDAN_PO_SAYA(semua);
   const nilai = nilaiFilter('db-po');
   const tersaring = saring(semua, medan, nilai);
@@ -177,7 +181,21 @@ function myPoCard(st, u) {
       hitunganSaring(tersaring.length, semua.length, { id: 'PO', en: 'PO', zh: '个采购单' }),
       tombolFilter({ id: 'db-po', medan, judul }),
     ]), null),
-    ...mine.map(p => h('div.row.gap14', { style: { padding: '12px 18px', borderBottom: '1px solid var(--border)' } }, [
+    // Barisnya BISA DIKLIK — membuka layar PO Saya dengan PO ini terpilih.
+    //
+    // Sampai v15.4 baris ini cuma teks: satu-satunya tombolnya mengunduh PDF,
+    // dan tidak ada jalan dari sini ke dokumen PO-nya sendiri. Yang mau
+    // membenahi harga di PO yang belum disetujui tidak punya pintu sama sekali
+    // — tombolnya ada, tapi di layar Approval yang tidak dimiliki cania dan
+    // visca.
+    //
+    // stopPropagation di tombol PDF: tanpa itu, mengunduh PDF juga memindahkan
+    // layar, dan orang yang cuma mau menyimpan lampiran malah kehilangan
+    // tempatnya.
+    ...mine.map(p => h('div.row.gap14', {
+      style: { padding: '12px 18px', borderBottom: '1px solid var(--border)', cursor: 'pointer' },
+      onClick: () => { setUI({ poSayaSel: p.id, selPO: p.id }); setState({ screen: 'po-saya' }); },
+    }, [
       h('div.grow', [
         h('div.mono', { style: { fontSize: '12px', fontWeight: 600, color: 'var(--text)' } }, p.no),
         h('div', { style: { fontSize: '11.5px', color: 'var(--text-3)', marginTop: '2px' } }, p.supplier),
@@ -189,7 +207,8 @@ function myPoCard(st, u) {
       btn(p.status === 'Approved'
         ? tr({ id: 'PDF', en: 'PDF', zh: 'PDF' })
         : tr({ id: 'PDF draft', en: 'Draft PDF', zh: '草稿 PDF' }),
-        { sm: true, iconName: 'download', onClick: () => openPdf(p) }),
+        { sm: true, iconName: 'download', onClick: (e) => { if (e && e.stopPropagation) e.stopPropagation(); openPdf(p); } }),
+      h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, '›'),
     ])),
     mine.length ? null : blokTakCocok('db-po', jumlahFilterAktif(nilai) > 0, tr({
       id: 'Anda belum membuat PO.',

@@ -35,7 +35,11 @@ export function unreadCount(st, user) {
 
 // Which screen a notification row should navigate to on click.
 export function notifTargetScreen(n, user) {
-  if (n.entity === 'po') return user.role === 'wilbert' ? 'approval' : 'label-request';
+  // 'label-request' itu tebakan lama dari zaman sebelum ada layar PO untuk
+  // pembuatnya: cania menekan "PO ... disetujui" di lonceng lalu mendarat di
+  // layar yang tidak ada hubungannya dengan PO itu. Sekarang ada tujuan yang
+  // benar.
+  if (n.entity === 'po') return user.role === 'wilbert' ? 'approval' : 'po-saya';
   // Diantar ke layar PRF-nya sendiri, bukan ke Payment yang PRF-nya ada di
   // bagian bawah. Lonceng yang mendarat di layar yang salah membuat orangnya
   // mencari sendiri — dan itu persis yang seharusnya dihemat oleh lonceng.

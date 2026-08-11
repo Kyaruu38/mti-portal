@@ -18,7 +18,9 @@ import { loginScreen } from './screens/login.js';
 import { changePasswordScreen } from './screens/changePassword.js';
 
 // ---------------------------------------------------------------------------
-// TIGA BELAS LAYAR SISANYA DIAMBIL SAAT DIKLIK, BUKAN SAAT BOOT.
+// SISA LAYARNYA DIAMBIL SAAT DIKLIK, BUKAN SAAT BOOT.
+// (Jumlahnya jangan ditulis di sini — angka itu sudah dua kali basi. Hitung
+//  dari LAZY di bawah.)
 //
 // APA YANG SALAH SEBELUMNYA
 // Semuanya diimpor di baris paling atas file ini. Sebuah ES module yang diimpor
@@ -49,6 +51,11 @@ const LAZY = {
   'po-converter':   () => import('./screens/poConverter.js').then(m => m.poConverterScreen),
   'outstanding-po': () => import('./screens/outstandingPo.js').then(m => m.outstandingPoScreen),
   approval:         () => import('./screens/approval.js').then(m => m.approvalScreen),
+  // PO Saya: pintu buat pembuat PO yang BUKAN supervisor. Sengaja modul
+  // terpisah dan bukan cabang di dalam approval.js — layar itu antrean
+  // persetujuan, dan menumpangkan layar kedua di dalamnya berarti setiap
+  // perubahan di salah satunya harus dipikirkan untuk keduanya.
+  'po-saya':        () => import('./screens/poSaya.js').then(m => m.poSayaScreen),
   ppkek:            () => import('./screens/ppkek.js').then(m => m.ppkekScreen),
   payment:          () => import('./screens/payment.js').then(m => m.paymentScreen),
   // Modul yang SAMA dengan 'payment' — import() menyimpan hasilnya, jadi
@@ -73,6 +80,12 @@ const gagal = {};     // id -> error terakhir
 function fungsiLayar(id) {
   if (STATIS[id]) return STATIS[id];
   if (siap[id]) return siap[id];
+  // Id yang tidak terdaftar di LAZY ditangani DI render(), bukan di sini.
+  //
+  // Sengaja tidak menulis ke gagal[] dari fungsi ini: render() membaca gagal[]
+  // SEBELUM memanggil fungsiLayar(), jadi bendera yang dipasang di sini baru
+  // terbaca satu render kemudian — dan sampai saat itu layarnya tetap memutar
+  // spinner. render() bisa memutuskannya seketika; lihat cabangnya di sana.
   if (!LAZY[id]) return null;
   if (!jalan[id]) {
     delete gagal[id];
@@ -194,6 +207,19 @@ function render() {
     const buat = errorSebelumnya ? null : fungsiLayar(st.screen);
     if (errorSebelumnya) {
       screenEl = gagalMuat(st.screen, errorSebelumnya);
+    } else if (!buat && !LAZY[st.screen] && !STATIS[st.screen]) {
+      // ID LAYAR YANG TIDAK PERNAH DIDAFTARKAN. Ini dulu jatuh ke cabang
+      // "sedang memuat" di bawah dan memutar spinner SELAMANYA — tanpa throw,
+      // tanpa satu baris pun di console. Layar yang ada di ACCESS tapi lupa
+      // ditambahkan ke LAZY jadi spinner abadi, yang LEBIH sulit dilacak
+      // daripada menu yang hilang sama sekali.
+      //
+      // Sebuah id layar dikunci di delapan tempat. Ini satu-satunya dari
+      // kedelapannya yang bisa dibikin berisik dari dalam kode; tujuh sisanya
+      // cuma bisa ditemukan dengan MEMBUKA layarnya sebagai peran yang dituju.
+      const e = new Error(`Layar "${st.screen}" ada di ACCESS tapi tidak terdaftar di LAZY (src/main.js)`);
+      console.error(e);
+      screenEl = gagalMuat(st.screen, e);
     } else if (!buat) {
       // Cangkangnya tetap terpasang — sidebar, header, menu akun semuanya hidup.
       // Yang menunggu cuma isi layarnya, dan cuma sekali per layar per sesi.

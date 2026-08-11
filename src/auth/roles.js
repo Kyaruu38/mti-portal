@@ -16,23 +16,34 @@ export const USERS = {
   // Slate grey on purpose. The avatar is the one element visible on every
   // screen, so an observer account should not look like an operator account.
   // Nama jabatannya ditulis apa adanya dalam bahasa Tionghoa atas permintaan
-  // pemilik. Hak aksesnya TIDAK berubah sedikit pun — tetap 13 layar, nol
-  // kapabilitas tulis. Yang berganti cuma label di layar.
+  // pemilik. Hak aksesnya TIDAK berubah sedikit pun — nol kapabilitas tulis.
+  // Yang berganti cuma label di layar. (Jumlah layarnya jangan ditulis di sini
+  // lagi: angka itu sudah dua kali basi. Hitung dari ACCESS.cenjc.)
   cenjc:      { name: 'cenjc',      tag: '经营管理部经理',            init: 'CE', color: '#5C6470', lang: 'id' },
 };
 
 // Screen access per role (menus hidden + RLS enforced).
-//  wilbert    = full access + approval queue
-//  cania/visca= Label + PO Converter + Master data (+ their label sub-screens)
+//  wilbert    = full access + approval queue + PO Saya
+//  cania/visca= PO Saya + Label + PO Converter + Master data (+ their label
+//               sub-screens)
 //               + Payment screen in PRF-GENERATE-ONLY mode (no invoice intake,
 //               no stage tracking) - see paymentScreen()'s canIntake branch
 //  sekar      = PPKEK + Payment(purchasing) + payment-status READ-ONLY
 //  financemti = Finance dashboard only
 //  sona       = Label Request + Label Stock (weekly Excel upload) only
 export const ACCESS = {
-  wilbert: ['dashboard', 'approval', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports'],
-  cania:   ['dashboard', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
-  visca:   ['dashboard', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
+  // 'po-saya': daftar PO buatan sendiri. Wilbert ikut dapat supaya klik dari
+  // kartu PO Saya di Dashboard tidak buntu untuk siapa pun; tombol Edit dan
+  // Hapus di sana tetap TIDAK muncul untuknya (bolehUrusSendiri menolak
+  // pemegang `approve`), dan jalur supervisornya tetap di Approval Queue.
+  //
+  // cenjc SENGAJA tidak diberi: dia tidak pernah bisa membuat PO
+  // (pos_insert mensyaratkan is_label_staff()), jadi layarnya akan selalu
+  // kosong. Menu yang selalu kosong adalah menu yang diklik sekali lalu
+  // dianggap rusak.
+  wilbert: ['dashboard', 'approval', 'po-saya', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports'],
+  cania:   ['dashboard', 'po-saya', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
+  visca:   ['dashboard', 'po-saya', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
   // 'finance' added 31 Jul 2026 so sekar can post the transfer proof. Finance
   // shares proofs into a group chat rather than entering them one by one, so
   // the person who actually transcribes them is sekar. She gets the SCREEN, not
@@ -45,13 +56,15 @@ export const ACCESS = {
   // NOT in is_purchasing() server-side, so she has no write access to suppliers,
   // designs or surat jalan even though those menus are simply absent here.
   sona:    ['dashboard', 'label-request', 'label-stock'],
-  // cenjc WATCHES the whole pipeline and changes nothing. Same screen list as
-  // wilbert, zero write capabilities (see CAPS below).
+  // cenjc WATCHES the whole pipeline and changes nothing. wilbert's screen list
+  // MINUS `po-saya` — he raises no POs, so that screen would always be empty for
+  // him, and an always-empty menu item is one more thing to explain to whoever
+  // joins next. Zero write capabilities (see CAPS below).
   //
   // Screen presence was never a write boundary in this app — until cenjc every
   // role that could SEE a screen could also write on it, so most write buttons
-  // were gated by ACCESS alone. Granting all 12 screens to a read-only role is
-  // what forced the real gates to exist (sjWrite / ppkekWrite / poCreate /
+  // were gated by ACCESS alone. Granting nearly every screen to a read-only role
+  // is what forced the real gates to exist (sjWrite / ppkekWrite / poCreate /
   // designWrite / labelParse below), and those gates now protect every role,
   // not just this one.
   cenjc:   ['dashboard', 'approval', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports'],
@@ -87,8 +100,8 @@ export const ACCESS = {
 //                  step is that the supervisor confirms he is holding the paper,
 //                  and a maker who can tick their own delivery confirms nothing.
 //
-// ADDED FOR THE OBSERVER ROLE — these five actions had NO capability at all and
-// were reachable by anyone holding the screen. Each mirrors the RLS policy that
+// ADDED FOR THE OBSERVER ROLE — the actions listed below had NO capability at
+// all and were reachable by anyone holding the screen. Each mirrors the RLS policy that
 // already governs the same table, so the button and the database now agree:
 //  sjWrite         create surat jalan / ship over-delivery / re-archive.  sj_rw
 //  ppkekWrite      PPKEK register: dropzone, inline cell edit, import-apply. ppkek_rw
@@ -110,7 +123,9 @@ export const ACCESS = {
 //
 //  readOnly        this account may not write ANYTHING. Powers the central guard
 //                  in core/guard.js and the few gates that key off authorship
-//                  rather than a capability (approval.js's request-delete).
+//                  rather than a capability (bolehUrusSendiri /
+//                  bolehMintaHapus in core/poAkses.js, used by BOTH the
+//                  Approval and PO Saya screens).
 //
 // Granted capabilities are listed by name. Anything not listed is false, and
 // can() already returns false for an unknown cap — so adding a new capability
@@ -175,9 +190,9 @@ export function can(role, cap) { return !!(CAPS[role] && CAPS[role][cap]); }
 // only for readability at call sites, where the negation reads badly.
 //
 // Use this ONLY for gates that cannot be expressed as a capability — chiefly
-// approval.js's request-delete, which is granted by AUTHORSHIP (po.by === me)
-// rather than by a cap, and would therefore reopen for an observer the moment a
-// PO carrying their username existed. For everything else gate on the specific
+// bolehUrusSendiri() and bolehMintaHapus() in core/poAkses.js, which are granted
+// by AUTHORSHIP (po.by === me) rather than by a cap, and would therefore reopen
+// for an observer the moment a PO carrying their username existed. For everything else gate on the specific
 // capability, so the reason a button is hidden stays legible.
 export function isReadOnly(role) { return can(role, 'readOnly'); }
 export function usernameToEmail(username) { return `${username}@${EMAIL_DOMAIN}`; }

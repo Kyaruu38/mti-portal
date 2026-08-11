@@ -42,7 +42,16 @@ const hasModule = (role, m) => allowedReportModules(role).includes(m);
 export const SEARCH_TYPES = {
   // Anyone who reviews POs (approval) or reports on them. Covers cania/visca,
   // who generate POs but never see the approval queue.
-  'PO': { screens: ['approval'], visible: r => hasScreen(r, 'approval') || hasModule(r, 'PO') },
+  // 'po-saya' ditambahkan, dan URUTANNYA penting: openTarget memakai layar
+  // PERTAMA yang dipegang perannya. wilbert tetap mendarat di antrean
+  // persetujuan; cania dan visca mendarat di PO Saya. Sebelum ini daftarnya
+  // hanya ['approval'], jadi hasil pencarian PO milik cania muncul TANPA tombol
+  // Buka sama sekali — kelihatan, tapi buntu.
+  //
+  // PO Saya membaca `selPO` selain `poSayaSel` justru untuk ini, dan dia mau
+  // menampilkan PO siapa pun yang boleh dibaca — daftar di kirinya tetap hanya
+  // PO miliknya, dan tombolnya tetap diputuskan bolehUrusSendiri().
+  'PO': { screens: ['approval', 'po-saya'], visible: r => hasScreen(r, 'approval') || hasScreen(r, 'po-saya') || hasModule(r, 'PO') },
   // Invoice intake lives on Payment (sekar); overdue invoices show on Finance.
   'Invoice': { screens: ['payment', 'finance'], visible: r => hasScreen(r, 'payment') || hasScreen(r, 'finance') },
   // Straightforward: the screen is the only place these are used.

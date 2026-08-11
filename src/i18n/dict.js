@@ -106,6 +106,7 @@ export const DICT = {
   quick_label: { id: 'Upload Label Request', en: 'Upload Label Request', zh: '上传标签申请' },
   quick_po_pdf: { id: 'PO dari PDF', en: 'PO from PDF', zh: '从PDF生成采购单' },
   quick_review_appr: { id: 'Review Approvals', en: 'Review Approvals', zh: '审核批准' },
+  s_po_saya: { id: 'PO Saya', en: 'My POs', zh: '我的采购单' },
   dash_my_po_pending: { id: 'PO Saya Menunggu', en: 'My POs Pending', zh: '我的待审批采购单' },
   dash_new_labels: { id: 'Label Request Saya', en: 'My Label Requests', zh: '我的标签申请' },
   dash_missing_design: { id: 'Item Tanpa Desain', en: 'Items Missing Design', zh: '无设计物料' },

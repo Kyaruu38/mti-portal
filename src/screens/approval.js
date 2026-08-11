@@ -7,10 +7,11 @@ import { card, badge, btn, icon, modal, field, inputEl, selectEl, tombolFilter, 
 import { money, num, fmtDate, ppnFor, poTermDays, isAdvanceTerm } from '../core/format.js';
 import { newLineId } from '../core/posApi.js';
 import { poDocument, ensureCap } from '../ui/documents.js';
-import { can, isReadOnly } from '../auth/roles.js';
+import { can } from '../auth/roles.js';
 import { downloadBlob } from '../core/dom.js';
-import { requestPoDelete, approvePoDelete, rejectPoDelete, deleteOwnPendingPo, updatePoStatus, updatePO, UUID_RE } from '../core/posApi.js';
+import { approvePoDelete, rejectPoDelete, updatePoStatus, updatePO, UUID_RE } from '../core/posApi.js';
 import { canBuildErp, susunBarisErp, unduhTemplateErp, namaFileErp } from '../core/erpRequest.js';
+import { bolehUrusSendiri, hapusPoSendiri, bolehMintaHapus, mintaHapusPo } from '../core/poAkses.js';
 
 // Reject-note draft. Lives OUTSIDE the store on purpose: writing it into
 // st.ui via setUI() on every keystroke rebuilt the DOM mid-type and truncated
@@ -160,63 +161,12 @@ export function approvalScreen() {
     });
     setUI({ rejectOpen: false });
   };
-  // Pembuat membuang PO-nya sendiri sebelum disetujui. Alasannya diminta —
-  // bukan sebagai basa-basi konfirmasi, tapi karena nomor PO-nya hangus dari
-  // deret dan enam bulan lagi yang menelusuri lompatan nomor perlu jawaban.
-  // Alasan itu ikut tersimpan ke delete_reason DAN ke audit.
-  const hapusSendiri = async () => {
-    if (blockWrite('hapus PO sendiri')) return;
-    if (!UUID_RE.test(po.id)) {
-      toast({
-        id: 'PO ini belum tersinkron ke server — tidak ada yang bisa dihapus di sana',
-        en: 'This PO never synced to the server — there is nothing there to delete',
-        zh: '该采购单未同步到服务器 — 服务器上没有可删除的内容',
-      });
-      return;
-    }
-    // Nomornya BEBAS DIPAKAI LAGI sesudah ini — pos_no_unik itu unique index
-    // PARSIAL: `ON pos (no) WHERE deleted_at IS NULL`. Begitu barisnya
-    // ter-soft-delete, nomor yang sama boleh dipakai PO baru. Draf pertama
-    // kalimat ini menulis kebalikannya ("nomornya hangus"), dan menakut-nakuti
-    // orang dengan akibat yang tidak terjadi sama buruknya dengan menyembunyikan
-    // akibat yang terjadi — dua-duanya bikin peringatan berikutnya tidak dibaca.
-    const reason = prompt(tr({
-      id: `Hapus PO ${po.no}? Barisnya hilang dari semua layar dan dari Reports; nomornya bebas dipakai lagi. Alasan:`,
-      en: `Delete PO ${po.no}? The row disappears from every screen and from Reports; the number becomes reusable. Reason:`,
-      zh: `删除采购单 ${po.no}？该行将从所有页面和报表中消失；编号可再次使用。原因：`,
-    }));
-    if (!reason || !reason.trim()) return;
-    try {
-      await deleteOwnPendingPo(po.id, reason.trim());
-      const idx = st.pos.indexOf(po);
-      if (idx >= 0) st.pos.splice(idx, 1);
-      logAudit({ entity: 'po', target: po.no, action: 'delete_own_pending', detail: reason.trim() });
-      toast({ id: `PO ${po.no} dihapus`, en: `PO ${po.no} deleted`, zh: `采购单 ${po.no} 已删除` });
-      setUI({ selPO: null });
-    } catch (e) {
-      console.error('deleteOwnPendingPo gagal', e);
-      // Server yang menolak, bukan layar. Kalau statusnya berubah jadi Approved
-      // di sela-sela, pesan penolakannya datang dari RPC dan menyebutkan itu.
-      toast({ id: 'Gagal hapus PO: ' + (e.message || e), en: 'Failed to delete PO: ' + (e.message || e), zh: '删除采购单失败：' + (e.message || e) });
-    }
-  };
+  const hapusSendiri = () => hapusPoSendiri(po, { bersihkan: () => setUI({ selPO: null }) });
 
-  const requestDelete = async () => {
-    if (blockWrite('request hapus PO')) return;
-    const reason = prompt(tr({ id: 'Alasan hapus PO ini?', en: 'Reason for deleting this PO?', zh: '删除该采购单的原因？' }));
-    if (!reason) return;
-    try {
-      await requestPoDelete(po.id, reason);
-      po.deleteRequested = true; po.deleteReason = reason;
-      logAudit({ entity: 'po', target: po.no, action: 'request_delete', detail: reason });
-      toast({
-        id: `Request hapus PO ${po.no} diajukan — menunggu approval supervisor`,
-        en: `Delete request for PO ${po.no} submitted — awaiting supervisor approval`,
-        zh: `采购单 ${po.no} 删除申请已提交 — 等待主管审批`,
-      });
-      setState({});
-    } catch (e) { console.error(e); toast({ id: 'Gagal ajukan request hapus: ' + (e.message || e), en: 'Failed to submit delete request: ' + (e.message || e), zh: '提交删除申请失败：' + (e.message || e) }); }
-  };
+  // Badannya pindah ke core/poAkses.js — layar PO Saya memanggil yang sama
+  // persis. Sebelum dipindah, jalur ini cuma ada di sini, dan cania serta visca
+  // tidak punya layar ini.
+  const requestDelete = () => mintaHapusPo(po);
   const approveDelete = async () => {
     if (blockWrite('approve hapus PO')) return;
     try {
@@ -294,30 +244,8 @@ export function approvalScreen() {
   if (!po) return h('div.stack', [listPanel, st.ui.poEdit ? poEditModal() : null]);
 
 
-  // Kepemilikan DAN status, bukan peran saja. `poCreate` menjawab "boleh bikin
-  // PO", bukan "boleh mengubah PO ini"; tanpa pemeriksaan kepemilikan, cania
-  // akan bisa membuang PO buatan visca yang belum disetujui.
-  //
-  // isReadOnly() ikut diperiksa dengan alasan yang sama seperti di
-  // canRequestDelete di bawah: akun read-only tidak memegang capability apa
-  // pun, tapi begitu ada satu PO yang `by`-nya kebetulan cocok dengan
-  // username-nya — baris seed, hasil impor, akun yang di-rename — tombolnya
-  // muncul lagi. Kepemilikan menjawab "ini punyaku", tidak pernah "aku boleh
-  // menulis".
-  //
-  // `!isWilbert` ada di depan dengan sengaja. Tanpa itu, wilbert ikut masuk ke
-  // sini (dia memegang poCreate dan bisa jadi pembuat PO-nya), lalu dua hal
-  // terjadi sekaligus: cabang isWilbert di bawah menang sehingga dia TIDAK
-  // dapat tombol Hapus, DAN `&& !bisaUrusSendiri` di canRequestDelete mencabut
-  // Request Delete miliknya. Dia jadi tidak punya jalan menghapus sama sekali
-  // untuk PO buatannya sendiri yang kembali ke antrean karena diedit
-  // komersial. Jalur wilbert dibiarkan persis seperti sebelum rilis ini.
-  const bisaUrusSendiri = !isWilbert
-    && po.status === 'Menunggu Approval'
-    && UUID_RE.test(po.id)
-    && po.by === st.user.username
-    && !isReadOnly(st.user.role)
-    && can(st.user.role, 'poCreate');
+  // Aturannya tinggal di core/poAkses.js — dipakai bareng layar PO Saya.
+  const bisaUrusSendiri = bolehUrusSendiri(st, po);
   const actions = po.status === 'Approved'
     ? [badge(t('ap_approved'), 'green', { iconName: 'check' }), btn(tr({ id: 'Download PDF', en: 'Download PDF', zh: '下载 PDF' }), { variant: 'primary', iconName: 'download', onClick: downloadPdf }), btn(tr({ id: 'Download HTML', en: 'Download HTML', zh: '下载 HTML' }), { iconName: 'download', onClick: downloadFinal }),
       // Tombol ERP TIDAK dirender untuk PO non-label maupun PO yang belum
@@ -348,17 +276,10 @@ export function approvalScreen() {
              btn(tr({ id: 'Hapus', en: 'Delete', zh: '删除' }), { variant: 'danger', onClick: hapusSendiri })]
           : [badge(t('ap_awaiting'), 'amber')];
 
-  // Granted by AUTHORSHIP, not by a capability — which is why isReadOnly() is
-  // needed here specifically. A read-only account holds no cap, but the moment a
-  // PO existed whose `by` matched its username (a seed row, an import, a
-  // renamed account) this button would reappear for it. Authorship answers "is
-  // this mine", never "may I write".
-  const canRequestDelete = UUID_RE.test(po.id) && !po.deleteRequested
-    && !isReadOnly(st.user.role)
-    && (po.by === st.user.username || isWilbert)
-    // Kalau dia sudah boleh menghapusnya langsung, dua tombol berbeda yang
-    // menuju hal yang sama cuma bikin orang menebak mana yang benar.
-    && !bisaUrusSendiri;
+  // Aturannya tinggal di core/poAkses.js — dipakai bareng layar PO Saya.
+  // Diberikan oleh KEPEMILIKAN, bukan oleh capability; alasan lengkapnya ada di
+  // komentar bolehMintaHapus().
+  const canRequestDelete = bolehMintaHapus(st, po);
   if (canRequestDelete) actions.push(btn(tr({ id: 'Request Delete', en: 'Request Delete', zh: '申请删除' }), { variant: 'danger', onClick: requestDelete }));
 
   const deleteBanner = po.deleteRequested
@@ -422,7 +343,10 @@ export function approvalScreen() {
 // terlihat di dokumen PO, jadi kalau salah tidak ada yang akan menyadarinya
 // sampai barangnya tidak datang. Satu layar untuk melihatnya lebih dulu.
 // ---------------------------------------------------------------------------
-function erpModal() {
+// Diekspor untuk layar PO Saya. Dipakai bersama, bukan disalin: jendela ini
+// menyusun baris 采购申请明细 dari isi PO, dan dua salinan penyusun itu adalah
+// dua salinan yang suatu hari menghasilkan Excel berbeda dari PO yang sama.
+export function erpModal() {
   const st = getState();
   const po = (st.pos || []).find(p => p.id === st.ui.erpPo);
   if (!po) return null;
@@ -590,7 +514,8 @@ function computeTotals(items, ppnMode) {
   return { subtotal, ppn, total: subtotal + ppn };
 }
 
-function openPoEdit(po) {
+// Diekspor untuk layar PO Saya — lihat catatan di erpModal().
+export function openPoEdit(po) {
   setUI({ poEdit: {
     ref: po,
     supplier: po.supplier, supplierZh: po.supplierZh, currency: po.currency,
@@ -599,7 +524,7 @@ function openPoEdit(po) {
   } });
 }
 
-function poEditModal() {
+export function poEditModal() {
   const st = getState(); const f = st.ui.poEdit; const po = f.ref;
   const unitOpts = st.units.length ? st.units.map(u => ({ value: u.code, label: u.intl ? `${u.code} · ${u.intl}` : u.code })) : ['张', '条', '千克kg', 'set'];
 

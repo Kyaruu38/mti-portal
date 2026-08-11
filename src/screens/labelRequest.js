@@ -945,6 +945,11 @@ async function genPO() {
     items: dipilih.map(({ r, harga }) => ({ erp: r.erp, d: r.nameEn || r.spec, dimension: r.spec, cn: r.nameZh || '', qty: r.qty, u: harga, a: harga * (Number(r.qty) || 0), unit: '张/PC', lineId: newLineId() })),
   };
   if (isWilbert) { po.approvedAt = new Date().toISOString(); po.approvedBy = 'wilbert'; }
+  // Peringatan yang harus ikut terbaca bareng pesan suksesnya. Dideklarasikan
+  // DI SINI, di atas try insertPO — bukan di bawahnya seperti sebelumnya —
+  // karena kegagalan sync juga harus masuk ke corong yang sama. Lihat catatan
+  // panjang tentang satu slot toast() beberapa puluh baris di bawah.
+  const peringatan = [];
   // Mirror to Supabase so the delete-request workflow (item 3) has a real row
   // to operate on. lineIds no longer depend on the server id, so there's no
   // post-insert patch step and nothing to go wrong between the two writes.
@@ -967,11 +972,18 @@ async function genPO() {
     }
     // Anything else (network, timeout) may well succeed on a retry, so the
     // original behaviour stands: keep it locally and say so.
-    toast({
-      id: 'PO tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e),
-      en: 'PO saved locally, but sync to the server failed: ' + (e.message || e),
-      zh: '采购单已本地保存，但同步到服务器失败：' + (e.message || e),
-    });
+    //
+    // LEWAT `peringatan`, BUKAN toast() SENDIRI. Ini ironi yang pantas dicatat:
+    // corong `peringatan` di bawah LAHIR di berkas ini, dengan komentar yang
+    // menjelaskan persis kenapa toast() punya satu slot — dan peringatan yang
+    // paling penting di fungsi ini, "PO-nya cuma ada di tab Anda", tetap
+    // dipanggil langsung dan tetap ditimpa. cania membaca "PO dibuat & dikirim
+    // untuk approval supervisor" untuk PO yang lenyap saat login berikutnya.
+    peringatan.push(tr({
+      id: 'TAPI GAGAL SYNC KE SERVER, tersimpan lokal saja: ' + (e.message || e),
+      en: 'BUT SYNCING TO THE SERVER FAILED, saved locally only: ' + (e.message || e),
+      zh: '但同步到服务器失败，仅本地保存：' + (e.message || e),
+    }));
   }
   st.pos.unshift(po);
   logAudit({ entity: 'po', target: po.no, action: 'generate', detail: `${supplier.name} · ${selItems.length} lines` });
@@ -999,7 +1011,9 @@ async function genPO() {
   // terjadi dalam satu microtask — peringatannya tidak pernah sempat digambar
   // sama sekali. Peringatan yang tidak pernah terlihat sama saja dengan diam,
   // yang persis keadaan yang mau diperbaiki.
-  const peringatan = [];
+  //
+  // `peringatan` sendiri sekarang dideklarasikan di ATAS try insertPO — kegagalan
+  // sync masuk ke corong yang sama.
   const tanpaKunci = tidakBisaDiingat(catatan).length;
   if (tanpaKunci) {
     peringatan.push(tr({
@@ -1094,5 +1108,13 @@ async function genPO() {
     en: `PO ${po.no} created & sent to the supervisor for approval${ekor}`,
     zh: `采购单 ${po.no} 已创建并提交主管审批${ekor}`,
   });
-  setState({ screen: isWilbert ? 'approval' : 'label-request' });
+  // Tujuannya mengikuti PERAN — tempat kedelapan sebuah id layar dikunci, dan
+  // yang paling penting dari semuanya: INI jalur utama cania dan visca membuat
+  // PO, dan PO label adalah satu-satunya jenis yang canBuildErp() terima. Dulu
+  // baris ini melempar mereka balik ke label-request, jadi PO yang baru saja
+  // mereka buat — satu-satunya yang bisa mengeluarkan 采购申请明细 — tidak pernah
+  // ada di layar tempat mereka mendarat.
+  if (isWilbert) { setState({ screen: 'approval' }); return; }
+  setUI({ poSayaSel: po.id, selPO: po.id });
+  setState({ screen: 'po-saya' });
 }
