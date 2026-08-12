@@ -17,6 +17,7 @@ import { getState, setState, setUI, toast, logAudit, uid } from '../core/store.j
 import { tr } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, selectEl, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
 import { num, money, fmtDate, fmtDateTime } from '../core/format.js';
+import { parseNumber, qtyInputText } from '../parsers/numbers.js';
 import { readWorkbook, writeWorkbook } from '../core/xlsx.js';
 import { parseLabelStockSheet, STATUSES, guessErp, requirementOf, suggestedQtyOf, statusOf } from '../parsers/labelStock.js';
 import {
@@ -1362,11 +1363,50 @@ function buyNowTab(st) {
 // Jumlah yang benar-benar dipesan untuk satu baris. Kotak isian menang atas
 // angka bawaan — sona yang tahu hal-hal yang tidak ada di sheet mana pun: sisa
 // gulungan di gudang, order yang sudah jalan tapi belum tercatat.
+// JUMLAH PESAN DIBACA ATURAN INDONESIA, bukan Number().
+//
+// Dulu `Number(v)`, dan kotaknya `<input type="number">`. Dua-duanya en-US:
+//   "12.500" -> Number -> 12,5
+//   "12,500" -> nilai DOM jadi STRING KOSONG (type=number menolak koma),
+//               jadi cabang `v !== ''` gagal dan qtyPesan diam-diam jatuh ke
+//               r.pesan — ANGKA SARAN PORTAL — sementara kotaknya masih
+//               MENAMPILKAN "12,500" yang diketik sona. Layar satu angka,
+//               label request angka lain, dan yang tidak terlihat yang menang.
+// Angka ini dikalikan harga label jadi nominal PO. Kelas cacat yang sama
+// dengan nominal invoice v15.7, ditemukan pada review lebar rilis itu.
+//
+// `type="number"` dibuang di kedua kotaknya: atribut itu yang memaksa
+// pembacaan en-US di tingkat DOM, sebelum kode ini sempat berpendapat.
+function bacaQtyPesan(v) {
+  const n = parseNumber(v, 'id');
+  return Number.isFinite(n) ? Math.max(0, Math.round(n)) : NaN;
+}
+
+// Teks yang digambar ke dalam kotak. `qtyInputText()` saja TIDAK cukup di sini
+// dan percobaan pertama memakainya begitu saja: `ui.lsQty` menyimpan STRING
+// mentah hasil ketikan (onInput sengaja tidak memicu render supaya fokus tidak
+// hilang), sedangkan qtyInputText mengembalikan '' untuk apa pun yang bukan
+// angka — jadi setiap kotak yang sudah pernah diketik akan LAHIR KOSONG pada
+// gambar ulang berikutnya, dan angka pesanan sona lenyap dari layar tanpa
+// suara. Ditangkap sebelum dikirim, oleh pemeriksaan satu baris di Node.
+//
+// Yang benar: gambar bentuk KANONIKnya kalau bisa dibaca, dan teks aslinya
+// kalau tidak — supaya yang tidak terbaca tetap kelihatan dan bisa dibetulkan,
+// bukan hilang.
+function tampilQty(v) {
+  if (v === undefined || v === null || v === '') return '';
+  const n = bacaQtyPesan(v);
+  return Number.isFinite(n) ? qtyInputText(n) : String(v);
+}
+
 function qtyPesan(st, r) {
   const v = (st.ui.lsQty || {})[r.kunci];
-  const n = Number(v);
-  if (v !== undefined && v !== '' && Number.isFinite(n)) return Math.max(0, n);
-  return Number(r.pesan) || 0;
+  if (v !== undefined && v !== '') {
+    const n = bacaQtyPesan(v);
+    if (Number.isFinite(n)) return n;
+  }
+  const bawaan = parseNumber(r.pesan, 'id');
+  return Number.isFinite(bawaan) ? Math.max(0, Math.round(bawaan)) : 0;
 }
 
 // rows = yang LOLOS saringan (yang kelihatan di tabel), semua = seluruh daftar
@@ -1800,8 +1840,7 @@ function tabelBeli(st, rows, semua, adaFilter) {
         ]),
         h('td.mono.r', { style: { color: 'var(--text-2)' } }, r.minta == null ? '—' : num(r.minta)),
         h('td.r', h('input.input.mono', {
-          type: 'number', min: '0',
-          value: String((st.ui.lsQty || {})[r.kunci] ?? r.pesan ?? ''),
+          value: tampilQty((st.ui.lsQty || {})[r.kunci] ?? r.pesan ?? ''),
           style: {
             width: '92px', textAlign: 'right', padding: '4px 6px', fontSize: '11px',
             ...(r.tanda === TANDA.STOP ? { borderColor: 'var(--st-red-tx)', color: 'var(--st-red-tx)' } : {}),
@@ -1813,6 +1852,23 @@ function tabelBeli(st, rows, semua, adaFilter) {
           onInput: e => {
             const q = { ...(getState().ui.lsQty || {}) };
             q[r.kunci] = e.target.value;
+            getState().ui.lsQty = q;
+          },
+          // onBlur MENORMALKAN. Tanpa ini `ui.lsQty` tetap memegang teks mentah
+          // dan baru diterjemahkan saat dikirim — layar dan angka yang benar-
+          // benar dipesan bisa berbeda sampai detik terakhir. Kotaknya juga
+          // memantulkan balik bentuk kanoniknya, invarian yang sama dengan
+          // kotak uang v15.7.
+          //
+          // Ditulis langsung ke node, TANPA setUI dan TANPA toast: dua-duanya
+          // memicu render ulang di microtask yang menguras ANTARA mousedown dan
+          // click, jadi tombol Kirim diganti di tengah gerakan dan kliknya
+          // hilang tanpa suara. Sudah meledak tiga kali di repo ini.
+          onBlur: e => {
+            const n = bacaQtyPesan(e.target.value);
+            const q = { ...(getState().ui.lsQty || {}) };
+            if (Number.isFinite(n)) { q[r.kunci] = n; e.target.value = qtyInputText(n); }
+            else if (String(e.target.value).trim() === '') { delete q[r.kunci]; }
             getState().ui.lsQty = q;
           },
         })),
@@ -1980,8 +2036,7 @@ function stockTable(rows, showAll, opts) {
         // belum tercatat. Memaksanya memakai angka portal berarti memaksa dia
         // memesan angka yang dia tahu keliru.
         ? h('td.r', h('input.input.mono', {
-            type: 'number', min: '0',
-            value: String((pick.ui.lsQty || {})[pickKey(r)] ?? (r.suggestedQty || '')),
+            value: tampilQty((pick.ui.lsQty || {})[pickKey(r)] ?? (r.suggestedQty || '')),
             style: { width: '96px', textAlign: 'right', padding: '4px 6px', fontSize: '11px' },
             onInput: e => {
               const q = { ...(getState().ui.lsQty || {}) };
@@ -1990,6 +2045,15 @@ function stockTable(rows, showAll, opts) {
               // kotak yang sedang diketik, jadi state disimpan tanpa memicu
               // render — nilainya sudah benar di DOM, dan dibaca ulang saat
               // dikirim. Pola yang sama dipakai searchInput.
+              getState().ui.lsQty = q;
+            },
+            // Sama seperti kotak BUY NOW: normalkan di blur, pantulkan balik,
+            // tanpa setUI dan tanpa toast.
+            onBlur: e => {
+              const n = bacaQtyPesan(e.target.value);
+              const q = { ...(getState().ui.lsQty || {}) };
+              if (Number.isFinite(n)) { q[pickKey(r)] = n; e.target.value = qtyInputText(n); }
+              else if (String(e.target.value).trim() === '') { delete q[pickKey(r)]; }
               getState().ui.lsQty = q;
             },
           }))

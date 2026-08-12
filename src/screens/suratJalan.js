@@ -4,6 +4,7 @@ import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, checkRow, selectEl, icon, driveLink, modal, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
 import { suratJalanPaper } from '../ui/documents.js';
 import { romanMonth, nextMonthlySeq, fmtDate, num } from '../core/format.js';
+import { parseNumber, qtyInputText } from '../parsers/numbers.js';
 import { outstandingPOs, closeFullyReceivedPOs, receivedQty, overDeliveredPOs } from '../core/outstanding.js';
 import { wrapPrintable } from './approval.js';
 import { fetchSuratJalan, createSuratJalanGuarded, updateSuratJalan } from '../core/suratJalanApi.js';
@@ -29,6 +30,26 @@ function rowKey(poId, lineId) { return `${poId}::${lineId}`; }
 // browser was about to deliver the click to, silently dropping the click.
 // The clamped value is written straight onto the DOM node instead (no
 // framework re-render involved), which is safe mid-gesture.
+// JUMLAH TERKIRIM DIBACA ATURAN INDONESIA, bukan Number().
+//
+// Baris ini dulu `Number(e.target.value) || 0` — saudara kandung pola yang
+// dilarang repo ini (`Number(String(v).replace(/[,\s]/g,''))`). Efeknya:
+//   "1.200"  -> 1,2      (titik dibaca desimal ala Inggris)
+//   "1,200"  -> NaN -> 0 (dan nol itu menyamar jadi angka yang sah)
+// Angka ini menulis `qtyShipped`/`received`, jadi ia menggerakkan PO
+// Outstanding DAN kas label. Sebuah "1.200 lembar terkirim" yang tercatat 1
+// membuat PO-nya terus terbaca kurang kirim; yang tercatat 0 karena koma tidak
+// mengubah apa pun sama sekali dan tidak mengeluh.
+//
+// 张 dihitung per lembar — dibulatkan, tidak pernah negatif, dan dijepit ke
+// sisa yang benar-benar ada. Kelas cacat yang sama dengan nominal invoice
+// v15.7; ditemukan pada review lebar rilis itu, dikerjakan di sini.
+function bacaQtySj(v, outstanding) {
+  const n = parseNumber(v, 'id');
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(Math.round(n), outstanding));
+}
+
 function qtyInput(row, currentValue, canWrite = true) {
   // Plain number when the account cannot ship. A shipped quantity is the input
   // that decides how much of a PO is considered delivered, so it must not be
@@ -40,9 +61,13 @@ function qtyInput(row, currentValue, canWrite = true) {
     onBlur: e => {
       const st = getState();
       const q = st.ui.sjQty || (st.ui.sjQty = {});
-      const clamped = Math.max(0, Math.min(Number(e.target.value) || 0, row.outstanding));
+      const clamped = bacaQtySj(e.target.value, row.outstanding);
       q[row.key] = clamped;
-      e.target.value = String(clamped);
+      // Dipantulkan balik: kotaknya tidak boleh menampilkan satu angka
+      // sementara surat jalannya membawa angka lain. Invarian yang sama dengan
+      // kotak uang v15.7 — echo yang tidak bisa dibaca ulang jadi dirinya
+      // sendiri adalah kerusakan yang tertunda satu klik.
+      e.target.value = qtyInputText(clamped);
     },
     onKeydown: e => { if (e.key === 'Enter') e.target.blur(); },
   });
@@ -69,7 +94,9 @@ function pulledInRows(st, entries) {
 
 function getQty(ui, row) {
   const v = (ui.sjQty || {})[row.key];
-  return v == null ? row.outstanding : Math.max(0, Math.min(Number(v) || 0, row.outstanding));
+  // onBlur sudah menyimpan angka yang bersih, tapi ini dibaca juga saat kirim
+  // dan harus tetap benar kalau suatu hari ada yang menaruh string di sini.
+  return v == null ? row.outstanding : bacaQtySj(v, row.outstanding);
 }
 
 export function suratJalanScreen() {
