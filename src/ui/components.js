@@ -118,8 +118,25 @@ export function field(label, control) {
   return h('div', [h('div.field-label', label), control]);
 }
 
-export function inputEl({ value = '', placeholder, mono, type = 'text', onInput, id } = {}) {
-  return h('input.input' + (mono ? '.mono' : ''), { value, placeholder, type, id, onInput: onInput ? (e) => onInput(e.target.value, e) : null });
+// `onBlur` exists for MONEY boxes and is not decoration. A typed amount is
+// parsed into a variable the user cannot see, and nothing here re-renders while
+// typing (mount() has no diffing), so the box can display one number while a
+// different one is what gets saved. onBlur is where the parsed value is written
+// BACK into the node, so the two can never disagree at the moment Save is
+// pressed. It receives (value, event) exactly like onInput — the caller needs
+// `event.target` to write to.
+//
+// NEVER call toast() from an onBlur handler passed here. toast() goes through
+// setState -> queueMicrotask(flush) -> full rebuild, and that microtask drains
+// BETWEEN mousedown and click — so the button being clicked is replaced mid-
+// gesture and the click vanishes with no error. Write to the node by id
+// instead. This has already blown up three times in this repo.
+export function inputEl({ value = '', placeholder, mono, type = 'text', onInput, onBlur, id } = {}) {
+  return h('input.input' + (mono ? '.mono' : ''), {
+    value, placeholder, type, id,
+    onInput: onInput ? (e) => onInput(e.target.value, e) : null,
+    onBlur: onBlur ? (e) => onBlur(e.target.value, e) : null,
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -1,10 +1,10 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, logAudit } from '../core/store.js';
 import { blockWrite } from '../core/guard.js';
-import { parseNumber } from '../parsers/numbers.js';
+import { parseNumber, parseMoney, moneyInputText, qtyInputText } from '../parsers/numbers.js';
 import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, modal, field, inputEl, selectEl, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring } from '../ui/components.js';
-import { money, num, fmtDate, ppnFor, poTermDays, isAdvanceTerm } from '../core/format.js';
+import { money, num, fmtDate, ppnFor, poTermDays, isAdvanceTerm, ccyDecimals } from '../core/format.js';
 import { newLineId } from '../core/posApi.js';
 import { poDocument, ensureCap } from '../ui/documents.js';
 import { can } from '../auth/roles.js';
@@ -869,11 +869,18 @@ export function poEditModal() {
   const unitOpts = st.units.length ? st.units.map(u => ({ value: u.code, label: u.intl ? `${u.code} · ${u.intl}` : u.code })) : ['张', '条', '千克kg', 'set'];
 
   const amountCells = [];
+  // Node kotak HARGA disimpan supaya dropdown mata uang bisa memantulkan
+  // ulang isinya. Tanpa ini, mengganti mata uang meninggalkan teks yang ditulis
+  // menurut aturan mata uang LAMA di dalam kotak, dan blur berikutnya
+  // membacanya dengan aturan BARU: harga USD 1.018 -> ganti ke IDR -> 1018.
+  // Persis keadaan "layar dan nilai tersimpan berbeda" yang perbaikan ini ada
+  // untuk menutupnya. Kotak QTY tidak ikut: qty tidak punya mata uang.
+  const priceInputs = [];
   let subtotalEl, ppnEl, totalEl;
   const recompute = () => {
     f.items.forEach((it, i) => {
       it.a = (Number(it.qty) || 0) * (Number(it.u) || 0);
-      if (amountCells[i]) amountCells[i].textContent = num(it.a, f.currency === 'USD' ? 2 : 0);
+      if (amountCells[i]) amountCells[i].textContent = num(it.a, ccyDecimals(f.currency));
     });
     const { subtotal, ppn, total } = computeTotals(f.items, po.ppnMode);
     if (subtotalEl) subtotalEl.textContent = money(subtotal, f.currency);
@@ -882,12 +889,39 @@ export function poEditModal() {
   };
 
   const itemRows = f.items.map((it, i) => {
-    const amountCell = h('span.mono', num(it.a, f.currency === 'USD' ? 2 : 0));
+    const amountCell = h('span.mono', num(it.a, ccyDecimals(f.currency)));
     amountCells[i] = amountCell;
     return h('div.row.gap8', { style: { alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: '8px' } }, [
       h('div', { style: { flex: '2' } }, inputEl({ value: it.d || '', placeholder: tr({ id: 'Deskripsi', en: 'Description', zh: '描述' }), onInput: v => { it.d = v; } })),
-      h('div', { style: { width: '70px' } }, inputEl({ value: String(it.qty || 0), mono: true, onInput: v => { const n = parseNumber(v, 'id'); it.qty = Number.isFinite(n) ? n : 0; recompute(); } })),
-      h('div', { style: { width: '90px' } }, inputEl({ value: String(it.u || 0), mono: true, onInput: v => { const n = parseNumber(v, 'id'); it.u = Number.isFinite(n) ? n : 0; recompute(); } })),
+      // HARGA SATUAN dibaca menurut MATA UANG PO-nya. QTY TIDAK — lihat bawah.
+      // Kode di atas sudah lama bercabang pada mata uang untuk memutuskan berapa
+      // desimal yang DICETAK — sementara kotak harga membaca angkanya seolah
+      // dunia cuma punya rupiah. Untuk PO USD itu berarti
+      // harga satuan 1.018 (steel cord HAICHAO, USD 1,018/KG) tersimpan 1018:
+      // seribu kali lipat, pada dokumen yang dibubuhi cap dan dikirim ke pemasok.
+      // Kelas yang sama dengan kotak nominal invoice; ditemukan bersamaan,
+      // 12 Agu 2026. Lihat parseMoney() di parsers/numbers.js.
+      //
+      // KOTAK QTY SENGAJA TETAP 'id'. Kuantitas tidak punya mata uang, dan
+      // percobaan pertama perbaikan ini memindahkannya ke parseMoney juga —
+      // sehingga pada PO USD "19.771" (19.771 KG) terbaca 19,771. Seribu kali
+      // lipat, lahir dari perbaikan bugnya sendiri, ditangkap review.
+      //
+      // onBlur memantulkan balik angka yang benar-benar dipakai, supaya kotaknya
+      // tidak bisa menampilkan satu angka sementara PO membawa angka lain.
+      // recompute() menyentuh teks node yang sudah ada dan TIDAK memanggil
+      // setState — aman dipanggil dari blur, termasuk ketika blur mendahului
+      // klik tombol Save.
+      h('div', { style: { width: '70px' } }, inputEl({
+        value: qtyInputText(it.qty || 0), mono: true,
+        onInput: v => { const n = parseNumber(v, 'id'); it.qty = Number.isFinite(n) ? n : 0; recompute(); },
+        onBlur: (v, e) => { const n = parseNumber(v, 'id'); it.qty = Number.isFinite(n) ? n : 0; e.target.value = qtyInputText(it.qty); recompute(); },
+      })),
+      h('div', { style: { width: '90px' } }, (priceInputs[i] = inputEl({
+        value: moneyInputText(it.u || 0, f.currency), mono: true,
+        onInput: v => { const n = parseMoney(v, f.currency); it.u = Number.isFinite(n) ? n : 0; recompute(); },
+        onBlur: (v, e) => { const n = parseMoney(v, f.currency); it.u = Number.isFinite(n) ? n : 0; e.target.value = moneyInputText(it.u, f.currency); recompute(); },
+      }))),
       h('div', { style: { width: '130px' } }, selectEl(unitOpts, { value: it.unit, onChange: v => { it.unit = v; } })),
       h('div', { style: { width: '90px', textAlign: 'right' } }, amountCell),
       btn(tr({ id: 'Hapus', en: 'Delete', zh: '删除' }), { sm: true, variant: 'danger', onClick: () => { f.items.splice(i, 1); setUI({}); } }),
@@ -908,7 +942,19 @@ export function poEditModal() {
       ]),
       h('div.grid.g2', [
         // Option values are the STORED currency / terms codes — untranslated.
-        field(tr({ id: 'Currency', en: 'Currency', zh: '币种' }), selectEl(['IDR', 'USD', 'CNY', 'EUR'], { value: f.currency, onChange: v => { f.currency = v; recompute(); } })),
+        field(tr({ id: 'Currency', en: 'Currency', zh: '币种' }), selectEl(['IDR', 'USD', 'CNY', 'EUR'], {
+          value: f.currency,
+          onChange: v => {
+            f.currency = v;
+            // DIPANTULKAN ULANG dari angka yang tersimpan, BUKAN dibaca ulang
+            // dari teksnya. Blur selalu jalan sebelum select menerima
+            // perubahannya, jadi it.u sudah benar; yang belum benar cuma
+            // konvensi penulisannya di layar. Membaca ulang teks di sini justru
+            // memasukkan lagi bugnya: "20126.88" dibaca aturan rupiah = 2012688.
+            f.items.forEach((it, i) => { if (priceInputs[i]) priceInputs[i].value = moneyInputText(it.u || 0, v); });
+            recompute();
+          },
+        })),
         field(tr({ id: 'Terms', en: 'Terms', zh: '付款条件' }), selectEl(termOptionsFor(f.terms), { value: f.terms, onChange: v => { f.terms = v; } })),
       ]),
       field(tr({ id: 'Contract No', en: 'Contract No', zh: '合同号' }), inputEl({ value: f.contract, mono: true, onInput: v => { f.contract = v; } })),

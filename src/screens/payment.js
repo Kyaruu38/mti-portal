@@ -1,7 +1,12 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { blockWrite } from '../core/guard.js';
-import { parseNumber } from '../parsers/numbers.js';
+import { parseMoney, moneyInputText } from '../parsers/numbers.js';
+
+// Id kotak nominal Add Invoice. Dipakai dua tempat — kotaknya sendiri dan
+// dropdown mata uang yang membacanya ulang — jadi ia harus SATU nilai, bukan
+// dua string yang kebetulan sama.
+const ID_NOMINAL_INVOICE = 'inv-nominal';
 import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, statusTone, driveLink, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
 import { money, num, fmtDate, romanMonth, daysUntil, topDays, addDays, ccyTone, CURRENCIES } from '../core/format.js';
@@ -1172,14 +1177,60 @@ function invoiceModal() {
       field(t('col_supplier'), selectEl(st.suppliers.map(s => ({ value: s.id, label: s.name })), { value: f.supplierId, onChange: v => (f.supplierId = v) })),
       field('PO Ref', inputEl({ value: f.poRef, onInput: v => (f.poRef = v) })),
       h('div.grid.g2', [
-        field(tr({ id: 'Currency', en: 'Currency', zh: '币种' }), selectEl(['IDR', 'USD', 'CNY', 'EUR'], { value: f.currency, onChange: v => (f.currency = v) })),
-        // parseNumber, BUKAN Number(replace(/[,\s]/g)). Yang lama adalah contoh cacat
-        // yang parsers/numbers.js:6 ditulis untuk menggantikan: dia membuang koma
-        // dan spasi tapi TIDAK membuang titik. Setiap nominal rupiah yang diketik
-        // apa adanya rusak — 12.500.000 tersimpan 0, dan 12.500 tersimpan 12,5.
-        // Tidak ada render ulang saat mengetik, jadi kotaknya TETAP menampilkan
-        // angka aslinya waktu Save ditekan, dan invoice IDR 0 lolos ke PRF.
-        field(t('col_amount'), inputEl({ mono: true, value: f.amount || '', onInput: v => { const n = parseNumber(v, 'id'); f.amount = Number.isFinite(n) ? n : 0; } })),
+        // MENGUBAH MATA UANG MEMBACA ULANG NOMINALNYA. Kalau tidak, nominal yang
+        // sudah diketik tetap memakai aturan mata uang LAMA: ketik 20126.88
+        // sebagai USD lalu ganti ke IDR, dan nilainya sudah terlanjur 20126.88
+        // sementara aturan rupiah membacanya 2012688. Dibaca ulang dari isi
+        // kotaknya, bukan dari f.amount — f.amount sudah berupa angka, titiknya
+        // sudah hilang, dan tidak ada cara memulihkannya dari sana.
+        // Ditulis langsung ke node, TANPA setState: lihat catatan onBlur di
+        // ui/components.js soal microtask yang menelan klik.
+        field(tr({ id: 'Currency', en: 'Currency', zh: '币种' }), selectEl(['IDR', 'USD', 'CNY', 'EUR'], {
+          value: f.currency,
+          onChange: v => {
+            f.currency = v;
+            const kotak = document.getElementById(ID_NOMINAL_INVOICE);
+            if (!kotak) return;
+            // DIPANTULKAN ULANG dari f.amount, BUKAN dibaca ulang dari teksnya.
+            // Blur selalu jalan sebelum dropdown ini menerima perubahannya, jadi
+            // f.amount sudah benar dan kotaknya sudah kanonik; yang belum benar
+            // cuma konvensi penulisannya. Versi pertama membaca ulang teksnya —
+            // dan itu memasukkan bugnya lagi lewat pintu depan: ketik 20126.88
+            // sebagai USD, tab keluar, betulkan mata uang ke IDR, dan aturan
+            // rupiah membaca kotak kanonik itu jadi 2012688. Juga bikin ganti
+            // mata uang bolak-balik merusak angkanya sendiri.
+            kotak.value = f.amount ? moneyInputText(f.amount, v) : '';
+          },
+        })),
+        // NOMINAL DIBACA MENURUT MATA UANGNYA — lihat parseMoney() di
+        // parsers/numbers.js untuk kenapa, dan untuk invoice yang memicunya.
+        // Sebelum 12 Agu 2026 baris ini memanggil parseNumber(v, 'id') apa
+        // adanya, dan setiap invoice valuta asing yang nominalnya DIKETIK ULANG
+        // tersimpan 100x lipat: 20126.88 -> 2012688. Dropdown mata uangnya ada
+        // persis di sebelah kiri, di grid yang sama, dan tidak pernah dibaca.
+        //
+        // onBlur MEMANTULKAN BALIK angka yang benar-benar tersimpan ke dalam
+        // kotaknya. Itu bagian yang lebih penting dari locale-nya: selama layar
+        // dan nilai tersimpan bisa berbeda, locale yang benar cuma memperkecil
+        // peluang salah dan tidak menutupnya. Sesudah ini, angka yang terbaca
+        // di kotak pada saat Save ditekan ADALAH angka yang masuk ke database.
+        field(t('col_amount'), inputEl({
+          id: ID_NOMINAL_INVOICE,
+          mono: true,
+          // NILAI AWAL JUGA lewat moneyInputText. Kalau tidak, kotaknya lahir
+          // membawa String(n) yang selalu titik-desimal: invoice IDR 1.234.567,89
+          // digambar "1234567.89", dan satu fokus-lalu-blur membacanya dengan
+          // aturan rupiah jadi 123.456.789. Blur menegakkan invariannya, cat
+          // pertama melanggarnya — dan modal ini digambar ulang tiap setUI({}),
+          // termasuk saat lampiran di-drop dan saat prefill PDF-nya mendarat.
+          value: f.amount ? moneyInputText(f.amount, f.currency) : '',
+          onInput: v => { const n = parseMoney(v, f.currency); f.amount = Number.isFinite(n) ? n : 0; },
+          onBlur: (v, e) => {
+            const n = parseMoney(v, f.currency);
+            f.amount = Number.isFinite(n) ? n : 0;
+            e.target.value = f.amount ? moneyInputText(f.amount, f.currency) : '';
+          },
+        })),
       ]),
       field(t('col_due'), h('input.input', { type: 'date', value: f.due, onInput: e => (f.due = e.target.value) })),
       field(tr({ id: 'Lampiran invoice', en: 'Invoice attachment', zh: '发票附件' }), attachment),
@@ -1273,6 +1324,27 @@ async function saveInvoiceModal() {
   const st = getState(); const f = st.ui.invoiceForm;
   const supplier = st.suppliers.find(s => s.id === f.supplierId);
   if (!f.no || !supplier || !f.due) { toast({ id: 'No. Invoice, supplier, dan tanggal jatuh tempo wajib diisi', en: 'Invoice no., supplier and due date are required', zh: '发票号、供应商和到期日为必填项' }); return; }
+
+  // NOMINAL WAJIB, DAN HARUS LEBIH DARI NOL.
+  //
+  // parseMoney mengembalikan NaN — tidak pernah 0 — justru supaya kegagalan
+  // baca tidak menyamar jadi angka. Kotaknya lalu menyimpannya sebagai 0 dan
+  // mengosongkan dirinya, yang benar dan terlihat. Yang TIDAK benar adalah
+  // Save menerima nol itu: sebelum ini validasi cuma memeriksa nomor, supplier
+  // dan jatuh tempo, jadi invoice bernilai NOL bisa masuk, muncul di PRF
+  // builder, dan tercetak sebagai "Nol Rupiah" pada permintaan bayar.
+  //
+  // Aturannya sama dengan harga label di v15.3: baris tanpa harga MENAHAN
+  // Generate PO. Dokumen uang yang keluar dengan angka kosong lebih berbahaya
+  // daripada layar yang menolak jalan.
+  if (!Number.isFinite(f.amount) || f.amount <= 0) {
+    toast({
+      id: 'Nominal invoice belum terbaca. Ketik ulang angkanya — pisahkan ribuan dengan titik untuk rupiah (12.500.000) dan pakai titik desimal untuk valuta asing (20126.88).',
+      en: 'The invoice amount was not read. Retype it — dots for rupiah thousands (12.500.000), a decimal point for foreign currency (20126.88).',
+      zh: '未能读取发票金额。请重新输入 — 卢比用点作千位分隔（12.500.000），外币用小数点（20126.88）。',
+    });
+    return;
+  }
 
   // ONE INVOICE NUMBER, ONE INVOICE, PER SUPPLIER.
   //
