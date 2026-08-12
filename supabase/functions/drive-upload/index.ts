@@ -19,6 +19,22 @@
 //   supabase secrets set DRIVE_ROOT_FOLDER_ID="..."   (optional fallback; the
 //     frontend also sends rootFolderId per-request from src/config.js)
 //
+// OTORISASI (ditambahkan 11 Agu 2026 sesudah audit)
+// -----------------------------------------------------------------------------
+// Fungsi ini SEBELUMNYA tidak memeriksa siapa pemanggilnya sama sekali. Bukan
+// pemeriksaan yang longgar — TIDAK ADA. Satu-satunya pertahanannya adalah
+// verify_jwt bawaan Supabase, dan ANON KEY ADALAH JWT YANG SAH. Anon key itu
+// tercetak di src/config.js, di repo PUBLIK. Ditambah 'Access-Control-Allow-
+// Origin: *', artinya halaman web mana pun di internet bisa mengunggah berkas
+// apa pun ke Google Drive perusahaan memakai refresh token MTI.
+//
+// Diperparah `rootFolderId` yang DIKENDALIKAN PEMANGGIL: tujuannya bukan cuma
+// folder yang dikonfigurasi, tapi folder mana pun yang bisa dijangkau token itu.
+//
+// Sekarang: token pemanggil diverifikasi ke /auth/v1/user, dan hanya sesi
+// pengguna yang benar-benar login yang diterima. Anon key ditolak — dia tidak
+// punya `sub`. rootFolderId dari pemanggil DIABAIKAN.
+//
 // The frontend posts multipart/form-data: file, folderPath, rootFolderId, category.
 // `category` ("PPKEK" / "Invoice" / "Bukti Bayar" / "Surat Jalan" / ...) is a
 // top-level subfolder directly under root, auto-created and cached per warm
@@ -35,8 +51,13 @@ const CLIENT_SECRET = Deno.env.get('GOOGLE_CLIENT_SECRET') || '';
 const REFRESH_TOKEN = Deno.env.get('GOOGLE_REFRESH_TOKEN') || '';
 const DEFAULT_ROOT = Deno.env.get('DRIVE_ROOT_FOLDER_ID') || '';
 
+// Asal yang boleh. '*' membuat fungsi ini bisa dipanggil dari halaman web mana
+// pun; dengan token yang sah pun, itu membuka penyalahgunaan lintas-situs.
+// Kosongkan ALLOWED_ORIGIN untuk kembali ke '*' (mis. saat mencoba di lokal).
+const ALLOWED_ORIGIN = Deno.env.get('ALLOWED_ORIGIN') || 'https://kyaruu38.github.io';
+
 const CORS = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': ALLOWED_ORIGIN || '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
@@ -53,9 +74,43 @@ let cachedToken: { token: string; exp: number } | null = null;
 // itself is already idempotent — it looks up by name before creating).
 const categoryFolderCache = new Map<string, string>();
 
+// Apakah pemanggilnya benar-benar pengguna portal yang login?
+//
+// verify_jwt bawaan Supabase TIDAK cukup: anon key lolos di sana, dan anon key
+// itu publik. Yang membedakan sesi sungguhan adalah klaim `sub` — anon key
+// tidak punya. Diverifikasi ke /auth/v1/user, bukan didekode sendiri: token
+// palsu yang bentuknya benar akan lolos pembacaan lokal, tidak akan lolos
+// pemeriksaan server.
+async function penggunaSah(req: Request): Promise<boolean> {
+  const SB_URL = Deno.env.get('SUPABASE_URL') || '';
+  const SB_ANON = Deno.env.get('SUPABASE_ANON_KEY') || '';
+  if (!SB_URL || !SB_ANON) return false;             // gagal TERTUTUP, bukan terbuka
+
+  const auth = req.headers.get('Authorization') || '';
+  const token = auth.replace(/^Bearer\s+/i, '').trim();
+  if (!token) return false;
+
+  try {
+    const r = await fetch(`${SB_URL}/auth/v1/user`, {
+      headers: { Authorization: `Bearer ${token}`, apikey: SB_ANON },
+    });
+    if (!r.ok) return false;
+    const u = await r.json();
+    return Boolean(u && u.id);                       // anon key tidak punya id
+  } catch {
+    return false;                                    // jaringan gagal = tolak
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+
+  // SEBELUM apa pun yang menyentuh kredensial Google.
+  if (!(await penggunaSah(req))) {
+    // Sengaja tidak menjelaskan apa yang salah.
+    return json({ error: 'Forbidden' }, 403);
+  }
 
   if (!CLIENT_ID || !CLIENT_SECRET || !REFRESH_TOKEN) {
     // Degrade gracefully — the frontend treats this as "not configured".
@@ -66,7 +121,11 @@ serve(async (req) => {
     const form = await req.formData();
     const file = form.get('file') as File;
     const folderPath = String(form.get('folderPath') || '');
-    const rootFolderId = String(form.get('rootFolderId') || DEFAULT_ROOT);
+    // rootFolderId dari PEMANGGIL DIABAIKAN. Dulu dipakai apa adanya, jadi
+    // siapa pun yang bisa memanggil fungsi ini bisa menulis ke folder mana pun
+    // yang bisa dijangkau refresh token — bukan cuma folder yang dikonfigurasi.
+    // Yang menentukan tujuan sekarang cuma secret di server.
+    const rootFolderId = DEFAULT_ROOT;
     const category = String(form.get('category') || '').trim();
     if (!file) return json({ error: 'file is required' }, 400);
     if (!rootFolderId) return json({ error: 'rootFolderId is required (set DRIVE_ROOT_FOLDER_ID or pass rootFolderId)' }, 400);

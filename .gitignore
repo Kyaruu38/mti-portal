@@ -80,6 +80,13 @@ HANDOVER*.md
 # LEBIH DULU — bukan sesudah git status mengingatkan.
 AUDIT*.md
 
+# Handoff antar-sesi Cowork. Sama bahayanya dengan AUDIT*.md: memuat daftar
+# lubang yang MASIH TERBUKA (per 12 Agustus: drive-upload belum ditambal),
+# nama akun, id proyek Supabase, dan jalur disk. Polanya ditambahkan SEBELUM
+# berkasnya dibuat — kali ini urutannya benar.
+COWORK-HANDOFF*.md
+HANDOFF*.md
+
 PANDUAN*.md
 PPKEK-ANALISA.md
 PESAN-COMMIT-*.txt
