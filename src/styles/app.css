@@ -43,6 +43,14 @@ button, input, select, textarea { font-family: inherit; }
 .card { background:var(--surface); border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow); }
 .card-pad { padding:16px 18px; }
 .card-head { display:flex; align-items:center; gap:10px; padding:13px 16px; border-bottom:1px solid var(--border); }
+/* KEPALA KARTU YANG IKUT TURUN WAKTU HALAMANNYA DIGULIR.
+   Panel pratinjau PO tingginya satu lembar dokumen penuh, jadi tombol Approve,
+   Edit dan Request Delete tergulir hilang persis ketika orangnya sedang membaca
+   angka yang menentukan apakah tombol itu ditekan. `top` sama dengan tinggi
+   .topbar (58px) supaya menempel tepat di bawahnya, dan z-index-nya di BAWAH
+   topbar (40) tapi di atas kertasnya. .card tidak punya overflow:hidden, jadi
+   sticky di dalamnya bekerja. Latar wajib buram — kertas PO akan tembus. */
+.card-head.lengket { position:sticky; top:58px; z-index:20; background:var(--surface); border-top-left-radius:12px; border-top-right-radius:12px; }
 .card-title { font-size:13px; font-weight:700; color:var(--text); }
 .muted { color:var(--text-3); }
 .t2 { color:var(--text-2); }

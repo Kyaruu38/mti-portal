@@ -4,7 +4,7 @@ import { blockWrite } from '../core/guard.js';
 import { parseNumber, parseMoney, moneyInputText, qtyInputText } from '../parsers/numbers.js';
 import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, modal, field, inputEl, selectEl, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring } from '../ui/components.js';
-import { money, num, fmtDate, ppnFor, poTermDays, isAdvanceTerm, ccyDecimals } from '../core/format.js';
+import { money, num, fmtDate, ppnFor, poTermDays, isAdvanceTerm, ccyDecimals, totalPerMataUang } from '../core/format.js';
 import { newLineId } from '../core/posApi.js';
 import { poDocument, ensureCap } from '../ui/documents.js';
 import { can } from '../auth/roles.js';
@@ -135,6 +135,98 @@ export function approvalScreen() {
     });
     setState({});
   };
+  // APPROVE MASSAL.
+  //
+  // Kyaru memilih bentuk ini secara sadar, sesudah ditawari versi yang memaksa
+  // membaca lembar rincian dulu: "centang + approve langsung, tanpa lembar
+  // konfirmasi". Yang TIDAK dihilangkan sebagai gantinya: tombolnya menyebut
+  // jumlah PO dan GRAND TOTAL-nya di labelnya sendiri, jadi angkanya tetap
+  // lewat di depan mata tanpa menambah satu langkah pun.
+  //
+  // Empat hal yang membuat ini tidak sekadar perulangan approve():
+  //
+  // 1. STATUSNYA DIBACA ULANG DARI st.pos SAAT DIKLIK, bukan dari daftar waktu
+  //    dicentang. Antara mencentang dan menekan tombol, sebuah PO bisa sudah
+  //    disetujui di tab lain, ditolak, atau diminta hapus.
+  // 2. SERVER DULU, PER PO. Sama seperti approve() tunggal, dan alasannya sama:
+  //    cap perusahaan digambar di klien dari po.status, jadi status lokal yang
+  //    berubah untuk tulis yang DITOLAK server menghasilkan PDF bercap yang
+  //    tidak bisa dijangkau RLS. Yang gagal tidak disentuh sama sekali.
+  // 3. SATU TOAST DI AKHIR. toast() cuma punya satu slot; memanggilnya per PO
+  //    berarti hanya yang terakhir yang terlihat, dan pada jalur cepat yang
+  //    sebelumnya diganti sebelum browser sempat menggambarnya.
+  // 4. YANG GAGAL DISEBUT NAMANYA. "6 dari 8 berhasil" tanpa menyebut dua yang
+  //    mana adalah kalimat yang memaksa orangnya memeriksa delapan-duanya.
+  const approveMassal = async () => {
+    if (blockWrite('approve PO')) return;
+    if (approveMassalJalan) return;
+
+    const idTerpilih = [...pilihApprove];
+    // Dibaca ulang dari st.pos, bukan dari `list`.
+    const target = idTerpilih
+      .map(id => st.pos.find(x => x.id === id))
+      .filter(x => x && x.status === 'Menunggu Approval' && !x.deleteRequested);
+    if (!target.length) {
+      pilihApprove.clear();
+      toast({
+        id: 'Tidak ada PO terpilih yang masih menunggu approval — pilihannya dikosongkan.',
+        en: 'No selected PO is still awaiting approval — the selection was cleared.',
+        zh: '所选采购单均已不在待批准状态 — 选择已清空。',
+      });
+      setState({});
+      return;
+    }
+
+    approveMassalJalan = true;
+    approveMassalProgres = { selesai: 0, total: target.length };
+    segarkanMassal();
+    const berhasil = [];
+    const gagal = [];
+    try {
+      for (const target1 of target) {
+        const patch = { status: 'Approved', approvedAt: new Date().toISOString(), approvedBy: st.user.username };
+        if (UUID_RE.test(target1.id)) {
+          try {
+            await updatePoStatus(target1.id, patch);
+          } catch (e) {
+            console.error('Approve massal DITOLAK untuk ' + target1.no, e);
+            gagal.push(target1);
+            approveMassalProgres.selesai += 1;
+            segarkanMassal();
+            continue;
+          }
+        }
+        Object.assign(target1, patch);
+        logAudit({ entity: 'po', target: target1.no, action: 'approve', detail: 'approve massal — seal & signature embedded' });
+        berhasil.push(target1);
+        approveMassalProgres.selesai += 1;
+        segarkanMassal();
+      }
+    } finally {
+      approveMassalJalan = false;
+    }
+
+    // DIKUNCI KE OBJEK/ID, BUKAN KE po.no.
+    //
+    // Versi pertama menyimpan `target1.no` lalu mencarinya balik dengan
+    // `target.find(y => y.no === no)`. `pos.no` TIDAK punya constraint unik
+    // (index `pos_no_unik` itu parsial `WHERE deleted_at IS NULL`, dan nomor
+    // kembar memang pernah lahir di basis data ini — ada skrip dedup-nya di
+    // repo). Dengan dua baris bernomor sama, find() memulangkan yang PERTAMA:
+    // PO yang GAGAL kehilangan centangnya sementara yang BERHASIL tertinggal
+    // di dalam Set selamanya. Persis kebalikan dari yang dijanjikan komentar
+    // ini sendiri, pada satu-satunya sinyal "ini masih perlu saya".
+    berhasil.forEach(x => pilihApprove.delete(x.id));
+
+    const ekor = gagal.length ? ` — DITOLAK server, tidak berubah: ${gagal.map(x => x.no).join(', ')}` : '';
+    toast({
+      id: `${berhasil.length} PO approved${ekor}`,
+      en: `${berhasil.length} PO approved${ekor}`,
+      zh: `${berhasil.length} 个采购单已批准${ekor}`,
+    });
+    setState({});
+  };
+
   const reject = async () => {
     if (blockWrite('reject PO')) return;
     const note = (draftFor(po.id).note || '').trim();
@@ -216,7 +308,83 @@ export function approvalScreen() {
     w.onload = () => { w.focus(); w.onafterprint = () => w.close(); setTimeout(() => w.print(), 300); };
   };
 
+  // ---- Approve massal: node, hitungan, dan penyegaran TANPA render ulang ----
+  //
+  // Mencentang tidak boleh memicu setState/setUI. mount() tidak punya diffing,
+  // jadi satu centang akan membangun ulang seluruh pohon — termasuk satu lembar
+  // dokumen PO penuh di panel kanan — dan tinggi halaman yang berubah membuat
+  // posisi gulir melompat, tepat di layar yang baru saja dibuat supaya kepalanya
+  // TIDAK ikut bergulir. Pola yang sama dengan recompute() di poEditModal dan
+  // dengan kotak qty di labelStock: sentuh node yang sudah ada.
+  const kotakCentang = {};
+  let tombolMassal = null;
+  const bolehDicentang = p => p.status === 'Menunggu Approval' && !p.deleteRequested;
+  const terpilihKini = () => list.filter(p => bolehDicentang(p) && pilihApprove.has(p.id));
+
+  // TOTAL DIPISAH PER MATA UANG. Menjumlahkan IDR dan USD jadi satu angka
+  // adalah kesalahan yang sama kelasnya dengan menggabungkan tiga hitungan sisa
+  // di Kas Label: hasilnya angka yang terbaca meyakinkan dan tidak berarti apa
+  // pun. PO di antrean ini memang bisa beda mata uang.
+  const totalTeks = totalPerMataUang;
+  const segarkanMassal = () => {
+    Object.keys(kotakCentang).forEach(id => {
+      const node = kotakCentang[id];
+      if (!node) return;
+      const on = pilihApprove.has(id);
+      node.style.background = on ? 'var(--accent)' : 'var(--surface)';
+      node.style.borderColor = on ? 'var(--accent)' : 'var(--border-strong)';
+      node.textContent = on ? '✓' : '';
+    });
+    if (!tombolMassal) return;
+    // Selagi putarannya jalan, tombolnya melaporkan kemajuan dan MATI. Tanpa
+    // ini `approveMassalJalan` cuma `return` diam-diam: N kali tulis berurutan
+    // ke server pada jaringan kantor bisa beberapa detik, dan tombol yang
+    // ditekan lalu tidak melakukan apa pun adalah bentuk interaksi yang justru
+    // memancing klik berulang — persis yang penjaganya ada untuk bertahan.
+    if (approveMassalJalan) {
+      tombolMassal.style.display = '';
+      tombolMassal.disabled = true;
+      tombolMassal.textContent = `Memproses ${approveMassalProgres.selesai}/${approveMassalProgres.total}…`;
+      return;
+    }
+    tombolMassal.disabled = false;
+    const t2 = terpilihKini();
+    tombolMassal.style.display = t2.length ? '' : 'none';
+    tombolMassal.textContent = `Approve ${t2.length} PO · ${totalTeks(t2)}`;
+  };
+  const menungguDiDaftar = list.filter(bolehDicentang);
+
+  // PILIHAN DIPANGKAS KE APA YANG TERLIHAT — dan ini yang paling penting di
+  // seluruh fitur ini.
+  //
+  // Cacat yang ditutupnya, ditemukan review: label tombol dihitung dari daftar
+  // TERSARING, sementara approveMassal() dulu menembak seluruh isi
+  // `pilihApprove`. Centang semua 8 PO, lalu saring ke satu pemasok — tombolnya
+  // berbunyi "Approve 5 PO · IDR 400.000.000" dan menyetujui DELAPAN, senilai
+  // IDR 900.000.000. Tiga PO yang tidak pernah ikut terhitung di angka yang
+  // justru dipasang sebagai pengganti lembar konfirmasi, pada aksi yang
+  // dibekukan trigger basis data begitu jadi.
+  //
+  // Efek keduanya: pilihan tidak bisa lagi hidup di luar layar. Baris yang
+  // tersaring keluar tidak punya node, tidak punya centang, dan tidak punya
+  // satu pun jejak — tapi dulu tetap ikut disetujui.
+  //
+  // Aturannya sekarang satu kalimat: YANG BISA DISETUJUI HANYA YANG KELIHATAN.
+  // Menyaring membuang pilihan yang tersaring keluar, dan itu memang jawaban
+  // yang benar untuk fitur yang seluruh pembelaannya adalah "angkanya lewat di
+  // depan mata".
+  const idTampak = new Set(menungguDiDaftar.map(p => p.id));
+  [...pilihApprove].forEach(id => { if (!idTampak.has(id)) pilihApprove.delete(id); });
+
   const listPanel = card([
+    // SENGAJA TIDAK .lengket. Kepala ini memuat tombolFilter, dan dialog filter
+    // itu sebuah modal ber-.overlay z-index 70. `position:sticky` + `z-index`
+    // MEMBUAT STACKING CONTEXT BARU, jadi 70 itu akan diselesaikan DI DALAM
+    // konteks z-20 ini dan seluruh dialognya melukis di bawah .topbar (z-40):
+    // latar gelapnya tidak menutupi topbar, topbar tetap bisa diklik saat
+    // "modal" terbuka, dan pada viewport pendek judul serta tombol ✕-nya
+    // tertutup topbar — klik ke situ mendarat di topbar. Yang lengket cuma
+    // kepala panel PRATINJAU, yang isinya tombol aksi dan tidak memuat modal.
     h('div.card-head', [
       h('div.card-title', t('ap_pending')),
       // Lencana ini tetap membaca st.pos langsung. Berapa PO yang menunggu
@@ -226,6 +394,40 @@ export function approvalScreen() {
       hitunganSaring(list.length, semua.length, { id: 'PO', en: 'PO', zh: '个采购单' }),
       tombolFilter({ id: 'ap-antre', medan: medanAntre, judul: t('ap_pending') }),
     ]),
+    // BARIS AKSI MASSAL — hanya untuk pemegang cap `approve`, dan hanya kalau
+    // memang ada yang menunggu. Untuk peran lain kolom centangnya HILANG
+    // seluruhnya, bukan sekadar tombolnya dimatikan: kotak centang yang tidak
+    // menuju ke mana-mana mengajarkan bahwa mencentang berarti sesuatu padahal
+    // tidak (pelajaran BUY NOW, v15.0).
+    isWilbert && menungguDiDaftar.length
+      ? h('div', { style: { padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' } }, [
+          h('div.row.gap8', { style: { alignItems: 'center' } }, [
+            h('button.btn.btn-sm', {
+              onClick: () => {
+                const semuaSudah = menungguDiDaftar.every(p => pilihApprove.has(p.id));
+                // Bekerja atas daftar TERSARING yang terlihat — dan daftar ini
+                // tidak dipotong halaman, jadi "semua" memang semua yang ada.
+                menungguDiDaftar.forEach(p => semuaSudah ? pilihApprove.delete(p.id) : pilihApprove.add(p.id));
+                segarkanMassal();
+              },
+            }, tr({
+              id: `Pilih semua yang menunggu (${menungguDiDaftar.length})`,
+              en: `Select all awaiting (${menungguDiDaftar.length})`,
+              zh: `全选待批准（${menungguDiDaftar.length}）`,
+            })),
+            // LABELNYA MENYEBUT JUMLAH DAN TOTALNYA.
+            //
+            // Kyaru memilih approve massal TANPA lembar konfirmasi. Ini yang
+            // menggantikannya, dan sengaja bukan langkah tambahan: angkanya ada
+            // di tombol yang harus ditekan, jadi ia lewat di depan mata tanpa
+            // menambah satu klik pun. Grand total dipisah per mata uang.
+            (tombolMassal = h('button.btn.btn-sm.btn-primary', {
+              style: { display: 'none', fontWeight: 700 },
+              onClick: () => approveMassal(),
+            }, '')),
+          ]),
+        ])
+      : null,
     ...list.map(p => {
       const active = p.id === po.id;
       const tone = p.status === 'Approved' ? 'green' : p.status === 'Rejected' ? 'red' : 'amber';
@@ -234,7 +436,32 @@ export function approvalScreen() {
         style: { padding: '12px 16px', borderBottom: '1px solid var(--border)', cursor: 'pointer', background: active ? 'var(--sel-row)' : 'transparent', borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent' },
         onClick: () => setUI({ selPO: p.id, rejectOpen: false }),
       }, [
-        h('div.row', { style: { justifyContent: 'space-between' } }, [h('span.mono', { style: { fontSize: '11.8px', fontWeight: 700 } }, p.no), h('span', { style: { fontSize: '9.5px', color: 'var(--text-3)' } }, fmtDate(p.createdAt))]),
+        h('div.row', { style: { justifyContent: 'space-between', alignItems: 'center' } }, [
+          h('div.row.gap8', { style: { alignItems: 'center', minWidth: 0 } }, [
+            // Kotak centang HANYA untuk wilbert dan HANYA pada PO yang masih
+            // menunggu. stopPropagation wajib: tanpa itu mencentang ikut
+            // memindahkan panel kanan ke PO itu — persis cacat yang sama sudah
+            // ditutup untuk tombol PDF di layar PO Saya.
+            isWilbert && bolehDicentang(p)
+              ? (kotakCentang[p.id] = h('span.mono', {
+                  style: {
+                    width: '17px', height: '17px', borderRadius: '5px', flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '11px', lineHeight: 1, color: '#fff', cursor: 'pointer',
+                    border: pilihApprove.has(p.id) ? '1.5px solid var(--accent)' : '1.5px solid var(--border-strong)',
+                    background: pilihApprove.has(p.id) ? 'var(--accent)' : 'var(--surface)',
+                  },
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    if (pilihApprove.has(p.id)) pilihApprove.delete(p.id); else pilihApprove.add(p.id);
+                    segarkanMassal();
+                  },
+                }, pilihApprove.has(p.id) ? '✓' : ''))
+              : null,
+            h('span.mono', { style: { fontSize: '11.8px', fontWeight: 700 } }, p.no),
+          ]),
+          h('span', { style: { fontSize: '9.5px', color: 'var(--text-3)' } }, fmtDate(p.createdAt)),
+        ]),
         h('div', { style: { fontSize: '11.8px', color: 'var(--text-2)', marginTop: '3px' } }, p.supplier),
         h('div.row', { style: { justifyContent: 'space-between', marginTop: '7px' } }, [h('span.mono', { style: { fontSize: '12px', fontWeight: 600 } }, money(p.total, p.currency)), badge(label, tone)]),
         h('div', { style: { fontSize: '10px', color: 'var(--text-3)', marginTop: '4px' } }, `${t('ap_submitted_by')} ${p.by}`),
@@ -242,6 +469,11 @@ export function approvalScreen() {
     }),
     list.length ? null : blokTakCocok('ap-antre', jumlahFilterAktif(nilaiAntre) > 0, '—'),
   ]);
+  // Label tombol massal disusun SESUDAH daftarnya dibangun — waktu bar-nya
+  // dibuat, kotak-kotaknya belum ada dan hitungannya belum bisa benar. Kalau
+  // baris ini hilang, pilihan yang selamat dari render ulang (mis. sesudah
+  // approve tunggal) akan menampilkan tombol kosong yang tidak bisa diklik.
+  segarkanMassal();
 
   if (!po) return h('div.stack', [listPanel, st.ui.poEdit ? poEditModal() : null]);
 
@@ -299,7 +531,11 @@ export function approvalScreen() {
     : null;
 
   const previewPanel = card([
-    h('div.card-head', [
+    // .lengket: kepala ini ikut turun waktu halamannya digulir. Panel ini
+    // setinggi satu lembar PO penuh, jadi tombol Approve/Edit/Request Delete
+    // tergulir hilang persis ketika orangnya sedang membaca angka yang
+    // menentukan apakah tombol itu ditekan.
+    h('div.card-head.lengket', [
       h('div', [h('div.card-title', t('ap_preview')), h('div.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, po.contract || po.no)]),
       h('div.mla.row.gap8', actions),
     ]),
@@ -863,6 +1099,30 @@ export function openPoEdit(po) {
     items: po.items.map(it => ({ ...it })), // copy — don't mutate po.items until Save
   } });
 }
+
+// PILIHAN MASSAL untuk Approve. Tingkat MODUL, bukan di dalam store.
+//
+// Dikunci ke ID PO, tidak pernah ke indeks: indeks dipakai ulang begitu daftar
+// tersaring berubah, dan yang tercentang akan berpindah ke PO lain tanpa ada
+// yang bergerak di layar. Aturan yang sama dengan larangan lineId-dari-indeks.
+//
+// Di luar store karena mencentang tidak boleh memicu render ulang seluruh
+// layar — panel kanan sedang menggambar satu lembar dokumen penuh.
+const pilihApprove = new Set();
+export function resetPilihApprove() { pilihApprove.clear(); }
+
+// Kunci klik-ganda. Approve massal menembak N tulis ke server berurutan; tanpa
+// ini, klik kedua saat yang pertama masih jalan mengirim himpunan yang sama
+// dua kali. Dilepas di `finally` — kunci yang nyangkut mematikan tombolnya
+// sampai reload, dan itu lebih buruk daripada bug yang ditutupnya (pelajaran
+// submitPrf, v14.3).
+let approveMassalJalan = false;
+// Kemajuan dibaca oleh segarkanMassal(). Harus di tingkat MODUL, bukan closure:
+// logAudit() menjadwalkan flush() tiap dipanggil, jadi satu putaran N PO memicu
+// N kali mount() ulang — tombolnya diganti node baru di tengah jalan, dan
+// tulisan yang ditulis ke node lama ikut terbuang. Yang dibaca render berikutnya
+// harus keadaan modul, bukan variabel yang ikut mati bersama node-nya.
+let approveMassalProgres = { selesai: 0, total: 0 };
 
 export function poEditModal() {
   const st = getState(); const f = st.ui.poEdit; const po = f.ref;

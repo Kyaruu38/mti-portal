@@ -213,7 +213,7 @@ export function poSayaScreen() {
     : null;
 
   const panelPratinjau = card([
-    h('div.card-head', [
+    h('div.card-head.lengket', [   // ikut turun waktu digulir — panelnya setinggi satu lembar PO, dan tombolnya tergulir hilang persis saat angkanya sedang dibaca
       h('div', [
         h('div.card-title', tr({ id: 'Pratinjau PO', en: 'PO preview', zh: '采购单预览' })),
         h('div.mono', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, po.contract || po.no),

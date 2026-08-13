@@ -193,3 +193,24 @@ export function normalize(s) {
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+/**
+ * TOTAL SEKUMPULAN DOKUMEN, DIPISAH PER MATA UANG.
+ *
+ * Dipakai label tombol Approve massal. Menjumlahkan IDR dan USD jadi satu angka
+ * menghasilkan bilangan yang terbaca meyakinkan dan tidak berarti apa pun —
+ * kesalahan sekelas menggabungkan tiga hitungan sisa di Kas Label. Antrean
+ * approval memang bisa memuat PO dengan mata uang berbeda.
+ *
+ * Nol baris -> string kosong, bukan "IDR 0": nol yang diberi label mata uang
+ * terbaca sebagai jumlah yang benar-benar nol rupiah.
+ */
+export function totalPerMataUang(rows) {
+  const per = {};
+  (rows || []).forEach(r => {
+    const c = (r && r.currency) || 'IDR';
+    const n = Number(r && r.total);
+    per[c] = (per[c] || 0) + (Number.isFinite(n) ? n : 0);
+  });
+  return Object.keys(per).sort().map(c => money(per[c], c)).join(' · ');
+}

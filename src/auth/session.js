@@ -306,7 +306,7 @@ export async function logout() {
   // BERIKUTNYA membuka Template ERP untuk PO yang sama dan menemukan jumlah dan
   // 需求日期 milik orang sebelumnya sudah terisi — lalu menekan Unduh, dan
   // angka itu masuk ke ERP atas namanya sendiri.
-  try { const m = await import('../screens/approval.js'); m.resetApprovalDrafts(); m.resetErpDraft(); } catch { /* ignore */ }
+  try { const m = await import('../screens/approval.js'); m.resetApprovalDrafts(); m.resetErpDraft(); m.resetPilihApprove(); } catch { /* ignore */ }
   // Wipe EVERYTHING, not just the user.
   //
   // This used to clear only user/screen/menuOpen, leaving state.ui and every
