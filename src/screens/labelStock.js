@@ -19,7 +19,7 @@ import { card, badge, btn, icon, dropzone, modal, selectEl, pager, pageSlice, PA
 import { num, money, fmtDate, fmtDateTime } from '../core/format.js';
 import { parseNumber, qtyInputText } from '../parsers/numbers.js';
 import { readWorkbook, writeWorkbook } from '../core/xlsx.js';
-import { parseLabelStockSheet, STATUSES, guessErp, requirementOf, suggestedQtyOf, statusOf } from '../parsers/labelStock.js';
+import { parseLabelStockSheet, STATUSES, guessErp, requirementOf, suggestedQtyOf, statusOf, skuKey } from '../parsers/labelStock.js';
 import {
   fileHasKind, describeFile, planSheetName, planMonth,
   parseProductionPlan, parseSalesPlan, applyPlansToStock,
@@ -682,7 +682,14 @@ function parseSheet() {
 
 // What actually changes if this upload is applied. Compared by (spec, market).
 function buildDiff(current, incoming) {
-  const key = r => `${String(r.spec).trim().toUpperCase()}||${String(r.market || '').trim().toUpperCase()}`;
+  // KUNCI YANG SAMA DENGAN PARSER. Versi lama cuma `.trim()`, sementara
+  // skuKey() membuang SELURUH spasi — jadi "X  Y" tersimpan dan "X Y" masuk
+  // adalah SATU SKU bagi parser dan DUA bagi diff. Hasilnya preview melaporkan
+  // "1 hilang" + "1 baru" untuk baris yang sebenarnya cuma berubah stoknya,
+  // dan spanduk merah "SKU yang ada sekarang TIDAK ada di berkas ini" menelan
+  // sinyalnya. Dua aturan kunci di satu layar adalah dua aturan yang suatu hari
+  // berbeda pendapat.
+  const key = r => skuKey(r.spec, r.market);
   const cur = new Map(current.map(r => [key(r), r]));
   const inc = new Map(incoming.map(r => [key(r), r]));
   const up = [], down = [], same = [], added = [];
@@ -781,6 +788,44 @@ function previewModal(st) {
     subtitle: `${fileName} · sheet "${sheetName}"`, width: 680,
     onClose: () => setUI({ lsPreview: null }),
     body: [
+      // PERINGATAN PARSER DITAMPILKAN DI SINI — dan sebelum 13 Agu 2026 tidak
+      // ditampilkan DI MANA PUN. `res.warnings` sudah lama diisi parser (kolom
+      // yang tidak ketemu, sumber stok yang dipakai) dan layar ini tidak pernah
+      // sekali pun membacanya: nol referensi ke `warnings` di seluruh berkas.
+      // Peringatan yang tidak pernah digambar bukan peringatan.
+      //
+      // Tempatnya di ATAS, di jendela yang judulnya "Cek dulu sebelum disimpan",
+      // karena di sinilah orangnya memutuskan. Yang paling penting di antaranya:
+      // pemberitahuan bahwa kolom `库存数量` DIABAIKAN dan stok diambil dari
+      // lama+baru. Mengabaikan sebuah kolom diam-diam adalah cara paling rapi
+      // untuk menyimpan angka yang salah dengan wajah yang benar.
+      (res.warnings || []).length
+        ? h('div', {
+            style: {
+              border: '1px solid var(--st-amber-tx)', background: 'var(--st-amber-bg)',
+              borderRadius: '10px', padding: '11px 13px', marginBottom: '12px',
+            },
+          }, [
+            h('div', { style: { fontSize: '11.5px', fontWeight: 700, color: 'var(--st-amber-tx)', marginBottom: '6px' } },
+              tr({
+                id: `${res.warnings.length} hal yang perlu Anda tahu tentang file ini`,
+                en: `${res.warnings.length} thing(s) you should know about this file`,
+                zh: `关于此文件有 ${res.warnings.length} 点需要留意`,
+              })),
+            // tr(w.t), BUKAN w.msg. Yang mengunggah berkas ini sona, dan
+            // peringatan yang paling mengubah angka justru yang paling tidak
+            // bisa dia baca kalau isinya cuma bahasa Indonesia.
+            ...res.warnings.map(w => h('div', {
+              style: {
+                fontSize: '11px', lineHeight: 1.55, color: 'var(--text-2)',
+                // Tiga jenis ini bukan catatan — mereka mengubah ANGKANYA atau
+                // menahan baris supaya tidak masuk.
+                fontWeight: ['stock_source', 'no_stock_quarantined', 'unreadable_stock'].includes(w.type) ? 700 : 400,
+                color: ['no_stock_quarantined', 'unreadable_stock'].includes(w.type) ? 'var(--st-red-tx)' : 'var(--text-2)',
+              },
+            }, '· ' + (w.t ? tr(w.t) : w.msg))),
+          ])
+        : null,
       h('div.grid.g2', [
         card([h('div.card-pad', [
           h('div.card-title', { style: { marginBottom: '8px' } }, tr({ id: 'Isi file', en: 'File contents', zh: '文件内容' })),
