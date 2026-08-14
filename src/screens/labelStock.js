@@ -28,7 +28,7 @@ import { parseLabelSheet } from '../parsers/excelLabels.js';
 import { petakanWorkbook, labelKategori } from '../parsers/labelSheetSet.js';
 import { susunDaftarBeli, gabungDenganPortal, TANDA, bolehPilihSemua } from '../core/labelBuyList.js';
 import { labelOrders, erpCandidates, recentOrdersFor, REORDER_WINDOW_DAYS } from '../core/labelOrders.js';
-import { applyLabelStockUpload, applyLabelStockGudang, fetchLabelGudang, fetchLabelStock, fetchLabelStockGudang, fetchLabelUploads, setLabelStockErp } from '../core/labelStockApi.js';
+import { applyLabelStockUpload, applyLabelStockGudang, applyLabelRencana, fetchLabelGudang, fetchLabelStock, fetchLabelStockGudang, fetchLabelUploads, setLabelStockErp } from '../core/labelStockApi.js';
 import { isConfigured } from '../core/supabase.js';
 import { can } from '../auth/roles.js';
 import { blockWrite } from '../core/guard.js';
@@ -1097,6 +1097,37 @@ async function applyUpload() {
   }
   // Re-read rather than patching local state: the RPC also flags the missing
   // rows, and that flag is only knowable server-side.
+  // RENCANA DISIMPAN LEWAT JALURNYA SENDIRI.
+  //
+  // Sampai v15.15a ini adalah lubang yang dibuat tambalan gudang: rencana dari
+  // kotak 2 dan 3 ditimpakan ke res.items untuk PREVIEW, lalu penyimpanannya
+  // pindah ke applyLabelStockGudang yang cuma mengirim spec, market, dan stok.
+  // Jadi layar memperlihatkan kebutuhan dan status yang berubah, dan tidak satu
+  // pun dari itu tersimpan. "Layar menunjukkan satu angka, yang tersimpan angka
+  // lain" adalah kelas kesalahan yang repo ini sudah lawan berkali-kali, dan
+  // tambalan gudang malah menanamnya kembali.
+  //
+  // RPC rencananya tidak menulis kolom stock sama sekali, jadi dua panggilan ini
+  // tidak bisa saling menimpa: yang satu cuma stok, yang satu cuma rencana.
+  if (plan) {
+    try {
+      await applyLabelRencana({
+        fileName: (planMeta.production && planMeta.production.fileName)
+          || (planMeta.sales && planMeta.sales.fileName) || fileName,
+        sheetName: 'rencana', weekOf: '',
+        total: res.items.length, imported: res.items.length,
+        duplicate: 0, mismatch: 0, duplicates: [],
+      }, res.items);
+    } catch (e) {
+      console.error('applyLabelRencana failed', e);
+      toast({
+        id: 'Stok tersimpan, tapi RENCANA gagal disimpan: ' + (e.message || e),
+        en: 'Stock was saved, but the PLAN failed to save: ' + (e.message || e),
+        zh: '库存已保存，但计划保存失败：' + (e.message || e),
+      });
+    }
+  }
+
   const fresh = await fetchLabelStock();
   if (fresh) getState().labelStock = fresh;
   // Stok per gudang ikut dibaca ulang: label_stock.stock sekarang JUMLAH dari

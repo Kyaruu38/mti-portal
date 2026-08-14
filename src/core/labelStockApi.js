@@ -249,6 +249,39 @@ export async function applyLabelStockGudang(gudang, meta, items) {
   return data;   // upload id
 }
 
+// Unggah RENCANA (produksi + penjualan), dan RPC-nya tidak menulis kolom stock
+// sama sekali — pasangan cermin dari applyLabelStockGudang, yang tidak menulis
+// kolom rencana.
+//
+// Dua jalur ini harus tetap terpisah karena iramanya berbeda: rencana datang
+// SEKALI di awal bulan, stok gudang masuk TIAP MINGGU. Satu jalur yang menulis
+// keduanya berarti unggahan yang satu selalu punya pendapat tentang kolom milik
+// yang lain — dan pendapat itu, untuk berkas yang tidak memuat kolomnya,
+// selalu NOL.
+export async function applyLabelRencana(meta, items) {
+  if (!isConfigured()) throw new Error('Supabase belum dikonfigurasi — upload butuh koneksi server');
+  const c = await getClient();
+  if (!c) throw new Error('Supabase client unavailable');
+  const { data, error } = await c.rpc('apply_label_rencana', {
+    p_upload: {
+      file_name: meta.fileName || '', sheet_name: meta.sheetName || '', week_of: meta.weekOf || '',
+      rows_total: meta.total || 0, rows_imported: meta.imported || 0,
+      rows_duplicate: meta.duplicate || 0, rows_mismatch: meta.mismatch || 0,
+      duplicates: meta.duplicates || [],
+    },
+    p_items: items.map(it => ({
+      spec_name: it.spec, market_code: it.market || '',
+      planned_production: it.production, planned_sales: it.sales, buffer_pct: it.buffer,
+      requirement: it.requirement, surplus: it.surplus,
+      reorder_status: it.status, suggested_qty: it.suggestedQty,
+      calc_requirement: it.calc.requirement, calc_surplus: it.calc.surplus,
+      calc_status: it.calc.status, calc_suggested: it.calc.suggestedQty,
+    })),
+  });
+  if (error) throw error;
+  return data;
+}
+
 // Confirm an ERP match for one SKU (the one-time matching step).
 export async function setLabelStockErp(id, erp) {
   if (!isConfigured()) return;
