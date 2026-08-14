@@ -2,7 +2,7 @@ import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
 import { card, sectionHead, badge, btn, icon, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring } from '../ui/components.js';
-import { money, fmtDate, daysUntil, sumByCurrency, moneyMulti } from '../core/format.js';
+import { money, fmtDate, daysUntil, sumByCurrency, moneyMulti, BULAN_ID, BULAN_EN, BULAN_ZH } from '../core/format.js';
 import { outstandingPOs } from '../core/outstanding.js';
 import { statusText } from '../core/statusText.js';
 import { poDocument, ensureCap } from '../ui/documents.js';
@@ -715,10 +715,10 @@ function dueCard(st, dueSoon) {
   ]);
 }
 
-const MONTHS_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-// Same twelve slots, per language — chart axis labels only.
-const MONTHS_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const MONTHS_ZH = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+// Nama bulannya sekarang tinggal di core/format.js — reports.js memakai daftar
+// yang persis sama, dan dua salinan akan jadi dua daftar berbeda begitu salah
+// satunya disunting sendirian.
+const MONTHS_ID = BULAN_ID, MONTHS_EN = BULAN_EN, MONTHS_ZH = BULAN_ZH;
 
 // Real last-6-calendar-months IDR PO totals, derived from st.pos — this used
 // to be a hardcoded literal array (never wired to any data, seed or real).

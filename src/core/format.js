@@ -19,6 +19,17 @@ export function num(n, dp = 0) {
 // yang selalu berbentuk sama bisa dibandingkan sekilas; angka yang bentuknya
 // berubah-ubah harus dibaca dua kali.
 export const CURRENCIES = ['IDR', 'USD', 'EUR', 'CNY'];
+
+// Nama bulan untuk SUMBU GRAFIK — bukan untuk tanggal dokumen (itu fmtDate).
+// Dulu tinggal sebagai tiga const lokal di dashboard.js; reports.js butuh yang
+// persis sama, dan dua salinan nama bulan adalah dua daftar berbeda begitu
+// salah satunya disunting sendirian.
+export const BULAN_ID = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+export const BULAN_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+export const BULAN_ZH = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+// Nama bulan panjang, untuk judul "Agustus 2026".
+export const BULAN_PANJANG_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+export const BULAN_PANJANG_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 export function ccyDecimals() { return 2; }
 // Badge colour per currency. Lives here rather than inside payment.js because
 // Master Data shows the same badge and two copies would drift apart.
