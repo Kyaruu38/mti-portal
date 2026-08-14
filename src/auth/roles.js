@@ -142,7 +142,19 @@ export const ACCESS = {
 const grant = (...names) => Object.fromEntries(names.join(' ').split(/\s+/).filter(Boolean).map(n => [n, true]));
 
 export const CAPS = {
-  wilbert:    grant('approve editMaster labelStockWrite paymentWrite prfCreate prfReceive markPaid sjWrite ppkekWrite designWrite poCreate poReceive labelParse labelRequestFill'),
+  // labelRequestAsk ikut ke wilbert supaya dia bisa MELIHAT jalur yang dipakai
+  // sona — tombol "Kirim ke Label Request" dan seluruh baris aksinya — buat
+  // menerangkan caranya, bukan buat mengambil alih pekerjaannya.
+  //
+  // Aman, dan bukan karena tombolnya yang menjaga: RLS label_requests_insert
+  // sudah berbunyi with check (current_role() = any (array['sona','wilbert']))
+  // sejak tabelnya dibuat. Jadi basis datanya memang sudah mengharapkan wilbert
+  // ada di sini; yang tertinggal cuma capability di sisi layar. Menambahkannya
+  // TIDAK melonggarkan satu pun penjaga server.
+  //
+  // Pembagian kerjanya tidak berubah: sona yang meminta, purchasing yang
+  // menjadikannya PO.
+  wilbert:    grant('approve editMaster labelStockWrite paymentWrite prfCreate prfReceive markPaid sjWrite ppkekWrite designWrite poCreate poReceive labelParse labelRequestFill labelRequestAsk'),
   // cania/visca RECEIVE the invoices and raise the PRF from them. Until v12.0
   // they held prfCreate WITHOUT paymentWrite, which read as a sensible split and
   // was not: an invoice only reaches the PRF builder once it has left stage 1,
