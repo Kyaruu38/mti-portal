@@ -100,6 +100,17 @@ export function labelStockScreen() {
       en: `Master Tracker · ${rows.length}`,
       zh: `主跟踪表 · ${rows.length}`,
     })],
+    // SATU TAB PER GUDANG, dan angkanya jumlah SPEC di gudang itu — bukan
+    // jumlah lembar. Master Tracker tetap yang menentukan mesen apa ngga; tab
+    // gudang menjawab pertanyaan yang berbeda: "yang 30.744 itu dari mana
+    // saja". Tanpa itu, stok gabungan adalah satu angka yang tidak bisa
+    // ditelusuri ke berkas mana pun.
+    ...(st.labelGudang || []).filter(g => g.aktif).map(g => {
+      const n = (st.labelStockGudang || []).filter(x => x.gudang === g.kode).length;
+      return ['gd:' + g.kode, tr({
+        id: `${g.namaZh} · ${n}`, en: `${g.namaZh} · ${n}`, zh: `${g.namaZh} · ${n}`,
+      })];
+    }),
     // Angka di tab BUY NOW menghitung daftar gabungan (diminta di file +
     // hitungan portal), bukan cuma hitungan portal. Kalau tidak, tab bertuliskan
     // 22 lalu terbuka berisi 150 baris — dan angka yang berbohong di tab bar
@@ -133,7 +144,8 @@ export function labelStockScreen() {
     h('button.btn' + (tab === id ? '.btn-navy' : ''), { onClick: () => setUI({ lsTab: id, lsPage: 1, lsjPage: 1, lsbPage: 1 }) }, label)));
 
   let body;
-  if (tab === 'buy') body = buyNowTab(st);
+  if (tab.startsWith('gd:')) body = gudangTab(st, tab.slice(3));
+  else if (tab === 'buy') body = buyNowTab(st);
   else if (tab === 'nobuy') body = listTab(st, r => r.status === 'OVERSTOCK' || r.status === 'IDLE STOCK', 'DO NOT BUY',
     tr({ id: 'Stok berlebih atau tidak terpakai — jangan order, habiskan dulu.', en: 'Overstocked or unused — do not order, use it up first.', zh: '库存过剩或未使用 — 请勿下单，先消耗现有库存。' }));
   else if (tab === 'orders') body = ordersTab(st, ord);
@@ -363,6 +375,18 @@ function pemilihGudang(st) {
   ]);
 }
 
+function bingkaiBagian(judul, catatan, isi) {
+  return h('div', {
+    style: { border: '1px solid var(--border)', borderRadius: '8px', padding: '12px', marginBottom: '12px' },
+  }, [
+    h('div.row.gap8', { style: { alignItems: 'baseline', marginBottom: '10px', flexWrap: 'wrap' } }, [
+      h('span', { style: { fontSize: '12.5px', fontWeight: 800 } }, judul),
+      h('span', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, catatan),
+    ]),
+    ...isi,
+  ]);
+}
+
 function uploadCard(st) {
   const ui = st.ui;
   if (!can(st.user.role, 'labelStockWrite')) return null;
@@ -371,7 +395,6 @@ function uploadCard(st) {
   const gabung = ui.lsMode === 'gabung';
 
   return card([h('div.card-pad', [
-    pemilihGudang(st),
     // Dua cara memberi file, karena kenyataannya memang dua.
     //
     // Sona kadang sudah menyatukan stok, rencana produksi, dan rencana
@@ -412,14 +435,33 @@ function uploadCard(st) {
     // query di seluruh stylesheet, jadi di layar sempit tiga kotak unggah
     // saling menghimpit sampai tulisannya tidak terbaca. auto-fit menumpuknya
     // sendiri tanpa menyentuh CSS global.
+    // DUA URUSAN, DUA BINGKAI.
+    //
+    // Kyaru: "rada aneh karena udh pick warehouse bawahnya baru ada pilihan juga
+    // untuk drop 生产计划 sama 销售计划, gw rasa itu mending UI nya dipisah".
+    // Benar, dan bukan sekadar tata letak: RENCANA PRODUKSI TIDAK PUNYA GUDANG.
+    // Ia rencana pabrik, satu untuk semua gudang, dan datang SEKALI di awal
+    // bulan — sementara stok gudang masuk TIAP MINGGU. Menaruhnya persis di
+    // bawah satu pemilih gudang membuatnya terbaca seolah ikut jadi milik gudang
+    // yang sedang dipilih, dan itu salah pada tingkat arti, bukan tingkat rapi.
+    //
+    // Mode "1 file banyak sheet" tidak dipisah: di sana memang cuma ada SATU
+    // berkas, dan memecah satu kotak jadi dua bingkai kosong cuma menambah
+    // pertanyaan.
     gabung
       ? kotakGabung(st)
-      : h('div', {
-          style: {
-            display: 'grid', gap: '12px',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          },
-        }, BOXES.map(b => boxTile(st, b))),
+      : h('div', [
+          bingkaiBagian(
+            tr({ id: 'Stok gudang', en: 'Warehouse stock', zh: '仓库库存' }),
+            tr({ id: 'tiap minggu · pilih gudangnya dulu', en: 'every week · pick the warehouse first', zh: '每周 · 请先选择仓库' }),
+            [pemilihGudang(st), boxTile(st, BOXES[0])]),
+          bingkaiBagian(
+            tr({ id: 'Rencana bulanan', en: 'Monthly plan', zh: '月度计划' }),
+            tr({ id: 'sekali di awal bulan · tidak terikat gudang mana pun', en: 'once at the start of the month · not tied to any warehouse', zh: '每月初一次 · 不属于任何仓库' }),
+            [h('div', {
+              style: { display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' },
+            }, BOXES.slice(1).map(b => boxTile(st, b)))]),
+        ]),
 
     ready ? h('div.row.gap8.wrap', { style: { marginTop: '14px', alignItems: 'flex-end' } }, [
       h('div', [
@@ -1224,6 +1266,71 @@ const MEDAN_STOK = (semua) => {
     },
   ];
 };
+
+// Isi satu gudang, apa adanya: spec dan berapa lembar yang ada DI SANA.
+//
+// Sengaja TIDAK memuat kebutuhan, status, maupun saran order. Ketiganya
+// dihitung dari rencana produksi, dan rencana produksi itu milik pabrik, bukan
+// milik gudang — menampilkan "BUY NOW" di dalam satu gudang akan mengajak orang
+// memesan untuk kekurangan yang mungkin sudah tertutup oleh gudang sebelah.
+// Yang menentukan mesen apa ngga cuma satu tempat: Master Tracker.
+function gudangTab(st, kode) {
+  const g = (st.labelGudang || []).find(x => x.kode === kode);
+  const baris = (st.labelStockGudang || []).filter(x => x.gudang === kode);
+  const total = baris.reduce((s, x) => s + (Number(x.stock) || 0), 0);
+  const hilang = baris.filter(x => x.missing).length;
+  const urut = [...baris].sort((a, b) => b.stock - a.stock);
+  const hal = halaman(urut, st, 'lsgPage', 'lsgSize');
+
+  if (!baris.length) {
+    return h('div.stack', [
+      h('div', { style: { padding: '34px 0', textAlign: 'center', fontSize: '12px', color: 'var(--text-3)', whiteSpace: 'normal', lineHeight: 1.6 } },
+        tr({
+          id: `Belum ada stok yang diunggah untuk ${g ? g.namaZh : kode}. Pilih gudangnya di kotak unggah lalu jatuhkan excelnya.`,
+          en: `No stock uploaded for ${g ? g.namaZh : kode} yet. Pick the warehouse in the upload box, then drop its excel.`,
+          zh: `${g ? g.namaZh : kode} 尚未上传库存。请在上传框中选择该仓库，然后拖入其 excel。`,
+        })),
+    ]);
+  }
+
+  return h('div.stack', [
+    h('div.row.gap8.wrap', { style: { alignItems: 'center' } }, [
+      badge(tr({
+        id: `${num(total, 0)} lembar`, en: `${num(total, 0)} pcs`, zh: `${num(total, 0)} 张`,
+      }), 'accent'),
+      badge(tr({
+        id: `${baris.length} spec`, en: `${baris.length} specs`, zh: `${baris.length} 个规格`,
+      }), 'navy'),
+      hilang ? badge(tr({
+        id: `${hilang} tidak ada di unggahan terakhir`,
+        en: `${hilang} absent from the latest upload`,
+        zh: `${hilang} 个不在最近一次上传中`,
+      }), 'amber') : null,
+      h('div.mla', { style: { fontSize: '10.5px', color: 'var(--text-3)', whiteSpace: 'normal', lineHeight: 1.5, maxWidth: '380px', textAlign: 'right' } },
+        tr({
+          id: 'Angka di sini stok gudang ini saja. Yang menentukan mesen apa ngga tetap Master Tracker, yang menjumlahkan semua gudang.',
+          en: 'These figures are this warehouse only. What decides ordering is still the Master Tracker, which sums every warehouse.',
+          zh: '此处数字仅为本仓库。决定是否下单的仍是主跟踪表，它汇总所有仓库。',
+        })),
+    ]),
+    h('div.tbl-wrap', h('table.tbl', [
+      h('thead', h('tr', [
+        h('th', tr({ id: 'Spec', en: 'Spec', zh: '规格' })),
+        h('th.r', tr({ id: 'Stok di gudang ini', en: 'Stock in this warehouse', zh: '本仓库库存' })),
+        h('th', tr({ id: 'Terakhir terlihat', en: 'Last seen', zh: '最近一次出现' })),
+      ])),
+      h('tbody', hal.items.map(x => h('tr', [
+        h('td', { style: { fontSize: '11.5px' } }, x.spec),
+        h('td.mono.r', num(x.stock, 0)),
+        h('td', { style: { fontSize: '10.5px', color: x.missing ? 'var(--st-amber-tx)' : 'var(--text-3)' } },
+          x.missing
+            ? tr({ id: 'tidak ada di unggahan terakhir', en: 'absent from the latest upload', zh: '不在最近一次上传中' })
+            : fmtDate(x.lastSeenAt)),
+      ]))),
+    ])),
+    barisPager(hal, 'lsgPage', 'lsgSize'),
+  ]);
+}
 
 function masterTab(st) {
   const semua = st.labelStock || [];
