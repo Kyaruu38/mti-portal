@@ -28,7 +28,7 @@ import { parseLabelSheet } from '../parsers/excelLabels.js';
 import { petakanWorkbook, labelKategori } from '../parsers/labelSheetSet.js';
 import { susunDaftarBeli, gabungDenganPortal, TANDA, bolehPilihSemua } from '../core/labelBuyList.js';
 import { labelOrders, erpCandidates, recentOrdersFor, REORDER_WINDOW_DAYS } from '../core/labelOrders.js';
-import { applyLabelStockUpload, applyLabelStockGudang, fetchLabelStock, fetchLabelStockGudang, fetchLabelUploads, setLabelStockErp } from '../core/labelStockApi.js';
+import { applyLabelStockUpload, applyLabelStockGudang, fetchLabelGudang, fetchLabelStock, fetchLabelStockGudang, fetchLabelUploads, setLabelStockErp } from '../core/labelStockApi.js';
 import { isConfigured } from '../core/supabase.js';
 import { can } from '../auth/roles.js';
 import { blockWrite } from '../core/guard.js';
@@ -62,8 +62,33 @@ const ALERT_LABEL = {
 };
 const alertLabel = a => (ALERT_LABEL[a] ? tr(ALERT_LABEL[a]) : a);
 
+// DAFTAR GUDANG DIJEMPUT SENDIRI KALAU BELUM ADA.
+//
+// Daftarnya ikut gelombang muat saat LOGIN. Artinya siapa pun yang sudah login
+// sebelum tabelnya lahir akan memegang array kosong sampai dia keluar dan masuk
+// lagi — dan yang dia lihat bukan dropdown, melainkan kotak merah "daftar
+// gudang belum bisa dibaca". Itu terjadi hari ini, pada orang pertama yang
+// membuka layar ini sesudah v15.15 mendarat.
+//
+// Sebuah fitur yang butuh logout untuk muncul adalah fitur yang, bagi orang
+// yang tidak tahu itu, tidak ada.
+//
+// Dijemput SEKALI per sesi, dan penandanya dipasang SEBELUM permintaannya
+// berangkat: tanpa itu, mount() yang tidak punya diffing akan menembakkan satu
+// permintaan baru setiap kali layarnya digambar ulang.
+let gudangDijemput = false;
+function jemputGudangSekali(st) {
+  if (gudangDijemput) return;
+  if ((st.labelGudang || []).length) return;
+  gudangDijemput = true;
+  fetchLabelGudang().then(g => {
+    if (g && g.length) { getState().labelGudang = g; setState({}); }
+  }).catch(e => console.error('fetchLabelGudang gagal', e));
+}
+
 export function labelStockScreen() {
   const st = getState(); const ui = st.ui;
+  jemputGudangSekali(st);
   const tab = ui.lsTab || 'master';
   const rows = st.labelStock || [];
 
