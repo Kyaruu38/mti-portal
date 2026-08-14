@@ -2,13 +2,13 @@ import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, checkRow, driveLink, statusTone, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
-import { money, num, fmtDate, fmtDateTime, daysUntil, similarity, normalize, sumByCurrency, moneyMulti, CURRENCIES } from '../core/format.js';
+import { money, num, ccyDecimals, fmtDate, fmtDateTime, daysUntil, similarity, normalize, sumByCurrency, moneyMulti, CURRENCIES } from '../core/format.js';
 import { parsePaymentProof } from '../parsers/bankProof.js';
 import { parseNumber } from '../parsers/numbers.js';
 import { uploadToDrive } from '../core/drive.js';
 import { linkOutbox } from '../core/driveOutbox.js';
 import { can, isReadOnly } from '../auth/roles.js';
-import { updatePrfStage } from '../core/prfsApi.js';
+import { updatePrfStage, selisihPrf } from '../core/prfsApi.js';
 import { blockWrite } from '../core/guard.js';
 import { confirmPrfPaid } from '../core/paymentsApi.js';
 import { isConfigured } from '../core/supabase.js';
@@ -98,7 +98,31 @@ export function financeScreen() {
         const received = p.stage === 'Diterima Finance' || p.stage === 'Paid';
         return h('tr', [
           h('td.mono.cell-strong', p.no), h('td', p.by), h('td', p.supplier),
-          h('td.mono.r', num(p.amount, p.currency === 'USD' ? 2 : 0)),
+          // num(p.amount, p.currency === 'USD' ? 2 : 0) sampai v15.11a — rupiah
+          // dicetak NOL desimal di layar yang memutuskan pembayaran, jadi
+          // 935.383.680,50 muncul sebagai 935.383.681 dan yang membacanya tidak
+          // punya cara tahu ada yang hilang. Pembulatan dicabut dari seluruh
+          // jalur uang di v15.11; baris ini terlewat.
+          (() => {
+            const cek = selisihPrf(p, st.invoices || []);
+            const angka = num(p.amount, ccyDecimals());
+            if (!cek.adaMasalah) return h('td.mono.r', angka);
+            return h('td.mono.r', { style: { color: 'var(--st-red-tx)' } }, [
+              h('div', angka),
+              h('div', { style: { fontSize: '10px', fontWeight: 700, whiteSpace: 'normal', lineHeight: 1.4 } },
+                cek.hilang.length
+                  ? tr({
+                      id: `≠ invoice — ${cek.hilang.length} invoice tidak ada lagi`,
+                      en: `≠ invoice — ${cek.hilang.length} invoice(s) no longer exist`,
+                      zh: `≠ 发票 — ${cek.hilang.length} 张发票已不存在`,
+                    })
+                  : tr({
+                      id: `≠ invoice: ${num(cek.sumInvoice, ccyDecimals())}`,
+                      en: `≠ invoice: ${num(cek.sumInvoice, ccyDecimals())}`,
+                      zh: `≠ 发票：${num(cek.sumInvoice, ccyDecimals())}`,
+                    })),
+            ]);
+          })(),
           h('td', badge(p.currency, p.currency === 'USD' ? 'accent' : 'navy')),
           // Kata di lencananya diambil dari kelengkapanTeks() yang sama dengan
           // yang mengisi dropdown saringnya, supaya keduanya tidak bisa lagi
@@ -146,10 +170,35 @@ function receiveModal(prfId) {
   const st = getState(); const prf = st.prfs.find(p => p.id === prfId); if (!prf) return null;
   const cl = prf.receiveChecklist;
   const count = Object.values(cl).filter(Boolean).length;
-  const ok = count === 4;
+  // Butir (b) berbunyi "salinan invoice supplier". Mencentangnya berarti
+  // menyatakan kertas di tangan cocok dengan dokumen ini. Kalau portal SUDAH
+  // TAHU keduanya tidak cocok, membiarkan centang itu masuk berarti portal
+  // menyaksikan pernyataan yang ia tahu keliru dan diam saja.
+  //
+  // Ditahan HANYA untuk selisih nominal sungguhan, bukan untuk invoice yang
+  // barisnya sudah tidak ada. Yang kedua bisa saja peninggalan lama yang tidak
+  // ada hubungannya dengan angka, dan menahan Finance atas dasar itu akan
+  // menghentikan pekerjaan hari ini demi masalah kemarin — dilaporkan, tidak
+  // memblokir.
+  const cekTerima = selisihPrf(prf, st.invoices || []);
+  const bedaNominal = !cekTerima.hilang.length && Math.abs(Math.round(cekTerima.beda * 100)) > 0;
+  const ok = count === 4 && !bedaNominal;
   return modal({
     title: t('fn_receive_modal'), subtitle: `${prf.no} · ${prf.supplier} · ${money(prf.amount, prf.currency)}`, width: 480, onClose: () => setUI({ receiveModal: null }),
     body: [
+      bedaNominal ? h('div.cfg-banner', {
+        style: { background: 'var(--st-red-bg)', color: 'var(--st-red-tx)', borderColor: 'var(--st-red-tx)', justifyContent: 'flex-start', marginBottom: '10px' },
+      }, [
+        icon('warn', 17),
+        h('div.grow', { style: { whiteSpace: 'normal', lineHeight: 1.45 } }, [
+          h('b', tr({ id: 'PRF ini tidak sama dengan invoicenya.', en: 'This PRF does not match its invoices.', zh: '此付款申请单与其发票不一致。' })),
+          tr({
+            id: ` PRF minta ${money(prf.amount, prf.currency)}, invoicenya sekarang ${money(cekTerima.sumInvoice, prf.currency)} — selisih ${money(Math.abs(cekTerima.beda), prf.currency)}. JANGAN diterima: minta purchasing membatalkan PRF ini dan membuat ulang dengan nomor baru.`,
+            en: ` The PRF asks for ${money(prf.amount, prf.currency)} while its invoices now total ${money(cekTerima.sumInvoice, prf.currency)} — a difference of ${money(Math.abs(cekTerima.beda), prf.currency)}. Do NOT receive it: ask purchasing to cancel this PRF and raise a new one with a new number.`,
+            zh: ` 本单申请 ${money(prf.amount, prf.currency)}，而其发票现合计 ${money(cekTerima.sumInvoice, prf.currency)} — 相差 ${money(Math.abs(cekTerima.beda), prf.currency)}。请勿接收：请采购作废本单并以新编号重新开具。`,
+          }),
+        ]),
+      ]) : null,
       h('div', { style: { fontSize: '11px', color: 'var(--text-3)' } }, t('fn_checklist_sub')),
       checkRow(cl.a, t('fn_chk_prf'), tr({ id: 'Signed payment request form', en: 'Signed payment request form', zh: '已签字的付款申请表' }), () => { cl.a = !cl.a; setState({}); }),
       checkRow(cl.b, t('fn_chk_inv'), tr({ id: 'Salinan invoice supplier', en: 'Supplier invoice copy', zh: '供应商发票复印件' }), () => { cl.b = !cl.b; setState({}); }),
@@ -169,6 +218,18 @@ function receiveModal(prfId) {
 // unlike confirmPaid() below.
 async function receivePrf(prf) {
   if (blockWrite('terima PRF di Finance')) return;
+  // Diperiksa ULANG saat diklik: tombolnya digambar dari state yang bisa
+  // berumur beberapa detik, dan dalam detik-detik itu invoicenya bisa berubah.
+  const cekKlik = selisihPrf(prf, getState().invoices || []);
+  if (!cekKlik.hilang.length && Math.abs(Math.round(cekKlik.beda * 100)) > 0) {
+    toast({
+      id: `${prf.no} tidak sama dengan invoicenya (${money(prf.amount, prf.currency)} vs ${money(cekKlik.sumInvoice, prf.currency)}) — tidak diterima. Minta purchasing buat ulang PRF-nya.`,
+      en: `${prf.no} does not match its invoices (${money(prf.amount, prf.currency)} vs ${money(cekKlik.sumInvoice, prf.currency)}) — not received. Ask purchasing to raise it again.`,
+      zh: `${prf.no} 与其发票不一致（${money(prf.amount, prf.currency)} 对 ${money(cekKlik.sumInvoice, prf.currency)}）— 未接收。请采购重新开具。`,
+    });
+    setUI({ receiveModal: null });
+    return;
+  }
   prf.stage = 'Diterima Finance'; prf.receivedAt = new Date().toISOString();
   try {
     await updatePrfStage(prf.id, { stage: prf.stage, receivedAt: prf.receivedAt, receiveChecklist: prf.receiveChecklist });

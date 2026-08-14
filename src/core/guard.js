@@ -110,6 +110,7 @@ const ACTIONS = {
   'serahkan invoice ke Wilbert':       { en: 'handing the invoice to the supervisor', zh: '将发票移交主管' },
   'hapus invoice':                     { en: 'deleting the invoice', zh: '删除发票' },
   'hapus PRF':                         { en: 'deleting the PRF', zh: '删除付款申请单' },
+  'samakan PRF dengan invoice':        { en: 'matching the PRF to its invoices', zh: '将付款申请单与发票同步' },
   'kembalikan invoice ke tahap 1':     { en: 'moving the invoice back to stage 1', zh: '将发票退回第 1 阶段' },
   'tandai PRF diterima':               { en: 'marking PRFs as received', zh: '标记付款申请单已收到' },
   'kirim request label':               { en: 'sending the label request', zh: '发送标签申请' },

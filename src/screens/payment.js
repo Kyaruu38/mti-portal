@@ -323,8 +323,17 @@ async function removePrf(p) {
 // yang bisa mengetik angka akan melahirkan angka KETIGA yang tidak dimiliki
 // invoice maupun PRF — dan angka ketiga adalah kesalahan yang sama sekali baru,
 // bukan perbaikan.
+// Klik kedua 179 ms sesudah yang pertama — angka yang tercatat di repo ini,
+// dari kejadian nyata. Tulisannya sendiri idempoten (dua kali menulis nilai
+// yang sama menghasilkan baris yang sama), jadi uangnya tidak salah. Yang
+// salah adalah JEJAKNYA: dua baris audit identik pada dokumen statutori, dan
+// dua toast yang saling menimpa di satu slot sehingga orangnya cuma melihat
+// satu konfirmasi untuk dua tulisan.
+let samakanBerjalan = false;
+
 async function samakanPrf(p) {
   if (blockWrite('samakan PRF dengan invoice')) return;
+  if (samakanBerjalan) return;
   const st = getState();
 
   // Dihitung ULANG saat diklik. Tombolnya digambar dari state yang bisa
@@ -338,6 +347,7 @@ async function samakanPrf(p) {
       en: `${p.no} already matches its invoices — nothing was changed.`,
       zh: `${p.no} 与其发票已一致 — 未做任何修改。`,
     });
+    setUI({ prfSamakanConfirm: {} });
     setState({ prfs: st.prfs });
     return;
   }
@@ -349,17 +359,32 @@ async function samakanPrf(p) {
       en: `Invoice ${cek.hilang.join(', ')} no longer exists — ${p.no} was NOT matched. Find out why the row is gone first.`,
       zh: `发票 ${cek.hilang.join('、')} 已不存在 — 未同步 ${p.no}。请先查明该行为何消失。`,
     });
+    setUI({ prfSamakanConfirm: {} });
     return;
   }
-  // Begitu finance memegangnya, nominalnya berhenti jadi milik kita. Kalau
-  // angka masih bisa bergeser sesudah finance mencentang empat butirnya,
-  // centang itu berhenti berarti apa-apa.
-  if (!canDeletePrf(p)) {
+  // HANYA 'Terbentuk'. Ini lebih ketat daripada tombol Batalkan di sebelahnya,
+  // dan bedanya bukan kehati-hatian melainkan NOMOR.
+  //
+  // Membatalkan PRF melepas kertasnya dengan cara yang jujur: nomornya TIDAK
+  // dipakai ulang (lihat deletePrf), jadi lembar yang sudah tercetak otomatis
+  // jadi dokumen yang tidak punya penerus dengan nomor yang sama. Mengubah
+  // nominal di tempat tidak begitu — nomornya bertahan, dan sekarang ada DUA
+  // lembar berkepala PRF/PC/VIII/083 dengan angka berbeda, satu di antaranya
+  // sudah ditandatangani, dan tidak ada satu pun tulisan di kertas mana pun
+  // yang menyebutkan mana yang menggantikan mana. Itu persis kelas kesalahan
+  // yang sedang diperbaiki modul ini, cuma dipindah satu tahap lebih awal.
+  //
+  // 'Terbentuk' berarti kertasnya baru terbit dan belum dibawa ke meja siapa
+  // pun, jadi cetak ulang menghapus jejaknya sepenuhnya. Sesudah itu — di meja
+  // Wilbert, di Finance, sudah dibayar — jalannya cuma satu: batalkan, dan
+  // buat ulang dengan nomor baru.
+  if (!canTick(p)) {
     toast({
-      id: `${p.no} sudah di tangan Finance — nominalnya tidak bisa disamakan dari sini. Batalkan dan buat ulang.`,
-      en: `${p.no} is already with Finance — its amount cannot be matched from here. Cancel it and raise a new one.`,
-      zh: `${p.no} 已在财务手中 — 无法从此处同步金额。请作废后重新开具。`,
+      id: `${p.no} sudah dibawa keluar — kertasnya ada di tangan orang. Nominalnya tidak boleh diubah di tempat; batalkan PRF-nya lalu buat ulang, biar nomornya baru.`,
+      en: `${p.no} has already been carried out — the paper is in someone's hands. Its amount must not be changed in place; cancel the PRF and raise a new one so it gets a new number.`,
+      zh: `${p.no} 已经送出 — 纸质单据在别人手上。金额不可原地修改；请作废后重新开具，以取得新编号。`,
     });
+    setUI({ prfSamakanConfirm: {} });
     return;
   }
 
@@ -370,6 +395,7 @@ async function samakanPrf(p) {
   // SERVER DULU. PRF yang berubah di layar tapi tidak di server akan tercetak
   // dua versi berbeda dari dua komputer berbeda — persis kelas kesalahan yang
   // sedang diperbaiki tombol ini.
+  samakanBerjalan = true;
   try {
     if (p.id && UUID_RE.test(p.id)) await samakanPrfDenganInvoice(p, st.invoices || []);
   } catch (e) {
@@ -379,12 +405,16 @@ async function samakanPrf(p) {
       en: `Server write failed — ${p.no} was NOT changed: ` + (e.message || e),
       zh: `服务器写入失败 — ${p.no} 未被修改：` + (e.message || e),
     });
+    setUI({ prfSamakanConfirm: {} });
     return;
+  } finally {
+    samakanBerjalan = false;
   }
 
   p.amount = nilai.amount;
   p.lines = nilai.lines;
 
+  setUI({ prfSamakanConfirm: {} });
   logAudit({
     entity: 'prf', target: p.no, action: 'samakan dengan invoice',
     detail: `${sebelum} -> ${sesudah} · invoice ${(p.invoices || []).join(', ') || '—'}`,
@@ -473,11 +503,24 @@ function prfTrackingCard(st, readonly) {
   // halaman 1 lalu pindah ke halaman 2 tidak boleh membuat centangannya
   // terlihat hilang.
   const tickedCount = semua.filter(p => recvSel[p.no] && canTick(p)).length;
+  // SELURUH PRF, bukan halaman yang tampil — dengan alasan yang sama seperti
+  // tickedCount di atas, dan taruhan yang jauh lebih besar. Daftar ini
+  // berhalaman sepuluh; PRF/PC/VIII/083 duduk di urutan 27, artinya halaman 3.
+  // Tidak ada yang membuka halaman 3 dari daftar yang cuma dilirik. Sel merah
+  // yang digambar ke DOM yang tidak pernah dipasang persis sama tidak
+  // terlihatnya dengan tidak ada peringatan sama sekali — dan itu keadaan
+  // sebelum rilis ini.
+  const bedaSemua = semua.filter(p => selisihPrf(p, st.invoices || []).adaMasalah);
   const tone = s => ({ 'Terbentuk': 'gray', 'Diproses Wilbert': 'amber', 'Diterima Finance': 'blue', 'Paid': 'green' }[s] || 'gray');
   return h('div.card', [
     h('div.card-head', [
       h('div.card-title', tr({ id: 'Progress PRF', en: 'PRF Progress', zh: '付款申请单进度' })),
       badge(tr({ id: 'Read-only', en: 'Read-only', zh: '只读' }), 'gray', { iconName: 'eye' }),
+      bedaSemua.length ? badge(tr({
+        id: `${bedaSemua.length} PRF ≠ invoice`,
+        en: `${bedaSemua.length} PRF${bedaSemua.length === 1 ? '' : 's'} ≠ invoice`,
+        zh: `${bedaSemua.length} 张 ≠ 发票`,
+      }), 'red', { iconName: 'warn' }) : null,
       hitunganSaring(tersaring.length, semua.length, {
         id: 'PRF · status diubah oleh Finance',
         en: `PRF${semua.length === 1 ? '' : 's'} · status changed by Finance`,
@@ -562,10 +605,43 @@ function prfTrackingCard(st, readonly) {
             // sini. Hanya sebelum finance memegangnya: kalau nominal masih bisa
             // berubah sesudah finance mencentang empat butirnya, centang itu
             // berhenti berarti apa-apa.
-            (!readonly && !cek.hilang.length && canDeletePrf(p))
-              ? btn(tr({ id: 'Samakan dgn invoice', en: 'Match to invoice', zh: '与发票一致' }),
-                  { sm: true, variant: 'danger', onClick: () => samakanPrf(p) })
-              : null,
+            (() => {
+              if (readonly || cek.hilang.length) return null;
+              // Sesudah kertasnya dibawa keluar, jalannya bukan tombol ini.
+              if (!canTick(p)) {
+                return h('div', { style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-3)', whiteSpace: 'normal', lineHeight: 1.4 } },
+                  tr({
+                    id: 'Kertasnya sudah dibawa — batalkan PRF-nya lalu buat ulang (nomornya harus baru).',
+                    en: 'The paper has been carried out — cancel this PRF and raise a new one (it must get a new number).',
+                    zh: '单据已送出 — 请作废后重新开具（必须使用新编号）。',
+                  }));
+              }
+              const kunciS = 'samakan:' + p.id;
+              const nunggu = (st.ui.prfSamakanConfirm || {})[kunciS];
+              const setNunggu = (v) => setUI({ prfSamakanConfirm: { ...(st.ui.prfSamakanConfirm || {}), [kunciS]: v } });
+              if (!nunggu) {
+                return btn(tr({ id: 'Samakan dgn invoice', en: 'Match to invoice', zh: '与发票一致' }),
+                  { sm: true, variant: 'danger', onClick: () => setNunggu(true) });
+              }
+              // Klik kedua MENGEJA angkanya. Tombol satu klik yang mengubah
+              // nominal dokumen pembayaran duduk persis di sebelah tombol
+              // Hapus, dan bentuk dua-klik ini sudah dipakai tombol Hapus di
+              // baris yang sama — dua pola konfirmasi berbeda di satu layar
+              // adalah cara orang belajar mengklik keduanya tanpa membaca.
+              return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end', marginTop: '4px' } }, [
+                h('div', { style: { fontSize: '10px', fontWeight: 600, color: 'var(--text-2)', whiteSpace: 'normal', lineHeight: 1.4, textAlign: 'right' } },
+                  tr({
+                    id: 'Pastikan dulu invoicenya sendiri yang benar — tombol ini menyalin angka invoice, bukan memeriksanya.',
+                    en: 'Make sure the invoice itself is right first — this copies the invoice figure, it does not check it.',
+                    zh: '请先确认发票本身无误 — 此操作复制发票金额，并不校验它。',
+                  })),
+                h('button.btn.btn-sm', {
+                  style: { background: 'var(--st-red-tx)', color: '#fff', border: 'none', fontWeight: 700, whiteSpace: 'normal', textAlign: 'right', lineHeight: 1.3 },
+                  onClick: () => samakanPrf(p),
+                }, `${money(cek.tercatat, p.currency)} → ${money(cek.sumInvoice, p.currency)}`),
+                btn(tr({ id: 'Jangan', en: 'Keep it', zh: '保留' }), { sm: true, onClick: () => setNunggu(false) }),
+              ]);
+            })(),
           ]);
         })(),
         h('td.mono', { style: { color: 'var(--text-3)', fontSize: '10.5px' } }, (p.invoices || []).join(', ') || '—'),
