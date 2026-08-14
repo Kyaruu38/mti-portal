@@ -1,7 +1,7 @@
 import { h, pickFiles } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { badge, btn, icon, driveLink, inputEl, modal, field, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring } from '../ui/components.js';
+import { badge, btn, icon, driveLink, inputEl, modal, field, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring, tanyaTeks } from '../ui/components.js';
 import { uploadToDrive } from '../core/drive.js';
 import { insertDesign, updateDesign, deleteDesign, replaceArtwork } from '../core/designsApi.js';
 import { linkOutbox } from '../core/driveOutbox.js';
@@ -562,11 +562,17 @@ async function uploadDesign() {
   const thumb = await renderThumb(file).catch(() => '');
   // Default value 'LBL-NEW-XX' is the seed for a stored ERP code — prompt text
   // only is translated.
-  const erp = prompt(tr({
-    id: 'ERP code untuk desain ini?',
-    en: 'ERP code for this design?',
-    zh: '此设计的 ERP 编码？',
-  }), 'LBL-NEW-XX') || 'LBL-NEW-' + Date.now().toString(36).slice(-3).toUpperCase();
+  const erp = (await tanyaTeks({
+    judul: tr({ id: 'Kode ERP desain ini', en: 'ERP code for this design', zh: '此设计的 ERP 编码' }),
+    pesan: tr({
+      id: 'Dipakai sebagai kode desain di Design Library dan ikut tercetak di Surat Jalan. Masih bisa diubah nanti.',
+      en: 'Used as the design code in the Design Library, and it prints on the Surat Jalan. It can still be changed later.',
+      zh: '用作设计库中的设计编码，并会打印在送货单上。之后仍可修改。',
+    }),
+    label: tr({ id: 'Kode', en: 'Code', zh: '编码' }),
+    nilai: 'LBL-NEW-XX',
+    okLabel: tr({ id: 'Simpan', en: 'Save', zh: '保存' }),
+  })) || 'LBL-NEW-' + Date.now().toString(36).slice(-3).toUpperCase();
   const st = getState();
   // color/designUrl are local-only display fields — not persisted (see
   // designsApi.js header comment): color is a swatch fallback derivable from

@@ -114,6 +114,93 @@ export function modal({ title, subtitle, body, footer, width = 520, onClose }) {
   return overlay;
 }
 
+// ---------------------------------------------------------------------------
+// tanyaTeks — PENGGANTI prompt() BAWAAN BROWSER.
+//
+// Tiga tempat di portal ini masih memanggil prompt(): alasan hapus PO (dua
+// jalur di core/poAkses.js) dan kode ERP di Design Library. Kotak itu digambar
+// oleh Chrome, bukan oleh portal — jadi ia berbunyi "kyaruu38.github.io says",
+// memakai tipografi dan tombol sistem, tidak tahu apa-apa soal tema gelap,
+// tidak bisa memuat penjelasan sepanjang kalimat "barisnya hilang dari semua
+// layar dan dari Reports", dan tidak punya satu pun kata dalam bahasa yang
+// sedang dipilih orangnya kecuali yang kita tempelkan di judulnya. Kyaru: "ini
+// jg di benerin UI nya jgn kyk dri atas, tpi dari dalem system".
+//
+// KENAPA DOM LANGSUNG, BUKAN LEWAT setUI
+// Karena isinya KOTAK ISIAN. mount() tidak punya diffing: setiap setUI membangun
+// ulang seluruh pohon dan mengganti <input> yang sedang diketik, jadi dialog
+// yang hidup di dalam state akan kehilangan fokus setiap kali ada yang menyentuh
+// state di latar. Dialog ini menempel langsung ke <body>, hidup di luar pohon
+// yang di-mount, dan membersihkan dirinya sendiri. Pola yang sama dipakai
+// recompute() di poEditModal dan kotak qty di Label Stock.
+//
+// Mengembalikan Promise<string|null>. null = dibatalkan, dan pemanggilnya sudah
+// memperlakukan null persis seperti prompt() yang dibatalkan.
+export function tanyaTeks({ judul, pesan, label, nilai = '', placeholder, okLabel, batalLabel, danger, multiline } = {}) {
+  return new Promise((selesai) => {
+    let sudah = false;
+    const tutup = (hasil) => {
+      if (sudah) return;
+      sudah = true;
+      document.removeEventListener('keydown', padaTombol, true);
+      overlay.remove();
+      selesai(hasil);
+    };
+    const padaTombol = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); tutup(null); return; }
+      // Enter mengirim, KECUALI di kotak banyak baris — di sana Enter itu baris
+      // baru, dan Ctrl+Enter yang mengirim.
+      if (e.key === 'Enter' && (!multiline || e.ctrlKey || e.metaKey)) {
+        if (document.activeElement === kotak || document.activeElement === tombolOk) {
+          e.preventDefault(); kirim();
+        }
+      }
+    };
+    const kirim = () => {
+      const v = String(kotak.value || '').trim();
+      // Kosong = tidak jadi. prompt() mengembalikan string kosong dan setiap
+      // pemanggil di repo ini sudah membuang yang kosong; jangan sampai dialog
+      // ini malah meloloskan alasan hapus yang isinya spasi.
+      if (!v) { kotak.focus(); kotak.style.borderColor = 'var(--st-red-tx)'; return; }
+      tutup(v);
+    };
+
+    const kotak = multiline
+      ? h('textarea.input', { placeholder: placeholder || '', rows: 3, style: { resize: 'vertical', minHeight: '68px' } })
+      : h('input.input', { type: 'text', placeholder: placeholder || '' });
+    kotak.value = nilai || '';
+
+    const tombolOk = h('button.btn.btn-sm' + (danger ? '' : '.btn-primary'), {
+      style: danger ? { background: 'var(--st-red-tx)', color: '#fff', border: 'none', fontWeight: 700 } : { fontWeight: 700 },
+      onClick: kirim,
+    }, okLabel || tr({ id: 'Lanjut', en: 'Continue', zh: '继续' }));
+
+    const overlay = h('div.overlay', {
+      onClick: (e) => { if (e.target === overlay) tutup(null); },
+    }, [
+      h('div.modal', { style: { width: '460px' } }, [
+        h('div.modal-head', [
+          h('div', [
+            h('div.modal-title', judul),
+            pesan ? h('div', { style: { fontSize: '11px', color: 'var(--text-3)', whiteSpace: 'normal', lineHeight: 1.5, marginTop: '3px' } }, pesan) : null,
+          ]),
+          h('button.x-btn', { onClick: () => tutup(null) }, icon('x', 14)),
+        ]),
+        h('div.modal-body', label ? field(label, kotak) : kotak),
+        h('div.modal-foot', [
+          h('button.btn.btn-sm', { onClick: () => tutup(null) }, batalLabel || tr({ id: 'Batal', en: 'Cancel', zh: '取消' })),
+          tombolOk,
+        ]),
+      ]),
+    ]);
+
+    document.body.appendChild(overlay);
+    document.addEventListener('keydown', padaTombol, true);
+    // Fokus SESUDAH menempel, kalau tidak inputnya belum ada di dokumen.
+    setTimeout(() => { kotak.focus(); kotak.select && kotak.select(); }, 0);
+  });
+}
+
 export function field(label, control) {
   return h('div', [h('div.field-label', label), control]);
 }

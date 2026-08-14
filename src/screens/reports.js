@@ -2,7 +2,7 @@ import { h } from '../core/dom.js';
 import { getState, setUI, toast } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, driveLink, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring, pager, pageSlice, PAGE_DEFAULT } from '../ui/components.js';
-import { money, num, fmtDate, sumByCurrency, moneyMulti, BULAN_ID, BULAN_EN, BULAN_ZH, BULAN_PANJANG_ID, BULAN_PANJANG_EN } from '../core/format.js';
+import { money, num, fmtDate, sumByCurrency, BULAN_ID, BULAN_EN, BULAN_ZH, BULAN_PANJANG_ID, BULAN_PANJANG_EN } from '../core/format.js';
 import { statusText } from '../core/statusText.js';
 import { writeWorkbook } from '../core/xlsx.js';
 import { outstandingPOs } from '../core/outstanding.js';
@@ -211,11 +211,49 @@ function delapanTeratas(peta) {
   }];
 }
 
+// Satu baris per mata uang. `totals` = { IDR: 123, USD: 45 } dari sumByCurrency.
+function barisNominal(totals) {
+  const kunci = Object.keys(totals || {}).sort();
+  if (!kunci.length) return h('div.mono', { style: { fontSize: '19px', fontWeight: 800, marginTop: '5px' } }, '\u2014');
+  return h('div', { style: { marginTop: '5px' } }, kunci.map(c => h('div.row', {
+    style: { gap: '10px', alignItems: 'baseline', lineHeight: 1.35 },
+  }, [
+    h('span.mono', { style: { fontSize: '12px', fontWeight: 700, color: 'var(--text-3)', minWidth: '38px' } }, c),
+    h('span.mono', { style: { fontSize: '19px', fontWeight: 800 } }, num(totals[c], 2)),
+  ])));
+}
+
 function kotakAngka(judul, isi, catatan) {
   return h('div', { style: { flex: '1 1 240px', minWidth: '220px' } }, [
     h('div', { style: { fontSize: '10.5px', fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--text-3)' } }, judul),
-    h('div.mono', { style: { fontSize: '19px', fontWeight: 800, marginTop: '5px', lineHeight: 1.35, whiteSpace: 'normal' } }, isi),
+    typeof isi === 'string'
+      ? h('div.mono', { style: { fontSize: '19px', fontWeight: 800, marginTop: '5px', lineHeight: 1.35, whiteSpace: 'normal' } }, isi)
+      : isi,
     catatan ? h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', marginTop: '4px', whiteSpace: 'normal', lineHeight: 1.45 } }, catatan) : null,
+  ]);
+}
+
+// Kepala yang bisa diklik untuk membuka isinya. TERTUTUP dari awal: kedua
+// grafik ini jawaban atas pertanyaan yang tidak dibawa orang setiap kali
+// membuka Reports, dan layar yang membuka semuanya sekaligus memaksa semua
+// orang menggulung melewati jawaban yang tidak dicarinya.
+//
+// Aman memakai setUI di sini: tidak ada kotak isian di dalam kartu ini, jadi
+// render ulang tanpa diffing tidak punya fokus untuk direbut.
+function lipatan(kunciUi, judul, sub, isi) {
+  const buka = !!getState().ui[kunciUi];
+  return h('div', { style: { marginTop: '18px' } }, [
+    h('div.row', {
+      style: { gap: '8px', alignItems: 'center', cursor: 'pointer', userSelect: 'none', padding: '6px 0' },
+      onClick: () => setUI({ [kunciUi]: !buka }),
+    }, [
+      h('span', {
+        style: { display: 'inline-flex', transform: buka ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform .12s', color: 'var(--text-3)' },
+      }, icon('chevD', 14)),
+      h('div', { style: { fontSize: '12px', fontWeight: 800 } }, judul),
+      sub ? h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, sub) : null,
+    ]),
+    buka ? isi() : null,
   ]);
 }
 
@@ -238,7 +276,7 @@ function ringkasanCard(st, bolehPrf, bolehPo) {
   const angka = h('div.row.wrap', { style: { gap: '26px', alignItems: 'flex-start' } }, [
     bolehPrf ? kotakAngka(
       tr({ id: 'Estimasi pembayaran bulan ini', en: 'Estimated payment this month', zh: '本月预计付款' }),
-      prfBulan.length ? moneyMulti(sumByCurrency(prfBulan)) : '—',
+      barisNominal(prfBulan.length ? sumByCurrency(prfBulan) : {}),
       tr({
         id: `dari ${prfBulan.length} PRF yang dibuat di ${namaBulan}. Mata uang tidak pernah dijumlah jadi satu.`,
         en: `from ${prfBulan.length} PRF${prfBulan.length === 1 ? '' : 's'} raised in ${namaBulan}. Currencies are never merged into one figure.`,
@@ -248,9 +286,9 @@ function ringkasanCard(st, bolehPrf, bolehPo) {
       tr({ id: 'Belanja lokal bulan ini', en: 'Local purchases this month', zh: '本月本地采购' }),
       poBulan.length ? money(totalPo, 'IDR') : '—',
       tr({
-        id: `dari ${poBulan.length} PO IDR yang disetujui, dihitung pada tanggal approve.${poCadangan ? ` ${poCadangan} di antaranya belum punya tanggal approve tersimpan, jadi dipakai tanggal dibuatnya — kalau dibuang, angka di atas akan kekurangan sebanyak itu tanpa ada yang menyebutkannya.` : ''}`,
-        en: `from ${poBulan.length} approved IDR PO${poBulan.length === 1 ? '' : 's'}, counted on the approval date.${poCadangan ? ` ${poCadangan} of them have no stored approval date, so their creation date was used — dropping them would leave the figure above short by that much with nothing saying so.` : ''}`,
-        zh: `来自 ${poBulan.length} 张已批准的 IDR 采购单，按批准日期计入。${poCadangan ? `其中 ${poCadangan} 张没有已保存的批准日期，改用创建日期 — 若将其剔除，上面的数字会凭空少掉那么多且无任何提示。` : ''}`,
+        id: `dari ${poBulan.length} PO IDR yang disetujui, dihitung pada tanggal approve.${poCadangan ? ` ${poCadangan} di antaranya belum punya tanggal approve tersimpan, jadi dipakai tanggal dibuatnya. Kalau dibuang, angka di atas akan kekurangan sebanyak itu tanpa ada yang menyebutkannya.` : ''}`,
+        en: `from ${poBulan.length} approved IDR PO${poBulan.length === 1 ? '' : 's'}, counted on the approval date.${poCadangan ? ` ${poCadangan} of them have no stored approval date, so their creation date was used. Dropping them would leave the figure above short by that much with nothing saying so.` : ''}`,
+        zh: `来自 ${poBulan.length} 张已批准的 IDR 采购单，按批准日期计入。${poCadangan ? `其中 ${poCadangan} 张没有已保存的批准日期，改用创建日期。若将其剔除，上面的数字会凭空少掉那么多且无任何提示。` : ''}`,
       })) : null,
   ]);
 
@@ -267,9 +305,7 @@ function ringkasanCard(st, bolehPrf, bolehPo) {
   // panjangnya TIDAK bisa dibandingkan lintas mata uang — labelnya menyebut
   // mata uang tiap baris, dan angkanya di kanan yang dibaca. Yang dibandingkan
   // di sini urutan besar-kecil dalam satu mata uang, bukan USD lawan IDR.
-  const grafikBulan = h('div', { style: { marginTop: '18px' } }, [
-    h('div', { style: { fontSize: '12px', fontWeight: 800 } },
-      tr({ id: `Bulan berjalan — ${namaBulan}`, en: `Current month — ${namaBulan}`, zh: `本月 — ${namaBulan}` })),
+  const isiGrafikBulan = () => h('div', { style: { marginTop: '2px' } }, [
     ...(bolehPrf && petaPrfBulan.size
       ? mataUangPrf.filter(c => prfBulan.some(p => (p.currency || 'IDR') === c)).map(c => {
           const peta = new Map();
@@ -289,6 +325,14 @@ function ringkasanCard(st, bolehPrf, bolehPo) {
           tr({ id: 'Belum ada PRF maupun PO disetujui di bulan ini.', en: 'No PRFs or approved POs yet this month.', zh: '本月尚无付款申请单或已批准采购单。' }))
       : null,
   ]);
+  const grafikBulan = lipatan('rpBukaBulan',
+    tr({ id: 'Rincian per pemasok', en: 'Breakdown per supplier', zh: '按供应商明细' }),
+    tr({
+      id: `${petaPrfBulan.size + petaPoBulan.size} pemasok di ${namaBulan}`,
+      en: `${petaPrfBulan.size + petaPoBulan.size} suppliers in ${namaBulan}`,
+      zh: `${namaBulan} 共 ${petaPrfBulan.size + petaPoBulan.size} 家供应商`,
+    }),
+    isiGrafikBulan);
 
   // GRAFIK TAHUNAN — 1 Januari sampai 31 Desember, bukan dua belas bulan
   // terakhir. Permintaan Kyaru, dan bedanya nyata: rentang 12 bulan menaruh
@@ -301,14 +345,10 @@ function ringkasanCard(st, bolehPrf, bolehPo) {
     return out;
   };
 
-  const grafikTahun = h('div', { style: { marginTop: '26px', borderTop: '1px solid var(--border)', paddingTop: '16px' } }, [
-    h('div', { style: { fontSize: '12px', fontWeight: 800 } },
-      tr({ id: `Perbandingan bulan ke bulan — ${th}`, en: `Month-to-month — ${th}`, zh: `逐月对比 — ${th}` })),
-    h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', marginTop: '3px' } },
-      tr({ id: '1 Januari – 31 Desember, tahun kalender penuh.', en: '1 January – 31 December, full calendar year.', zh: '1 月 1 日至 12 月 31 日，完整日历年度。' })),
+  const isiGrafikTahun = () => h('div', { style: { marginTop: '2px' } }, [
     ...(bolehPrf
       ? mataUangPrf.map(c => batangBulanan(
-          tr({ id: `Estimasi pembayaran (PRF) — ${c}`, en: `Estimated payment (PRF) — ${c}`, zh: `预计付款（付款申请单）— ${c}` }),
+          tr({ id: `Estimasi pembayaran PRF · ${c}`, en: `Estimated payment PRF · ${c}`, zh: `预计付款（付款申请单）· ${c}` }),
           c,
           perBulan(prfTahun.filter(p => (p.currency || 'IDR') === c), p => p.createdAt, p => p.amount),
           th))
@@ -325,6 +365,11 @@ function ringkasanCard(st, bolehPrf, bolehPo) {
           tr({ id: `Belum ada data di tahun ${th}.`, en: `No data for ${th} yet.`, zh: `${th} 年暂无数据。` }))
       : null,
   ]);
+  const grafikTahun = h('div', { style: { marginTop: '10px', borderTop: '1px solid var(--border)', paddingTop: '6px' } },
+    lipatan('rpBukaTahun',
+      tr({ id: `Perbandingan bulan ke bulan ${th}`, en: `Month to month ${th}`, zh: `${th} 年逐月对比` }),
+      tr({ id: '1 Januari sampai 31 Desember', en: '1 January to 31 December', zh: '1 月 1 日至 12 月 31 日' }),
+      isiGrafikTahun));
 
   return h('div.card', h('div.card-pad', [
     h('div.row', { style: { justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '14px' } }, [

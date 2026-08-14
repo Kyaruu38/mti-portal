@@ -3,7 +3,7 @@ import { getState, setState, setUI, toast, logAudit } from '../core/store.js';
 import { blockWrite } from '../core/guard.js';
 import { parseNumber, parseMoney, moneyInputText, qtyInputText } from '../parsers/numbers.js';
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, icon, modal, field, inputEl, selectEl, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring } from '../ui/components.js';
+import { card, badge, btn, icon, modal, field, inputEl, selectEl, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring, pager, pageSlice, PAGE_DEFAULT } from '../ui/components.js';
 import { money, num, fmtDate, ppnFor, poTermDays, isAdvanceTerm, ccyDecimals, totalPerMataUang } from '../core/format.js';
 import { newLineId } from '../core/posApi.js';
 import { poDocument, ensureCap } from '../ui/documents.js';
@@ -94,6 +94,25 @@ export function approvalScreen() {
   const medanAntre = MEDAN_ANTREAN(semua);
   const nilaiAntre = nilaiFilter('ap-antre');
   const list = saring(semua, medanAntre, nilaiAntre);
+  // DAFTARNYA BERHALAMAN, PILIHANNYA TIDAK.
+  //
+  // 24 PO hari ini, dan setiap barisnya digambar ulang dari nol pada setiap
+  // setState karena mount() tidak punya diffing — bareng satu lembar dokumen PO
+  // penuh di panel kanan. Sepuluh per halaman, seperti tabel lain di portal.
+  //
+  // Yang TIDAK ikut dipotong halaman: pilihApprove, menungguDiDaftar, dan
+  // label tombol massalnya. Ketiganya tetap bekerja atas daftar TERSARING —
+  // seluruh halaman, bukan sepuluh yang kebetulan tampil. Mencentang delapan PO
+  // lalu pindah ke halaman dua tidak boleh membuat centangannya terlihat hilang,
+  // alasan yang sama persis dengan tickedCount di layar PRF.
+  //
+  // Sifat amannya tetap utuh, dan sifat itu bukan "cuma yang tergambar" —
+  // melainkan ANGKA DI TOMBOL DAN YANG DITEMBAK ADALAH DAFTAR YANG SAMA. Itu
+  // yang dulu bocor: label dihitung dari daftar tersaring sementara aksinya
+  // menembak seluruh isi pilihApprove. Halaman tidak mengubahnya; menyaring
+  // tetap membuang pilihan yang tersaring keluar.
+  const halAntre = pageSlice(list, st.ui.apPage || 1, st.ui.apSize === 0 ? 0 : (Number(st.ui.apSize) || PAGE_DEFAULT));
+  halAntre.size = st.ui.apSize === 0 ? 0 : (Number(st.ui.apSize) || PAGE_DEFAULT);
   // Yang dipilih otomatis mengikuti daftar TERSARING: sesudah menyaring, PO
   // pertama yang terlihat itulah yang dimaksud orangnya. PO yang sudah dipilih
   // sebelumnya tetap dicari ke st.pos, jadi menyaringnya keluar dari rel kiri
@@ -392,7 +411,7 @@ export function approvalScreen() {
       // orang menyaring akan terbaca sebagai antrean yang sudah berkurang.
       badge(String(st.pos.filter(p => p.status === 'Menunggu Approval').length), 'accent'),
       hitunganSaring(list.length, semua.length, { id: 'PO', en: 'PO', zh: '个采购单' }),
-      tombolFilter({ id: 'ap-antre', medan: medanAntre, judul: t('ap_pending') }),
+      tombolFilter({ id: 'ap-antre', medan: medanAntre, kunciHalaman: 'apPage', judul: t('ap_pending') }),
     ]),
     // BARIS AKSI MASSAL — hanya untuk pemegang cap `approve`, dan hanya kalau
     // memang ada yang menunggu. Untuk peran lain kolom centangnya HILANG
@@ -405,8 +424,11 @@ export function approvalScreen() {
             h('button.btn.btn-sm', {
               onClick: () => {
                 const semuaSudah = menungguDiDaftar.every(p => pilihApprove.has(p.id));
-                // Bekerja atas daftar TERSARING yang terlihat — dan daftar ini
-                // tidak dipotong halaman, jadi "semua" memang semua yang ada.
+                // Bekerja atas daftar TERSARING, bukan halaman yang tampil.
+                // "Pilih semua yang menunggu (24)" yang cuma mencentang sepuluh
+                // adalah tombol yang berbohong pada angkanya sendiri; dan
+                // hitungan di tombol Approve dihitung dari daftar tersaring yang
+                // sama, jadi keduanya tidak bisa berbeda.
                 menungguDiDaftar.forEach(p => semuaSudah ? pilihApprove.delete(p.id) : pilihApprove.add(p.id));
                 segarkanMassal();
               },
@@ -428,7 +450,7 @@ export function approvalScreen() {
           ]),
         ])
       : null,
-    ...list.map(p => {
+    ...halAntre.items.map(p => {
       const active = p.id === po.id;
       const tone = p.status === 'Approved' ? 'green' : p.status === 'Rejected' ? 'red' : 'amber';
       const label = labelAntrean(p.status);
@@ -468,6 +490,13 @@ export function approvalScreen() {
       ]);
     }),
     list.length ? null : blokTakCocok('ap-antre', jumlahFilterAktif(nilaiAntre) > 0, '—'),
+    // Kaki halaman ikut menyebut berapa yang tercentang di SELURUH hasil
+    // saringan, bukan cuma di halaman ini — sebuah centang yang hidup di
+    // halaman lain harus punya satu tempat yang mengakuinya.
+    list.length ? pager(halAntre, {
+      onPage: n => setUI({ apPage: n }),
+      onSize: n => setUI({ apSize: n, apPage: 1 }),
+    }) : null,
   ]);
   // Label tombol massal disusun SESUDAH daftarnya dibangun — waktu bar-nya
   // dibuat, kotak-kotaknya belum ada dan hitungannya belum bisa benar. Kalau

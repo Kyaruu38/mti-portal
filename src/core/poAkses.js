@@ -18,6 +18,7 @@ import { UUID_RE } from './supabase.js';
 import { getState, setState, toast, logAudit } from './store.js';
 import { blockWrite } from './guard.js';
 import { tr } from '../i18n/index.js';
+import { tanyaTeks } from '../ui/components.js';
 import { deleteOwnPendingPo, requestPoDelete } from './posApi.js';
 
 // Boleh membenahi dan membuang PO ini sendiri, tanpa mengantre ke supervisor?
@@ -111,12 +112,19 @@ export async function hapusPoSendiri(po, { bersihkan } = {}) {
   // dari Reports tanpa jejak adalah lubang di catatan, dan enam bulan lagi yang
   // menelusurinya perlu jawaban. Nomornya sendiri justru BEBAS dipakai lagi:
   // pos_no_unik itu unique index PARSIAL, `ON pos (no) WHERE deleted_at IS NULL`.
-  const alasan = prompt(tr({
-    id: `Hapus PO ${po.no}? Barisnya hilang dari semua layar dan dari Reports; nomornya bebas dipakai lagi. Alasan:`,
-    en: `Delete PO ${po.no}? The row disappears from every screen and from Reports; the number becomes reusable. Reason:`,
-    zh: `删除采购单 ${po.no}？该行将从所有页面和报表中消失；编号可再次使用。原因：`,
-  }));
-  if (!alasan || !alasan.trim()) return false;
+  const alasan = await tanyaTeks({
+    judul: tr({ id: `Hapus PO ${po.no}?`, en: `Delete PO ${po.no}?`, zh: `删除采购单 ${po.no}？` }),
+    pesan: tr({
+      id: 'Barisnya hilang dari semua layar dan dari Reports. Nomornya bebas dipakai lagi.',
+      en: 'The row disappears from every screen and from Reports. The number becomes reusable.',
+      zh: '该行将从所有页面和报表中消失。编号可再次使用。',
+    }),
+    label: tr({ id: 'Alasan', en: 'Reason', zh: '原因' }),
+    placeholder: tr({ id: 'kenapa PO ini dihapus', en: 'why this PO is being deleted', zh: '为何删除此采购单' }),
+    okLabel: tr({ id: 'Hapus PO', en: 'Delete PO', zh: '删除采购单' }),
+    danger: true, multiline: true,
+  });
+  if (!alasan) return false;
   try {
     await deleteOwnPendingPo(po.id, alasan.trim());
     const idx = st.pos.indexOf(po);
@@ -160,8 +168,19 @@ export function bolehMintaHapus(st, po) {
 
 export async function mintaHapusPo(po) {
   if (blockWrite('request hapus PO')) return false;
-  const alasan = prompt(tr({ id: 'Alasan hapus PO ini?', en: 'Reason for deleting this PO?', zh: '删除该采购单的原因？' }));
-  if (!alasan || !alasan.trim()) return false;
+  const alasan = await tanyaTeks({
+    judul: tr({ id: `Ajukan hapus PO ${po.no}`, en: `Request deletion of PO ${po.no}`, zh: `申请删除采购单 ${po.no}` }),
+    pesan: tr({
+      id: 'PO ini sudah disetujui, jadi yang bisa mengakhirinya cuma supervisor. Alasannya ikut terkirim ke antrean approval.',
+      en: 'This PO is already approved, so only the supervisor can end it. The reason travels with the request to the approval queue.',
+      zh: '此采购单已批准，只有主管可以终止它。原因将随申请一并进入审批队列。',
+    }),
+    label: tr({ id: 'Alasan', en: 'Reason', zh: '原因' }),
+    placeholder: tr({ id: 'kenapa PO ini perlu dihapus', en: 'why this PO needs deleting', zh: '为何需要删除此采购单' }),
+    okLabel: tr({ id: 'Ajukan', en: 'Submit request', zh: '提交申请' }),
+    multiline: true,
+  });
+  if (!alasan) return false;
   try {
     await requestPoDelete(po.id, alasan.trim());
     po.deleteRequested = true; po.deleteReason = alasan.trim();
