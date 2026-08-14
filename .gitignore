@@ -105,6 +105,10 @@ PESAN-COMMIT-*.txt
 # kode: harness harga label memuat nama pemasok dan kode ERP ASLI, karena aturan
 # 7 menuntut pengujian lawan angka dokumen sungguhan, bukan angka karangan.
 test-*.mjs
+# data uji harness — bukan kode, tapi isinya nama spec dan angka stok
+# pemasok yang sungguhan. Polanya ditambahkan SEBELUM berkasnya sempat
+# muncul sebagai untracked, bukan sesudah git status mengingatkan.
+test-*.json
 test.mjs
 verify.mjs
 run.mjs

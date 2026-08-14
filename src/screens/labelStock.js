@@ -28,7 +28,7 @@ import { parseLabelSheet } from '../parsers/excelLabels.js';
 import { petakanWorkbook, labelKategori } from '../parsers/labelSheetSet.js';
 import { susunDaftarBeli, gabungDenganPortal, TANDA, bolehPilihSemua } from '../core/labelBuyList.js';
 import { labelOrders, erpCandidates, recentOrdersFor, REORDER_WINDOW_DAYS } from '../core/labelOrders.js';
-import { applyLabelStockUpload, fetchLabelStock, fetchLabelUploads, setLabelStockErp } from '../core/labelStockApi.js';
+import { applyLabelStockUpload, applyLabelStockGudang, fetchLabelStock, fetchLabelStockGudang, fetchLabelUploads, setLabelStockErp } from '../core/labelStockApi.js';
 import { isConfigured } from '../core/supabase.js';
 import { can } from '../auth/roles.js';
 import { blockWrite } from '../core/guard.js';
@@ -281,6 +281,63 @@ function boxTile(st, box) {
   return h('div', [head, body]);
 }
 
+// ===========================================================================
+// PEMILIH GUDANG
+// ===========================================================================
+//
+// Sona menarik stok dari DUA gudang, dan berkasnya sudah diperiksa: 海边 661
+// spec, Borine 288 spec, TUJUH spec ada di kedua-duanya. Sebelum ada pemilih
+// ini, kedua berkas menulis ke kunci yang sama — mengunggah yang kedua MENIMPA
+// tujuh angka itu alih-alih menjumlahkannya. Yang terparah kurang 20.000
+// lembar, dan di layar terlihat wajar.
+//
+// WAJIB DIPILIH, dan sengaja tidak punya nilai bawaan. Sebuah dropdown yang
+// sudah terisi "海边仓库" waktu layarnya dibuka akan mengirim berkas Borine ke
+// gudang seberang pada hari orangnya sedang buru-buru — dan tidak ada satu pun
+// angka di layar yang bisa dipakai untuk menyadarinya.
+//
+// NAMA BERKAS TIDAK DIPAKAI SEBAGAI PETUNJUK. Kyaru: "untuk nama file nya
+// gausah jadi patokan". Sekali berkasnya di-rename, tebakan itu mengirim stok
+// ke gudang yang salah tanpa bunyi.
+function pemilihGudang(st) {
+  const daftar = (st.labelGudang || []).filter(g => g.aktif);
+  const dipilih = st.ui.lsGudang || '';
+  if (!daftar.length) {
+    // Tabelnya belum ada / tidak terbaca. Bukan keadaan yang boleh diam:
+    // tanpa gudang, unggahan stok tidak bisa disimpan sama sekali.
+    return h('div', {
+      style: { padding: '10px 12px', borderRadius: '6px', background: 'var(--st-red-bg)', color: 'var(--st-red-tx)', fontSize: '11.5px', fontWeight: 600, marginBottom: '12px', whiteSpace: 'normal', lineHeight: 1.5 },
+    }, tr({
+      id: 'Daftar gudang belum bisa dibaca — unggahan stok tidak bisa disimpan. Hubungi Kyaru.',
+      en: 'The warehouse list could not be read — a stock upload cannot be saved. Contact Kyaru.',
+      zh: '无法读取仓库列表 — 库存上传无法保存。请联系 Kyaru。',
+    }));
+  }
+  return h('div', {
+    style: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px', padding: '10px 12px', borderRadius: '6px', background: 'var(--surface2)', border: '1px solid var(--border)' },
+  }, [
+    h('span', { style: { fontSize: '11.5px', fontWeight: 700, color: 'var(--text-2)' } },
+      tr({ id: 'Stok ini dari gudang', en: 'This stock is from warehouse', zh: '此库存来自仓库' })),
+    selectEl([
+      { value: '', label: tr({ id: 'pilih gudang', en: 'pick a warehouse', zh: '选择仓库' }) },
+      ...daftar.map(g => ({ value: g.kode, label: `${g.namaZh} · ${g.namaId}` })),
+    ], { value: dipilih, onChange: v => setUI({ lsGudang: v }) }),
+    dipilih
+      ? h('span', { style: { fontSize: '11px', color: 'var(--text-3)', whiteSpace: 'normal', lineHeight: 1.5, flex: '1 1 260px' } },
+          tr({
+            id: 'Berkas ini cuma menimpa stok gudang itu. Gudang lain tidak tersentuh, dan rencana produksi tidak tersentuh.',
+            en: 'This file only overwrites that warehouse. The other warehouse is untouched, and the production plan is untouched.',
+            zh: '此文件仅覆盖该仓库。另一仓库不受影响，排产计划也不受影响。',
+          }))
+      : h('span', { style: { fontSize: '11px', fontWeight: 700, color: 'var(--st-red-tx)', whiteSpace: 'normal', lineHeight: 1.5, flex: '1 1 260px' } },
+          tr({
+            id: 'Wajib dipilih. Tanpa gudang, angkanya tidak bisa dijelaskan berkas mana pun.',
+            en: 'Required. Without a warehouse, the figure cannot be explained by any file.',
+            zh: '必填。没有仓库，这个数字无法由任何文件解释。',
+          })),
+  ]);
+}
+
 function uploadCard(st) {
   const ui = st.ui;
   if (!can(st.user.role, 'labelStockWrite')) return null;
@@ -289,6 +346,7 @@ function uploadCard(st) {
   const gabung = ui.lsMode === 'gabung';
 
   return card([h('div.card-pad', [
+    pemilihGudang(st),
     // Dua cara memberi file, karena kenyataannya memang dua.
     //
     // Sona kadang sudah menyatukan stok, rencana produksi, dan rencana
@@ -974,8 +1032,29 @@ async function applyUpload() {
       ].filter(Boolean).join(' + ')
     : '';
 
+  // GUDANG WAJIB, DAN INI BUKAN SEKADAR VALIDASI FORM.
+  //
+  // Jalur lama (applyLabelStockUpload) menulis planned_production dari
+  // berkasnya. Berkas gudang tidak punya kolom itu, parser mengisinya NOL, dan
+  // RPC lama menulis nol itu ke basis data — satu unggahan stok mingguan akan
+  // mengosongkan rencana produksi sebulan untuk setiap spec di dalamnya, tanpa
+  // satu pun tulisan di layar. Rencana itu cuma datang SEKALI di awal bulan.
+  //
+  // Jadi unggahan stok TIDAK BOLEH lewat jalur lama. Kalau gudangnya belum
+  // dipilih, yang benar adalah berhenti — bukan diam-diam memakai jalur yang
+  // merusak.
+  const gudang = st.ui.lsGudang || '';
+  if (!gudang) {
+    toast({
+      id: 'Gudangnya belum dipilih — unggahan tidak disimpan. Pilih dulu di atas kotak berkasnya.',
+      en: 'No warehouse selected — nothing was saved. Pick one above the file box first.',
+      zh: '尚未选择仓库 — 未保存任何内容。请先在文件框上方选择。',
+    });
+    return;
+  }
+
   try {
-    await applyLabelStockUpload({
+    await applyLabelStockGudang(gudang, {
       fileName: fileName + planNote, sheetName,
       weekOf: '',
       total: res.stats.total, imported: res.stats.imported,
@@ -983,7 +1062,7 @@ async function applyUpload() {
       duplicates: res.duplicates,
     }, res.items);
   } catch (e) {
-    console.error('applyLabelStockUpload failed', e);
+    console.error('applyLabelStockGudang failed', e);
     toast({
       id: 'Gagal simpan ke server: ' + (e.message || e),
       en: 'Failed to save to server: ' + (e.message || e),
@@ -995,6 +1074,11 @@ async function applyUpload() {
   // rows, and that flag is only knowable server-side.
   const fresh = await fetchLabelStock();
   if (fresh) getState().labelStock = fresh;
+  // Stok per gudang ikut dibaca ulang: label_stock.stock sekarang JUMLAH dari
+  // tabel ini, dan layar yang memperlihatkan totalnya tanpa pecahannya tidak
+  // bisa menjawab "yang 30.744 itu dari gudang mana saja".
+  const perGudang = await fetchLabelStockGudang();
+  if (perGudang) getState().labelStockGudang = perGudang;
   const ups = await fetchLabelUploads();
   if (ups) getState().labelUploads = ups;
 

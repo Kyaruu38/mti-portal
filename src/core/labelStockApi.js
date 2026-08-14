@@ -165,6 +165,90 @@ export async function applyLabelStockUpload(meta, items) {
   return data;   // upload id
 }
 
+// ===========================================================================
+// GUDANG
+// ===========================================================================
+//
+// label_stock berkunci (spec_name, market_code) dan tidak punya dimensi gudang.
+// Sona sekarang menarik stok dari DUA gudang, dan berkasnya sudah diperiksa:
+// 海边 661 spec, Borine 288 spec, TUJUH spec ada di kedua-duanya. Dengan kunci
+// yang lama, mengunggah berkas kedua MENIMPA tujuh angka itu alih-alih
+// menjumlahkannya — yang terparah kurang 20.000 lembar, dan di layar terlihat
+// wajar. Keputusan "mesen apa ngga" diambil dari angka itu.
+//
+// Stok per gudang tinggal di tabelnya sendiri (label_stock_gudang) dan
+// label_stock.stock jadi JUMLAH-nya. Rencana produksi, rencana penjualan,
+// buffer, dan ERP tetap SATU baris per spec di label_stock — kalau ikut dipecah
+// per gudang, rencana produksi satu spec akan tergandakan dua kali dan
+// kebutuhannya ikut berlipat.
+
+export async function fetchLabelGudang() {
+  if (!isConfigured()) return null;
+  const c = await getClient();
+  if (!c) return null;
+  const { data, error } = await c.from('label_gudang').select('*').order('urutan', { ascending: true });
+  if (error) { console.error('fetchLabelGudang failed:', error); return null; }
+  return data.map(r => ({ kode: r.kode, namaId: r.nama_id, namaZh: r.nama_zh, urutan: r.urutan, aktif: !!r.aktif }));
+}
+
+export async function fetchLabelStockGudang() {
+  if (!isConfigured()) return null;
+  const c = await getClient();
+  if (!c) return null;
+  // Paged: PostgREST diam-diam memotong select tak berbatas di max-rows (1000),
+  // dan dua gudang saja sudah 949 baris hari ini.
+  const { data, error } = await fetchAllPaged((x, y) =>
+    c.from('label_stock_gudang').select('*').order('spec_name', { ascending: true }).range(x, y));
+  if (error) { console.error('fetchLabelStockGudang failed:', error); return null; }
+  return data.map(r => ({
+    spec: r.spec_name, market: r.market_code || '', gudang: r.gudang,
+    stock: Number(r.stock) || 0,
+    lastUploadId: r.last_upload_id || null,
+    lastSeenAt: r.last_seen_at || null,
+    missing: !!r.missing_from_last_upload,
+  }));
+}
+
+// SATU transaksi untuk seluruh unggahan satu gudang. RPC-nya cuma menulis STOK:
+// rencana produksi, rencana penjualan, buffer, ERP, dan status tidak disentuh
+// satu kolom pun.
+//
+// Itu bukan kerapian, itu syarat. Rencana produksi cuma datang SEKALI di awal
+// bulan sementara stok gudang masuk TIAP MINGGU. Jalur unggah yang lama menulis
+// planned_production dari berkasnya, dan berkas gudang tidak punya kolom itu —
+// jadi ia mengirim 0, dan satu unggahan stok mingguan akan mengosongkan rencana
+// sebulan untuk setiap spec di dalamnya, tanpa satu pun tulisan di layar.
+export async function applyLabelStockGudang(gudang, meta, items) {
+  if (!isConfigured()) throw new Error('Supabase belum dikonfigurasi — upload butuh koneksi server');
+  if (!gudang) throw new Error('Gudang belum dipilih');
+  const c = await getClient();
+  if (!c) throw new Error('Supabase client unavailable');
+  const { data, error } = await c.rpc('apply_label_stock_gudang', {
+    p_gudang: gudang,
+    p_upload: {
+      file_name: meta.fileName || '',
+      sheet_name: meta.sheetName || '',
+      week_of: meta.weekOf || '',
+      rows_total: meta.total || 0,
+      rows_imported: meta.imported || 0,
+      rows_duplicate: meta.duplicate || 0,
+      rows_mismatch: meta.mismatch || 0,
+      duplicates: meta.duplicates || [],
+    },
+    // Cuma spec, market, dan stok yang dikirim. Sengaja TIDAK mengirim
+    // production/sales/buffer/requirement/status: berkas gudang tidak
+    // memilikinya, parser mengisinya nol, dan nol yang terkirim adalah nol yang
+    // suatu hari tertulis.
+    p_items: items.map(it => ({
+      spec_name: it.spec,
+      market_code: it.market || '',
+      stock: it.stock,
+    })),
+  });
+  if (error) throw error;
+  return data;   // upload id
+}
+
 // Confirm an ERP match for one SKU (the one-time matching step).
 export async function setLabelStockErp(id, erp) {
   if (!isConfigured()) return;

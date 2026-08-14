@@ -38,6 +38,8 @@ const state = {
   labelUploads: [],    // upload history (who/when/counts/quarantined rows)
   labelSettings: null, // { moq, leadNormal, leadUrgent, leadSuper, overstockMultiple }
   labelTrend: [],      // total stock per upload day, for the dashboard chart
+  labelGudang: [],     // daftar gudang (HAIBIAN, BORINE) — dari tabel, bukan literal
+  labelStockGudang: [],// stok per (spec, market, gudang); label_stock.stock = jumlahnya
   // Ingatan harga label: { erp, supplier, harga, poNo, oleh, tanggal }, satu
   // baris per pasangan (ERP, pemasok). Mengisi kolom HARGA di Label Request
   // dan jadi pembanding untuk peringatan "harga berubah". BUKAN daftar harga

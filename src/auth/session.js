@@ -20,6 +20,7 @@ import { fetchDesigns } from '../core/designsApi.js';
 import { fetchLabelRequests } from '../core/labelRequestsApi.js';
 import { fetchUnits } from '../core/unitsApi.js';
 import { fetchInvoices } from '../core/invoicesApi.js';
+import { fetchLabelGudang, fetchLabelStockGudang } from '../core/labelStockApi.js';
 import { fetchPrfs } from '../core/prfsApi.js';
 import { fetchPayments } from '../core/paymentsApi.js';
 import { fetchPpkek } from '../core/ppkekApi.js';
@@ -165,6 +166,11 @@ async function hydrate(user, username, preferScreen, preferLang) {
     // mereka dibiarkan.
     ['labelStock',    () => fetchLabelStock()],
     ['labelUploads',  () => fetchLabelUploads()],
+    // Gudang: daftarnya dibaca siapa pun yang login; stok per gudang dibatasi
+    // RLS ke staf label + purchasing, jadi untuk peran lain keduanya null dan
+    // array lokalnya dibiarkan — pola yang sama dengan labelStock di atasnya.
+    ['labelGudang',      () => fetchLabelGudang()],
+    ['labelStockGudang', () => fetchLabelStockGudang()],
     ['labelSettings', () => fetchLabelSettings()],
     // Agregat untuk grafik stok. Null selama view-nya belum dibuat — grafiknya
     // menggambar keadaan kosong dan tidak ada yang lain yang peduli.
@@ -234,6 +240,11 @@ async function hydrate(user, username, preferScreen, preferLang) {
   if (nilai.labelUploads)  st.labelUploads  = nilai.labelUploads;
   if (nilai.labelSettings) st.labelSettings = nilai.labelSettings;
   if (nilai.labelTrend)    st.labelTrend    = nilai.labelTrend;
+  // null berarti "tidak bisa dibaca" (peran lain, atau tabelnya belum ada
+  // karena migrasinya belum dijalankan), BUKAN "kosong". Array lokalnya
+  // dibiarkan apa adanya — pola yang sama dengan labelStock di atas.
+  if (nilai.labelGudang)      st.labelGudang      = nilai.labelGudang;
+  if (nilai.labelStockGudang) st.labelStockGudang = nilai.labelStockGudang;
   if (nilai.labelPrices)   st.labelPrices   = nilai.labelPrices;
 
   // DRAIN THE DRIVE QUEUE. Anything that failed to reach Drive while it was
