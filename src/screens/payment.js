@@ -2,11 +2,46 @@ import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { blockWrite } from '../core/guard.js';
 import { parseMoney, moneyInputText } from '../parsers/numbers.js';
+import { amountInWords } from '../parsers/amountWords.js';
 
 // Id kotak nominal Add Invoice. Dipakai dua tempat — kotaknya sendiri dan
 // dropdown mata uang yang membacanya ulang — jadi ia harus SATU nilai, bukan
 // dua string yang kebetulan sama.
 const ID_NOMINAL_INVOICE = 'inv-nominal';
+
+// NOMINAL YANG DIKETIK DIPANTULKAN BALIK DALAM HURUF, HIDUP, DI BAWAH KOTAKNYA.
+//
+// 5 Agustus 2026, invoice 1066/WTP/VII/26 dari PT WILSON TUNGGAL PERKASA:
+// kwitansinya berbunyi 935.383.680, yang tersimpan 935.363.680. Satu digit di
+// tengah, selisih 20.000. Angka itu mengalir utuh ke PRF/PC/VIII/083 — dan PRF
+// tidak melakukan kesalahan apa pun, dia menjumlahkan invoicenya dengan benar.
+// Yang menemukannya FINANCE, berhari-hari kemudian, dan PRF-nya harus diulang.
+//
+// Lampirannya scan murni: pdf.js membaca NOL item teks di keempat halamannya,
+// jadi tidak ada yang bisa diisi otomatis dan portal memang sudah mengatakan
+// itu (lihat cabang `r.scanned` di prefillNote). Angkanya diketik tangan sambil
+// menatap kertas, dan jari menulis 6 di tempat dokumen menulis 8.
+//
+// SEBUAH DIGIT YANG SALAH TIDAK TERLIHAT. SEBUAH KATA YANG SALAH TERIAK.
+// "tiga ratus ENAM PULUH TIGA ribu" di layar, sementara kwitansi di tangannya
+// berbunyi "tiga ratus DELAPAN PULUH TIGA ribu" — itu perbedaan yang tidak bisa
+// dilewati mata. Ini persis alasan kwitansi Wilson sendiri mencetak nominalnya
+// dalam huruf; kertas keuangan sudah memakai kendali ini seratus tahun sebelum
+// portal ini ada, dan amountInWords() sudah lama tinggal di repo ini untuk
+// mencetak PRF. Ia cuma belum pernah dipakai di tempat angkanya LAHIR.
+//
+// Ditulis langsung ke node, tanpa setState — mount() tidak punya diffing dan
+// render ulang per ketikan akan merebut fokus dari kotak yang sedang diisi.
+const ID_NOMINAL_HURUF = 'inv-nominal-huruf';
+
+function hurufNominal(n, currency) {
+  if (!Number.isFinite(n) || n <= 0) return '';
+  try { return tr(amountInWords(n, currency || 'IDR')); } catch { return ''; }
+}
+function lukisHuruf(n, currency) {
+  const node = document.getElementById(ID_NOMINAL_HURUF);
+  if (node) node.textContent = hurufNominal(n, currency);
+}
 import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, statusTone, driveLink, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
 import { money, num, fmtDate, romanMonth, daysUntil, topDays, addDays, ccyTone, CURRENCIES } from '../core/format.js';
@@ -19,7 +54,7 @@ import { uploadToDrive } from '../core/drive.js';
 import { linkOutbox } from '../core/driveOutbox.js';
 import { parseInvoicePdf } from '../parsers/invoicePdf.js';
 import { insertInvoice, updateInvoice, deleteInvoice } from '../core/invoicesApi.js';
-import { insertPrf, deletePrf, updatePrfStage } from '../core/prfsApi.js';
+import { insertPrf, deletePrf, updatePrfStage, selisihPrf, samakanPrfDenganInvoice, nilaiSamaDenganInvoice } from '../core/prfsApi.js';
 import { insertDescDict } from '../core/descDictApi.js';
 import { UUID_RE } from '../core/supabase.js';
 
@@ -276,6 +311,92 @@ async function removePrf(p) {
   });
 }
 
+// MENYAMAKAN PRF DENGAN INVOICENYA.
+//
+// prf.amount tidak pernah diketik manusia — ia selalu jumlah invoice yang
+// dicentang saat PRF dibuat. Jadi satu-satunya jalan ia bisa berbeda dari
+// invoice adalah invoicenya dikoreksi SESUDAH PRF lahir, dan itu persis yang
+// terjadi pada PRF/PC/VIII/083.
+//
+// Handler ini tidak punya kotak isian dan tidak menerima angka dari mana pun.
+// Ia cuma bisa menulis satu nilai: jumlah invoice yang sekarang. Sebuah tombol
+// yang bisa mengetik angka akan melahirkan angka KETIGA yang tidak dimiliki
+// invoice maupun PRF — dan angka ketiga adalah kesalahan yang sama sekali baru,
+// bukan perbaikan.
+async function samakanPrf(p) {
+  if (blockWrite('samakan PRF dengan invoice')) return;
+  const st = getState();
+
+  // Dihitung ULANG saat diklik. Tombolnya digambar dari state yang bisa
+  // berumur beberapa detik, dan dalam detik-detik itu invoicenya bisa berubah
+  // lagi — atau justru sudah dibetulkan orang lain.
+  const cek = selisihPrf(p, st.invoices || []);
+
+  if (!cek.adaMasalah) {
+    toast({
+      id: `${p.no} sudah sama dengan invoicenya — tidak ada yang diubah.`,
+      en: `${p.no} already matches its invoices — nothing was changed.`,
+      zh: `${p.no} 与其发票已一致 — 未做任何修改。`,
+    });
+    setState({ prfs: st.prfs });
+    return;
+  }
+  // Invoice yang LENYAP bukan selisih nominal. Menyamakan angkanya akan
+  // menutupi baris yang hilang itu dengan angka yang kelihatan rapi.
+  if (cek.hilang.length) {
+    toast({
+      id: `Invoice ${cek.hilang.join(', ')} tidak ada lagi — ${p.no} TIDAK disamakan. Cari dulu kenapa barisnya hilang.`,
+      en: `Invoice ${cek.hilang.join(', ')} no longer exists — ${p.no} was NOT matched. Find out why the row is gone first.`,
+      zh: `发票 ${cek.hilang.join('、')} 已不存在 — 未同步 ${p.no}。请先查明该行为何消失。`,
+    });
+    return;
+  }
+  // Begitu finance memegangnya, nominalnya berhenti jadi milik kita. Kalau
+  // angka masih bisa bergeser sesudah finance mencentang empat butirnya,
+  // centang itu berhenti berarti apa-apa.
+  if (!canDeletePrf(p)) {
+    toast({
+      id: `${p.no} sudah di tangan Finance — nominalnya tidak bisa disamakan dari sini. Batalkan dan buat ulang.`,
+      en: `${p.no} is already with Finance — its amount cannot be matched from here. Cancel it and raise a new one.`,
+      zh: `${p.no} 已在财务手中 — 无法从此处同步金额。请作废后重新开具。`,
+    });
+    return;
+  }
+
+  const nilai = nilaiSamaDenganInvoice(p, st.invoices || []);
+  const sebelum = money(nilai.sebelumnya, p.currency);
+  const sesudah = money(nilai.amount, p.currency);
+
+  // SERVER DULU. PRF yang berubah di layar tapi tidak di server akan tercetak
+  // dua versi berbeda dari dua komputer berbeda — persis kelas kesalahan yang
+  // sedang diperbaiki tombol ini.
+  try {
+    if (p.id && UUID_RE.test(p.id)) await samakanPrfDenganInvoice(p, st.invoices || []);
+  } catch (e) {
+    console.error('Supabase PRF match failed', p.no, e);
+    toast({
+      id: `Gagal simpan di server — ${p.no} TIDAK berubah: ` + (e.message || e),
+      en: `Server write failed — ${p.no} was NOT changed: ` + (e.message || e),
+      zh: `服务器写入失败 — ${p.no} 未被修改：` + (e.message || e),
+    });
+    return;
+  }
+
+  p.amount = nilai.amount;
+  p.lines = nilai.lines;
+
+  logAudit({
+    entity: 'prf', target: p.no, action: 'samakan dengan invoice',
+    detail: `${sebelum} -> ${sesudah} · invoice ${(p.invoices || []).join(', ') || '—'}`,
+  });
+  setState({ prfs: st.prfs });
+  toast({
+    id: `${p.no}: ${sebelum} -> ${sesudah}. Cetak ulang PDF-nya — yang sudah terlanjur keluar gedung masih berisi angka lama.`,
+    en: `${p.no}: ${sebelum} -> ${sesudah}. Re-print its PDF — any copy already handed over still carries the old figure.`,
+    zh: `${p.no}：${sebelum} -> ${sesudah}。请重新打印 PDF — 已送出的副本仍是旧金额。`,
+  });
+}
+
 // A PRF still at 'Terbentuk' has been raised and printed but not yet carried
 // over. That is the only state where "I have it now" is news.
 function canTick(p) { return p.stage === 'Terbentuk'; }
@@ -403,7 +524,50 @@ function prfTrackingCard(st, readonly) {
           : null,
         h('td.mono.cell-strong', p.no),
         h('td', p.supplier),
-        h('td.mono.r', money(p.amount, p.currency)),
+        // NOMINAL PRF + PEMERIKSA TERHADAP INVOICENYA.
+        //
+        // prf.amount adalah SNAPSHOT jumlah invoice saat PRF dibuat, dan ia
+        // tidak pernah ikut berubah kalau invoicenya dikoreksi belakangan.
+        // Itu yang terjadi pada PRF/PC/VIII/083: invoicenya dibetulkan, PRF-nya
+        // tidak, dan tidak ada satu pun tempat di portal yang menyebutkan
+        // keduanya sudah tidak sama. Yang menemukan selisihnya finance, dari
+        // kertas, berhari-hari kemudian.
+        //
+        // Snapshotnya TIDAK diganti hitung-ulang: PRF itu dokumen yang keluar
+        // gedung dan ditandatangani, dan dokumen yang diam-diam berubah isinya
+        // sesudah ditandatangani lebih berbahaya daripada dokumen yang salah
+        // dan mengaku salah. Jadi yang dipasang di sini pengakuannya.
+        (() => {
+          const cek = selisihPrf(p, st.invoices || []);
+          const sel = money(p.amount, p.currency);
+          if (!cek.adaMasalah) return h('td.mono.r', sel);
+          return h('td.mono.r', { style: { color: 'var(--st-red-tx)' } }, [
+            h('div', sel),
+            h('div', { style: { fontSize: '10px', fontWeight: 700, whiteSpace: 'normal', lineHeight: 1.4 } },
+              cek.hilang.length
+                ? tr({
+                    id: `≠ invoice — ${cek.hilang.length} invoice tidak ada lagi`,
+                    en: `≠ invoice — ${cek.hilang.length} invoice(s) no longer exist`,
+                    zh: `≠ 发票 — ${cek.hilang.length} 张发票已不存在`,
+                  })
+                : tr({
+                    id: `≠ invoice: ${money(cek.sumInvoice, p.currency)}`,
+                    en: `≠ invoice: ${money(cek.sumInvoice, p.currency)}`,
+                    zh: `≠ 发票：${money(cek.sumInvoice, p.currency)}`,
+                  })),
+            // Tombolnya TIDAK menerima angka dari siapa pun. Satu-satunya nilai
+            // yang bisa ditulisnya adalah jumlah invoice yang sekarang, jadi ia
+            // tidak bisa melahirkan angka ketiga yang tidak dimiliki invoice
+            // maupun PRF — dan angka ketiga itu persis yang membuat kita ada di
+            // sini. Hanya sebelum finance memegangnya: kalau nominal masih bisa
+            // berubah sesudah finance mencentang empat butirnya, centang itu
+            // berhenti berarti apa-apa.
+            (!readonly && !cek.hilang.length && canDeletePrf(p))
+              ? btn(tr({ id: 'Samakan dgn invoice', en: 'Match to invoice', zh: '与发票一致' }),
+                  { sm: true, variant: 'danger', onClick: () => samakanPrf(p) })
+              : null,
+          ]);
+        })(),
         h('td.mono', { style: { color: 'var(--text-3)', fontSize: '10.5px' } }, (p.invoices || []).join(', ') || '—'),
         h('td', { style: { fontSize: '11px', color: 'var(--text-3)' } }, `${p.by || '—'} · ${fmtDate(p.createdAt)}`),
         h('td', h('div.row.gap8', [
@@ -1200,6 +1364,7 @@ function invoiceModal() {
             // rupiah membaca kotak kanonik itu jadi 2012688. Juga bikin ganti
             // mata uang bolak-balik merusak angkanya sendiri.
             kotak.value = f.amount ? moneyInputText(f.amount, v) : '';
+            lukisHuruf(f.amount, v);
           },
         })),
         // NOMINAL DIBACA MENURUT MATA UANGNYA — lihat parseMoney() di
@@ -1224,14 +1389,30 @@ function invoiceModal() {
           // pertama melanggarnya — dan modal ini digambar ulang tiap setUI({}),
           // termasuk saat lampiran di-drop dan saat prefill PDF-nya mendarat.
           value: f.amount ? moneyInputText(f.amount, f.currency) : '',
-          onInput: v => { const n = parseMoney(v, f.currency); f.amount = Number.isFinite(n) ? n : 0; },
+          onInput: v => {
+            const n = parseMoney(v, f.currency);
+            f.amount = Number.isFinite(n) ? n : 0;
+            lukisHuruf(f.amount, f.currency);
+          },
           onBlur: (v, e) => {
             const n = parseMoney(v, f.currency);
             f.amount = Number.isFinite(n) ? n : 0;
             e.target.value = f.amount ? moneyInputText(f.amount, f.currency) : '';
+            lukisHuruf(f.amount, f.currency);
           },
         })),
       ]),
+      // Barisnya sendiri, di bawah grid, supaya kalimat panjang tidak menyempit
+      // jadi dua kolom. Sengaja TIDAK abu-abu pucat: ini yang harus dibaca,
+      // bukan keterangan pinggir.
+      h('div', {
+        id: ID_NOMINAL_HURUF,
+        style: {
+          minHeight: '15px', marginTop: '-6px', marginBottom: '10px',
+          fontSize: '11.5px', fontWeight: 600, lineHeight: 1.5,
+          color: 'var(--navy-soft-tx)',
+        },
+      }, hurufNominal(f.amount, f.currency)),
       field(t('col_due'), h('input.input', { type: 'date', value: f.due, onInput: e => (f.due = e.target.value) })),
       field(tr({ id: 'Lampiran invoice', en: 'Invoice attachment', zh: '发票附件' }), attachment),
       field(tr({ id: 'No. Faktur Pajak (opsional)', en: 'Tax invoice number (optional)', zh: '税票编号（可选）' }),

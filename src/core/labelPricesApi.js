@@ -145,7 +145,11 @@ export function bacaKetikanHarga(mentah) {
   // dilupakan. Kalau "abc" cuma dilupakan, ingatan mengisi ulang dan kotaknya
   // memantul balik ke harga lama tanpa ada yang berubah di layar.
   if (!Number.isFinite(n) || n <= 0) return null;
-  return Math.round(n);
+  // TIDAK DIBULATKAN. Dulu `Math.round(n)`, jadi harga label 1.250,50 tersimpan
+  // 1.251 dan setiap PO yang memakainya menagih angka yang tidak pernah
+  // disepakati siapa pun. Dibulatkan ke SEN saja — untuk membuang derau float,
+  // bukan untuk membuang uang.
+  return Math.round(n * 100) / 100;
 }
 
 // Pasangan yang HILANG karena penggabungan duplikat — bukan karena datanya

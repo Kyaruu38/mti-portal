@@ -128,7 +128,12 @@ function zhInt(n) {
 // ---------- Public API ----------
 // Currency config. IDR is integer-only; USD/EUR/CNY carry decimal (jiao/fen) parts.
 const CCY = {
-  IDR: { integer: true, en: 'Rupiah', id: 'Rupiah', zh: '印尼盾' },
+  // `integer: true` DICABUT 14 Agu 2026. Dulu rupiah lewat cabang
+  // `Math.round(abs)`, jadi kalimat hurufnya membuang sen — dan kalimat huruf
+  // itu justru kendali yang dipasang untuk menangkap salah ketik. Sebuah
+  // pemeriksa yang ikut membulatkan tidak memeriksa apa pun pada digit yang
+  // dibulatkannya. Kwitansi pemasok sendiri berbunyi "RUPIAH KOMA NOL SENT".
+  IDR: { en: 'Rupiah', id: 'Rupiah', zh: '印尼盾' },
   USD: { en: 'US Dollars', id: 'Dolar AS', zh: '美元' },
   EUR: { en: 'Euros', id: 'Euro', zh: '欧元' },
   CNY: { en: 'Chinese Yuan (RMB)', id: 'Yuan Tiongkok (RMB)', zh: '元' },
@@ -157,7 +162,13 @@ export function amountInWords(amount, ccy = 'IDR') {
   let cents = Math.round((abs - whole) * 100);
   if (cents >= 100) { whole += Math.floor(cents / 100); cents = cents % 100; }
   const en = cap(enInt(whole)) + ' ' + cfg.en + (cents ? ' and ' + enInt(cents) + ' Cents' : '') + ' only';
-  const id = cap(cfg.id) + ' ' + cap(idInt(whole)) + (cents ? ' koma ' + idInt(cents) + ' sen' : '') + ' saja';
+  // Rupiah mengikuti urutan kata yang dipakai kwitansi Indonesia — angka dulu,
+  // baru satuannya, baru sennya: "Sembilan ratus ... Rupiah koma lima puluh
+  // sen". Mata uang lain tetap bentuk lama ("Dolar AS Sembilan ratus ... saja")
+  // supaya PRF yang sudah pernah tercetak tidak berubah bunyinya.
+  const id = ccy === 'IDR'
+    ? cap(idInt(whole)) + ' ' + cfg.id + (cents ? ' koma ' + idInt(cents) + ' sen' : '')
+    : cap(cfg.id) + ' ' + cap(idInt(whole)) + (cents ? ' koma ' + idInt(cents) + ' sen' : '') + ' saja';
   // Chinese financial: <unit> + 角/分, or 整 when no cents.
   let zh = zhInt(whole) + cfg.zh;
   if (cents) {

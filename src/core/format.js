@@ -5,9 +5,21 @@ export function num(n, dp = 0) {
   return Number(n).toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
 }
 
-// Supported currencies. IDR shows no decimals; USD/EUR/CNY show 2.
+// SEMUA MATA UANG DICETAK DUA DESIMAL, TERMASUK RUPIAH, TERMASUK KALAU NOL.
+//
+// Sampai 14 Agu 2026 rupiah dipatok NOL desimal, dan itu bukan sekadar gaya —
+// itu menyembunyikan sen. `935.383.680,50` tercetak `935,383,681`, dan yang
+// membacanya tidak punya cara tahu ada yang hilang. Kwitansi pemasok sendiri
+// menulis "RUPIAH KOMA NOL SENT": rupiah PUNYA sen di dokumen yang kita bayar,
+// jadi berpura-pura tidak punya adalah kita yang salah, bukan dokumennya.
+//
+// `,00` sengaja tetap dicetak walau nol. Permintaan Kyaru, dan alasannya benar:
+// kalau desimal cuma muncul kadang-kadang, ketiadaannya jadi ambigu — pembaca
+// tidak bisa membedakan "memang bulat" dari "desimalnya disembunyikan". Angka
+// yang selalu berbentuk sama bisa dibandingkan sekilas; angka yang bentuknya
+// berubah-ubah harus dibaca dua kali.
 export const CURRENCIES = ['IDR', 'USD', 'EUR', 'CNY'];
-export function ccyDecimals(ccy) { return ccy === 'IDR' ? 0 : 2; }
+export function ccyDecimals() { return 2; }
 // Badge colour per currency. Lives here rather than inside payment.js because
 // Master Data shows the same badge and two copies would drift apart.
 export function ccyTone(c) { return { USD: 'accent', EUR: 'blue', CNY: 'amber', IDR: 'navy' }[c] || 'gray'; }
@@ -30,8 +42,21 @@ export function ccyTone(c) { return { USD: 'accent', EUR: 'blue', CNY: 'amber', 
 // tax correctly from 'paid') still showed the full amount.
 // ---------------------------------------------------------------------------
 export const PPN_RATE = 0.11;
+
+// PPN TIDAK DIBULATKAN KE RUPIAH PENUH LAGI.
+//
+// Dulu `Math.round(subtotal * 0.11)`, jadi setiap PO ber-PPN menyimpan angka
+// yang berbeda dari invoice pemasoknya hingga setengah rupiah — dan yang
+// dibayar harus PERSIS sama dengan yang ditagih. Sekarang dibulatkan ke SEN,
+// bukan ke rupiah: itu bukan pembulatan uang, itu membuang derau float.
+// `842.688.000 * 0.11` di IEEE-754 menghasilkan ekor seperti
+// `92695680.00000001`, dan ekor itu kalau ditumpuk lewat penjumlahan akan
+// muncul sebagai selisih satu sen yang tidak dimiliki siapa pun. Dua desimal
+// adalah presisi yang dipakai dokumennya, jadi itu presisi yang kita simpan.
 export function ppnFor(subtotal, ppnMode) {
-  return ppnMode === 'paid' ? Math.round((Number(subtotal) || 0) * PPN_RATE) : 0;
+  if (ppnMode !== 'paid') return 0;
+  const n = (Number(subtotal) || 0) * PPN_RATE;
+  return Math.round(n * 100) / 100;
 }
 // Convert the form value to the stored domain value. Use at creation time.
 export function ppnModeFromForm(formValue) { return formValue === 'bayar' ? 'paid' : 'suspended'; }

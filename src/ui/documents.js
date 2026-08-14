@@ -74,8 +74,36 @@ export function poDocument(po) {
   const approved = po.status === 'Approved';
   // Same helper the stored total goes through (core/format.js) — the printed
   // document and pos.ppn can no longer drift apart.
-  const ppn11 = ppnFor(po.subtotal, po.ppnMode);
-  const total = po.subtotal + ppn11;
+  // DOKUMEN MENCETAK ANGKA YANG TERSIMPAN, BUKAN MENGHITUNG ULANG.
+  //
+  // Sampai 14 Agu 2026 baris ini selalu `ppnFor(po.subtotal, po.ppnMode)`, jadi
+  // PPN dihitung ULANG setiap kali dokumennya digambar. Selama rumusnya tidak
+  // pernah berubah itu tidak kelihatan. Begitu pembulatannya dicabut, setiap PO
+  // LAMA yang dibuka lagi akan mencetak angka yang BERBEDA dari PDF bercap yang
+  // sudah dikirim ke pemasok — dokumen yang berubah isinya sesudah
+  // ditandatangani, tanpa ada yang menyentuhnya.
+  //
+  // Permintaan Kyaru: "yang sudah terjadi biarlah terjadi". Jadi yang dicetak
+  // adalah `po.ppn` dan `po.total` apa adanya. Diperiksa ke DB sebelum diubah:
+  // dari 24 PO hidup, NOL yang `po.ppn`-nya berbeda dari hitungan lama — jadi
+  // perpindahan ini tidak menggeser satu dokumen pun hari ini, dan mulai
+  // sekarang dokumen tidak bisa lagi bergeser sendiri.
+  //
+  // Cadangan hitung-ulang DIPERTAHANKAN untuk baris yang nilainya belum ada,
+  // DAN untuk kasus `paid` yang ppn tersimpannya nol padahal subtotalnya tidak.
+  // Itu bentuk bug yang pernah nyata di repo ini (computeTotals membandingkan
+  // 'bayar' bukan 'paid', lalu menulis ppn 0), dan yang dulu menyelamatkan
+  // dokumennya justru hitung-ulang ini. Nol baris seperti itu tersisa hari ini;
+  // penjaganya tetap dipasang karena yang menghapusnya harus bisa membuktikan
+  // dulu, bukan mengandaikan.
+  const ppnTersimpan = Number(po.ppn);
+  const ppnAdaDanMasukAkal = Number.isFinite(ppnTersimpan)
+    && !(po.ppnMode === 'paid' && ppnTersimpan === 0 && Number(po.subtotal) > 0);
+  const ppn11 = ppnAdaDanMasukAkal ? ppnTersimpan : ppnFor(po.subtotal, po.ppnMode);
+  const totalTersimpan = Number(po.total);
+  const total = Number.isFinite(totalTersimpan) && totalTersimpan > 0
+    ? totalTersimpan
+    : (Number(po.subtotal) || 0) + ppn11;
   const poNo = po.contract || po.no;
   // null => the term isn't a day count (e.g. "Payment in Advance"). Render the
   // real clause instead of inventing "30 days".
