@@ -57,6 +57,90 @@ const NAV = [
   ] },
 ];
 
+// Peta id layar -> { t, ic } DARI NAV, bukan daftar kedua yang ditulis tangan.
+// Sebuah id layar sudah dikunci di delapan tempat di repo ini; menambah daftar
+// kesembilan yang isinya sama berarti menambah satu tempat lagi yang bisa
+// ketinggalan diam-diam. TITLES di bawah dipertahankan sebagai cadangan.
+const PETA_LAYAR = {};
+NAV.forEach(g => g.items.forEach(i => { PETA_LAYAR[i.id] = i; }));
+
+// ---------------------------------------------------------------------------
+// BILAH TAB — satu jendela, banyak layar.
+//
+// Kyaru: "gw mau donk bisa multi tab kyk di ERP gw, jadi gausah buka 2 tab
+// chrome gitu". Persis begitu bentuknya: mengklik menu MENAMBAH tab, bukan
+// mengganti isi layar, dan tab yang sudah terbuka tinggal diklik.
+//
+// HANYA TAB AKTIF YANG DIGAMBAR, dan itu bukan penghematan — itu syarat.
+// mount() tidak punya diffing: menggambar lima layar sekaligus berarti setiap
+// setState membangun ulang kelimanya. Lebih berbahaya lagi, layar di repo ini
+// memakai id DOM tetap (mis. 'inv-nominal' di Add Invoice) dan
+// document.getElementById akan mengambil yang pertama ketemu — dua layar hidup
+// bersamaan berarti angka yang diketik di satu tempat bisa terbaca dari tempat
+// lain. Menggambar satu saja menutup seluruh kelas masalah itu sekaligus.
+//
+// Yang TIDAK ikut hidup di tab yang tidak aktif: posisi gulir, dan isi kotak
+// yang belum sempat blur. Saringan, nomor halaman, dan pilihan tetap hidup
+// karena semuanya tinggal di st.ui, bukan di DOM.
+export function bukaTab(id) {
+  const st = getState();
+  const tabs = Array.isArray(st.tabs) ? st.tabs.slice() : [];
+  if (!tabs.includes(id)) tabs.push(id);
+  setState({ tabs, screen: id });
+}
+
+export function tutupTab(id) {
+  const st = getState();
+  const tabs = (Array.isArray(st.tabs) ? st.tabs : []).filter(x => x !== id);
+  // Menutup tab yang sedang dibuka memindahkan fokus ke TETANGGA KIRI, bukan ke
+  // Dashboard: yang menutup tab biasanya sedang kembali ke pekerjaan sebelumnya,
+  // dan dilempar ke Dashboard berarti dia harus mencari jalannya lagi.
+  let aktif = st.screen;
+  if (id === st.screen) {
+    const i = (st.tabs || []).indexOf(id);
+    aktif = tabs[Math.max(0, i - 1)] || tabs[0] || '';
+  }
+  setState({ tabs, screen: aktif || st.screen });
+}
+
+function bilahTab(st) {
+  const tabs = (st.tabs || []).filter(id => PETA_LAYAR[id]);
+  // Satu tab bukan "banyak tab". Bilahnya baru muncul waktu memang ada yang
+  // bisa dipilih — sebaris kosong di atas setiap layar cuma memakan tinggi.
+  if (tabs.length < 2) return null;
+  return h('div.row', {
+    style: {
+      gap: '4px', alignItems: 'stretch', padding: '6px 18px 0', overflowX: 'auto',
+      background: 'var(--surface2)', borderBottom: '1px solid var(--border)', flexWrap: 'nowrap',
+    },
+  }, tabs.map(id => {
+    const info = PETA_LAYAR[id];
+    const aktif = id === st.screen;
+    return h('div.row', {
+      style: {
+        gap: '6px', alignItems: 'center', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap',
+        padding: '7px 10px', borderRadius: '6px 6px 0 0', fontSize: '11.5px', fontWeight: aktif ? 800 : 600,
+        color: aktif ? 'var(--text)' : 'var(--text-3)',
+        background: aktif ? 'var(--surface)' : 'transparent',
+        border: '1px solid ' + (aktif ? 'var(--border)' : 'transparent'),
+        borderBottom: aktif ? '1px solid var(--surface)' : '1px solid transparent',
+        marginBottom: '-1px',
+      },
+      onClick: () => setState({ screen: id }),
+    }, [
+      icon(info.ic, 13),
+      h('span', t(info.t)),
+      h('span', {
+        style: { marginLeft: '2px', padding: '0 3px', borderRadius: '3px', color: 'var(--text-3)', fontWeight: 700 },
+        title: tr({ id: 'Tutup tab', en: 'Close tab', zh: '关闭标签页' }),
+        // stopPropagation wajib: tanpa itu menutup tab ikut memindahkan layar ke
+        // tab yang barusan ditutup sebelum ia hilang.
+        onClick: (e) => { e.stopPropagation(); tutupTab(id); },
+      }, '\u00d7'),
+    ]);
+  }));
+}
+
 const TITLES = {
   dashboard: 's_dashboard', approval: 's_approval', 'label-request': 's_label',
   'label-library': 's_library', 'label-stock': 's_labelstock', 'surat-jalan': 's_surat', 'po-converter': 's_converter', 'po-saya': 's_po_saya', 'kas-label': 's_kas_label', 'outstanding-po': 's_outstanding',
@@ -98,7 +182,7 @@ function sidebar(st) {
       ...g.items.map(i => {
         const active = i.id === st.screen;
         const bcount = i.badgeKey ? bd[i.badgeKey] : 0;
-        return h('div.nav-item' + (active ? '.active' : ''), { onClick: () => setState({ screen: i.id }) }, [
+        return h('div.nav-item' + (active ? '.active' : ''), { onClick: () => bukaTab(i.id) }, [
           h('span.bar'),
           icon(i.ic, 15),
           h('span.grow', t(i.t)),
@@ -205,7 +289,7 @@ function globalSearchBox() {
     // sona clicked a PO result.
     const target = openTarget(role, r.type);
     if (!target) { close(); return; }
-    setState({ screen: target });
+    bukaTab(target);
     // KEDUANYA disetel. Layar PO Saya membaca `poSayaSel || selPO`, jadi
     // pilihan lama yang masih tertinggal di poSayaSel akan MENGALAHKAN hasil
     // pencarian yang baru — orangnya mencari satu nomor PO dan dibukakan PO
@@ -294,7 +378,7 @@ function header(st) {
   const bd = badges(st);
   return h('header.topbar', [
     h('div', { style: { minWidth: '200px' } }, [
-      h('div', { style: { fontSize: '15.5px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 } }, t(TITLES[st.screen] || 's_dashboard')),
+      h('div', { style: { fontSize: '15.5px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 } }, t((PETA_LAYAR[st.screen] && PETA_LAYAR[st.screen].t) || TITLES[st.screen] || 's_dashboard')),
       h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, `${COMPANY.name} · ${u.tag}`),
     ]),
     // Hidden entirely for a role that can search nothing (sona), rather than
@@ -330,7 +414,7 @@ function bellMenu(st) {
       h('div', { style: { fontSize: '9.5px', fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--text-3)', padding: '12px 14px 8px' } }, t('notif_title')),
       items.length ? h('div', items.map(n => h('div', {
         style: { padding: '9px 14px', borderTop: '1px solid var(--border)', cursor: 'pointer' },
-        onClick: () => { const scr = notifTargetScreen(n, st.user); close(); if (scr) setState({ screen: scr }); },
+        onClick: () => { const scr = notifTargetScreen(n, st.user); close(); if (scr) bukaTab(scr); },
       }, [
         h('div', { style: { fontSize: '12px', fontWeight: 600, color: 'var(--text)', lineHeight: 1.4 } }, notifMessage(n)),
         h('div', { style: { fontSize: '10px', color: 'var(--text-3)', marginTop: '2px' } }, fmtDateTime(n.at)),
@@ -394,6 +478,7 @@ export function appShell(st, screenEl) {
     h('div.main-col', [
       header(st),
       updateTersedia(st) ? spandukUpdate(st) : null,
+      bilahTab(st),
       h('main.content', screenEl),
     ]),
   ]);

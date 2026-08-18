@@ -196,6 +196,22 @@ function render() {
     // saat ada akun yang tidak bisa. Tidak ada data siapa pun di sana.
     const SELF_SERVICE = ['change-password'];
     if (!allowed.includes(st.screen) && !SELF_SERVICE.includes(st.screen)) { setState({ screen: allowed[0] }); return; }
+    // TAB DIPANGKAS KE HAK AKSES, DI SATU TEMPAT.
+    //
+    // Peran bisa berubah di tengah sesi (ganti akun tanpa reload), dan tab yang
+    // tertinggal dari peran sebelumnya adalah pintu ke layar yang seharusnya
+    // tidak dia punya. Dipangkas di sini, bukan di layout.js, karena di sinilah
+    // `allowed` sudah dihitung dan di sinilah st.screen sudah dipaksa masuk ke
+    // dalamnya beberapa baris di atas.
+    {
+      const tabsLama = Array.isArray(st.tabs) ? st.tabs : [];
+      let tabs = tabsLama.filter(id => allowed.includes(id));
+      if (st.screen && allowed.includes(st.screen) && !tabs.includes(st.screen)) tabs = [...tabs, st.screen];
+      // Ditulis LANGSUNG ke state, bukan lewat setState: setState di dalam
+      // render() memicu render berikutnya, dan render yang memanggil dirinya
+      // sendiri setiap kali adalah putaran tanpa ujung.
+      if (tabs.length !== tabsLama.length || tabs.some((x, i) => x !== tabsLama[i])) st.tabs = tabs;
+    }
     syncHash(st.screen);
     let screenEl;
     // gagal[] DIBACA DULU, sebelum fungsiLayar() menghapusnya.

@@ -38,6 +38,11 @@ const state = {
   labelUploads: [],    // upload history (who/when/counts/quarantined rows)
   labelSettings: null, // { moq, leadNormal, leadUrgent, leadSuper, overstockMultiple }
   labelTrend: [],      // total stock per upload day, for the dashboard chart
+  // Tab yang sedang terbuka, urut kiri-ke-kanan. st.screen tetap yang AKTIF —
+  // seluruh kode lama yang membaca st.screen tidak perlu tahu tab ini ada.
+  // Hidup di memori saja: menutup tab bukan keputusan yang perlu diingat
+  // server, dan daftar tab yang ikut tersimpan cuma jadi sampah yang menua.
+  tabs: [],
   labelGudang: [],     // daftar gudang (HAIBIAN, BORINE) — dari tabel, bukan literal
   labelStockGudang: [],// stok per (spec, market, gudang); label_stock.stock = jumlahnya
   // Ingatan harga label: { erp, supplier, harga, poNo, oleh, tanggal }, satu

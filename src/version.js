@@ -24,7 +24,7 @@
 // deploy, not the code.
 // =============================================================================
 
-export const VERSION = 'v15.18';
+export const VERSION = 'v15.19';
 export const VERSION_DATE = '14 Agu 2026';
 
 // Newest first. Kept short on purpose: this is the "did my thing land?" list,
