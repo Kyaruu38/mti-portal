@@ -5,7 +5,7 @@ import { isConfigured, signIn, signOut, fetchMustChangePassword, currentSession 
 // dipakai selama Supabase terhubung, dan itu berarti selalu, di produksi.
 import { getPref, adoptServerPrefs } from '../core/prefs.js';
 import { fetchProfilePrefs } from '../core/profilePrefsApi.js';
-import { retryPending, pendingOutbox } from '../core/driveOutbox.js';
+import { retryPending, pendingOutbox, gagalOutbox, bangkitkanYangMasihAda } from '../core/driveOutbox.js';
 import { pushToDrive } from '../core/drive.js';
 import { DEMO_PASSWORD } from '../config.js';
 import { t } from '../i18n/index.js';
@@ -255,17 +255,35 @@ async function hydrate(user, username, preferScreen, preferLang) {
   // backlog uploads. It reports itself when it finishes.
   pendingOutbox().then(q => { getState().driveQueue = q; if (q.length) setState({}); })
     .catch(() => {});
-  retryPending(pushToDrive).then(async r => {
-    getState().driveQueue = await pendingOutbox().catch(() => []);
-    if (r.sent) {
-      toast({
-        id: `${r.sent} file yang tertunda berhasil dikirim ke Drive`,
-        en: `${r.sent} queued file(s) reached Drive`,
-        zh: `${r.sent} 个待传文件已送达 Drive`,
-      });
+  gagalOutbox().then(q => { getState().driveGagal = q; if (q.length) setState({}); })
+    .catch(() => {});
+  // Vonis yang salah dicabut DULU, baru antreannya dikerjakan — supaya berkas
+  // yang baru dibangkitkan ikut terkirim di login yang sama, bukan menunggu
+  // login berikutnya.
+  bangkitkanYangMasihAda()
+    .then(b => { if (b.dibangkitkan) console.warn(`drive outbox: ${b.dibangkitkan} berkas dibangkitkan dari vonis gagal`); })
+    .catch(() => {})
+    .then(() => retryPending(pushToDrive))
+    .then(async r => {
+      getState().driveQueue = await pendingOutbox().catch(() => []);
+      getState().driveGagal = await gagalOutbox().catch(() => []);
+      if (r && r.sent) {
+        toast({
+          id: `${r.sent} file yang tertunda berhasil dikirim ke Drive`,
+          en: `${r.sent} queued file(s) reached Drive`,
+          zh: `${r.sent} 个待传文件已送达 Drive`,
+        });
+      }
+      // GAMBAR ULANG SELALU, BUKAN CUMA WAKTU ADA YANG TERKIRIM.
+      //
+      // Ini yang membuat spanduknya jadi hantu: driveQueue dikosongkan di
+      // memori, tapi setState() dulu duduk DI DALAM if (r.sent). Kalau retry-nya
+      // tidak berhasil mengirim apa pun, layarnya tidak pernah diberi tahu —
+      // dan mount() tidak punya diffing, jadi spanduk lama bertahan seumur
+      // sesi, menampilkan jumlah dan pesan error dari sebelum retry berjalan.
+      // Orang lalu membaca "1 file belum sampai" pada antrean yang isinya nol.
       setState({});
-    }
-  }).catch(e => console.warn('drive outbox: retry gagal —', e));
+    }).catch(e => console.warn('drive outbox: retry gagal —', e));
 
   // Force-change-password gate: checked on every login, not cached anywhere
   // client-side — main.js's router reads user.mustChangePassword before

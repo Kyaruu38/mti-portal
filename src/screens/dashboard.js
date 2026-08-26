@@ -67,7 +67,7 @@ export function dashboardScreen() {
   // any screen for a role missing from ACCESS, so this is the second net.
   else body = [];
 
-  return h('div.stack', [header, driveQueueBanner(st), ...body]);
+  return h('div.stack', [header, driveGagalBanner(st), driveQueueBanner(st), ...body]);
 }
 
 // "THE FILE IS SAFE, IT JUST IS NOT ON DRIVE YET."
@@ -82,6 +82,47 @@ export function dashboardScreen() {
 // the part that is broken. Shown to everyone who can upload — not only to the
 // person who happened to be uploading when it broke, because that person may
 // not sign in again this week.
+// BERKAS YANG SUDAH MENYERAH — DAN KENAPA IA BUTUH SPANDUKNYA SENDIRI.
+//
+// driveQueueBanner() cuma menghitung yang berstatus 'pending'. Begitu sebuah
+// baris divonis 'failed', ia LENYAP dari seluruh portal: tidak ada layar, tidak
+// ada lencana, tidak ada hitungan yang pernah menyebutnya lagi. Dua belas
+// dokumen PPKEK menghilang begitu antara 7 dan 21 Agustus 2026 tanpa satu pun
+// kalimat di layar — dan yang tampil justru spanduk kuning yang berbunyi
+// "filenya AMAN, akan dikirim otomatis" untuk berkas yang sudah divonis tidak
+// bisa diselamatkan.
+//
+// Kalimat yang menenangkan tentang berkas yang hilang lebih berbahaya daripada
+// diam. Jadi yang gagal dapat spanduknya sendiri: MERAH, menyebut nama
+// berkasnya satu per satu, dan mengatakan terus terang bahwa portal tidak bisa
+// berbuat apa-apa lagi — orangnya yang harus mengunggah ulang.
+function driveGagalBanner(st) {
+  const q = st.driveGagal || [];
+  if (!q.length) return null;
+  const nama = q.slice(0, 12).map(r => r.file_name).filter(Boolean);
+  const sisa = q.length - nama.length;
+  return h('div.cfg-banner', {
+    style: { display: 'block', background: 'var(--st-red-bg)', color: 'var(--st-red-tx)', borderColor: 'var(--st-red-tx)' },
+  }, [
+    h('div', { style: { fontWeight: 700 } }, [icon('warn', 14), ' ', tr({
+      id: `${q.length} file TIDAK sampai ke Google Drive dan salinannya sudah tidak ada di server. Portal tidak bisa mencoba lagi — file ini harus diunggah ulang manual.`,
+      en: `${q.length} file(s) did NOT reach Google Drive and the server copy is gone. The portal cannot retry — these must be re-uploaded by hand.`,
+      zh: `${q.length} 个文件未送达 Google Drive，且服务器上的副本已不存在。门户无法重试 — 这些文件需要人工重新上传。`,
+    })]),
+    // Namanya disebut. Sebuah angka tanpa nama tidak bisa ditindaklanjuti:
+    // yang membacanya tetap harus menebak berkas mana yang harus dicari.
+    h('div.mono', { style: { fontSize: '10.5px', marginTop: '5px', opacity: 0.9, whiteSpace: 'normal', lineHeight: 1.6 } },
+      nama.join(' · ') + (sisa > 0 ? tr({
+        id: ` · dan ${sisa} lagi`, en: ` · and ${sisa} more`, zh: ` · 还有 ${sisa} 个`,
+      }) : '')),
+    h('div', { style: { fontSize: '10.5px', marginTop: '4px' } }, tr({
+      id: 'Setiap kali ada yang login, portal memeriksa ulang: kalau ternyata filenya masih ada di server, ia dikembalikan ke antrean sendiri dan hilang dari sini.',
+      en: 'On every login the portal re-checks: if the file turns out to still be on the server it goes back into the queue by itself and disappears from here.',
+      zh: '每次有人登录时门户都会重新检查：如果文件其实还在服务器上，它会自动回到队列并从这里消失。',
+    })),
+  ]);
+}
+
 function driveQueueBanner(st) {
   const q = st.driveQueue || [];
   if (!q.length) return null;

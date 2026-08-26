@@ -156,6 +156,77 @@ export async function pendingOutbox() {
   }
 }
 
+// YANG SUDAH DIVONIS GAGAL. Dibaca terpisah dari yang masih mengantre karena
+// dua-duanya butuh kalimat yang berbeda: yang mengantre memang aman dan akan
+// terkirim sendiri, yang gagal TIDAK — dan sampai v15.20 tidak ada satu layar
+// pun yang menyebutnya. Dua belas dokumen PPKEK hilang dari layar begitu saja
+// antara 7 dan 21 Agustus, dan yang tampil malah kalimat "filenya AMAN" untuk
+// berkas yang justru sudah divonis tidak bisa diselamatkan.
+export async function gagalOutbox() {
+  if (!isConfigured()) return [];
+  try {
+    const c = await getClient();
+    if (!c) return [];
+    const { data, error } = await c.from('drive_outbox')
+      .select('*').eq('status', 'failed').order('created_at', { ascending: true }).limit(100);
+    if (error) { warn('gagal membaca daftar gagal', error); return []; }
+    return data || [];
+  } catch (e) {
+    warn('gagalOutbox gagal', e);
+    return [];
+  }
+}
+
+// APAKAH OBJEKNYA MASIH ADA — tanpa mengunduhnya.
+//
+// list() dengan search cuma membaca metadata, jadi memeriksa dua belas berkas
+// tidak menarik dua belas PDF melewati koneksi orangnya.
+async function objekAda(c, path) {
+  const potong = String(path || '').lastIndexOf('/');
+  if (potong < 0) return false;
+  const dir = path.slice(0, potong);
+  const nama = path.slice(potong + 1);
+  const { data, error } = await c.storage.from(BUCKET).list(dir, { search: nama, limit: 100 });
+  if (error) return null;                     // null = TIDAK TAHU, bukan "tidak ada"
+  return (data || []).some(x => x.name === nama);
+}
+
+// MEMBANGKITKAN VONIS YANG SALAH.
+//
+// retryPending() dulu memperlakukan SETIAP kegagalan download sebagai "filenya
+// sudah tidak ada" dan menulis kalimat itu ke last_error — membuang pesan
+// aslinya. Padahal download bisa gagal karena proyeknya sedang di-pause, karena
+// policy Storage, karena jaringan putus sedetik. Ketiganya sementara; vonisnya
+// permanen. Sekali sebuah baris jadi 'failed', tidak ada satu pun jalan di
+// portal ini yang pernah melihatnya lagi.
+//
+// Jadi setiap login, baris yang divonis gagal DIPERIKSA ULANG: kalau objeknya
+// ternyata masih ada di Storage, vonisnya dicabut dan ia kembali mengantre.
+// Kalau memang tidak ada, ia dibiarkan gagal — dan sekarang layar menyebutnya.
+export async function bangkitkanYangMasihAda() {
+  if (!isConfigured()) return { diperiksa: 0, dibangkitkan: 0 };
+  try {
+    const c = await getClient();
+    if (!c) return { diperiksa: 0, dibangkitkan: 0 };
+    const rows = await gagalOutbox();
+    if (!rows.length) return { diperiksa: 0, dibangkitkan: 0 };
+    let hidup = 0;
+    for (const row of rows) {
+      const ada = await objekAda(c, row.storage_path);
+      if (ada !== true) continue;             // false atau null: jangan diapa-apakan
+      const { error } = await c.from('drive_outbox').update({
+        status: 'pending',
+        last_error: 'sempat divonis hilang, ternyata objeknya masih ada — dicoba ulang',
+      }).eq('id', row.id);
+      if (!error) hidup++;
+    }
+    return { diperiksa: rows.length, dibangkitkan: hidup };
+  } catch (e) {
+    warn('bangkitkanYangMasihAda gagal', e);
+    return { diperiksa: 0, dibangkitkan: 0 };
+  }
+}
+
 // Where a recovered link goes home to. Kept as data rather than as a switch
 // buried in the retry loop, so adding a sixth upload path is one line here.
 const TARGETS = {
@@ -208,12 +279,29 @@ export async function retryPending(pushFn) {
     try {
       const dl = await c.storage.from(BUCKET).download(row.storage_path);
       if (dl.error || !dl.data) {
-        // The object is gone but the row says pending. Nothing to retry with,
-        // and pretending otherwise means retrying forever on every login.
-        await c.from('drive_outbox').update({
-          status: 'failed',
-          last_error: 'file tidak ada lagi di Storage — tidak bisa dicoba ulang',
-        }).eq('id', row.id);
+        // SEBUAH KEGAGALAN UNDUH BUKAN BUKTI FILENYA HILANG.
+        //
+        // Versi sebelumnya memvonis 'failed' pada setiap dl.error apa pun
+        // sebabnya, lalu MENIMPA pesan aslinya dengan kalimat "file tidak ada
+        // lagi di Storage". Proyek yang sedang di-pause, policy Storage yang
+        // berubah, dan jaringan yang putus sedetik semuanya masuk ke sana —
+        // tiga sebab sementara yang menghasilkan vonis permanen, dengan bukti
+        // aslinya dibuang. Itu persis kesalahan yang membuat pushToDrive dulu
+        // membaca teks balasan Google: menebak antara dua sebab jauh lebih
+        // mahal daripada menyimpan satu kalimat.
+        //
+        // Sekarang keberadaannya ditanyakan terpisah, dan cuma jawaban TEGAS
+        // "tidak ada" yang boleh memvonis. Ragu-ragu (null) tetap mengantre.
+        const ada = await objekAda(c, row.storage_path);
+        if (ada === false) {
+          await c.from('drive_outbox').update({
+            status: 'failed',
+            last_error: 'objek tidak ada di Storage — tidak bisa dicoba ulang. Perlu diunggah ulang manual.',
+          }).eq('id', row.id);
+        } else {
+          await markPending(row.id, (dl.error && dl.error.message) || dl.error
+            || 'gagal mengunduh salinan antrean, sebabnya tidak jelas');
+        }
         continue;
       }
       const file = new File([dl.data], row.file_name, { type: dl.data.type || 'application/octet-stream' });

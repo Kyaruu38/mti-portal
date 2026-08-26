@@ -74,6 +74,7 @@ const state = {
   // ditutup, sona mengunggah ulang berkas yang sama; tidak ada data yang rusak.
   labelBuyRaw: null,   // { fileName, at, bagian: [{ sheet, kategori, items }] }
   driveQueue: [],      // files stashed but not yet accepted by Drive (core/driveOutbox)
+  driveGagal: [],      // files GIVEN UP ON — object no longer in Storage, needs a human
 
   // transient module state
   ui: {},              // per-screen scratch space
