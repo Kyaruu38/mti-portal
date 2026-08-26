@@ -126,6 +126,67 @@ export function overDeliveredPOs(st, { labelOnly = false } = {}) {
     .filter(x => x.hasOverDelivery);
 }
 
+// KAPAN BARANGNYA MASUK — DAN KENAPA JAWABANNYA BISA KOSONG
+// ---------------------------------------------------------------------------
+// Penerimaan punya DUA sumber, dan cuma satu yang selama ini mencatat tanggal:
+//
+//   Surat Jalan            punya tanggal sejak hari pertama (sj.date)
+//   Tandai langsung        cuma menyimpan JUMLAHnya di items[].receivedDirect
+//
+// Jadi separuh penerimaan portal ini tidak punya bulan. Mulai v15.20 penandaan
+// langsung ikut menulis items[].receivedDirectAt — tapi yang sudah terlanjur
+// tercatat sebelum itu TIDAK akan pernah punya tanggal, dan tidak ada tanggal
+// jujur yang bisa dikarang untuknya.
+//
+// Maka fungsi ini boleh mengembalikan null, dan layar WAJIB menampilkan null
+// itu apa adanya — sebagai kelompok "Tanpa tanggal", bukan dengan meminjam
+// tanggal PO dibuat. Barang yang datang dua bulan sesudah PO-nya akan terhitung
+// di bulan PO-nya, dan angka bulanan yang salah jauh lebih buruk daripada satu
+// kelompok yang mengaku tidak tahu.
+export function tanggalTerimaTerakhir(st, po) {
+  let paling = null;
+  const catat = (v) => {
+    if (!v) return;
+    const w = new Date(v);
+    if (isNaN(w)) return;
+    if (!paling || w > paling) paling = w;
+  };
+  for (const sj of st.suratJalan || []) {
+    if (!(sj.poIds || []).includes(po.id)) continue;
+    // Surat jalan bisa memuat beberapa PO sekaligus. Tanggalnya cuma dihitung
+    // kalau dokumen itu benar-benar memuat baris DARI PO INI — kalau tidak,
+    // sebuah PO bisa mewarisi tanggal kiriman PO tetangganya.
+    if (!(sj.items || []).some(it => it.poId === po.id && (it.qtyShipped || 0) > 0)) continue;
+    catat(sj.date || sj.createdAt);
+  }
+  for (const it of po.items || []) {
+    if ((Number(it.receivedDirect) || 0) > 0) catat(it.receivedDirectAt);
+  }
+  return paling ? paling.toISOString() : null;
+}
+
+// Setiap PO yang SUDAH ada barangnya masuk — sebagian atau seluruhnya.
+//
+// Sengaja TIDAK menyaring `!p.closed`: PO yang sudah tuntas dan ditutup justru
+// yang paling ingin dilihat orang di daftar "yang sudah masuk". Itu kebalikan
+// dari outstandingPOs(), dan memang harus begitu.
+export function poSudahMasuk(st, { labelOnly = false } = {}) {
+  return st.pos
+    .filter(p => (p.source === 'label' || p.source === 'converter') && p.status === 'Approved')
+    .filter(p => !labelOnly || isLabelPO(p))
+    .map(p => {
+      const r = poOutstanding(st, p);
+      const totalDiterima = snap(r.lines.reduce((s, l) => s + l.received, 0));
+      const totalDipesan = snap(r.lines.reduce((s, l) => s + (l.qty || 0), 0));
+      return {
+        po: p, ...r, totalDiterima, totalDipesan,
+        tgl: tanggalTerimaTerakhir(st, p),
+        lunas: r.totalOutstanding < EPS,
+      };
+    })
+    .filter(x => x.totalDiterima > 0);
+}
+
 // Set po.closed when every line of every PO in poIds is fully received.
 export function closeFullyReceivedPOs(st, poIds, logAudit) {
   poIds.forEach(id => {

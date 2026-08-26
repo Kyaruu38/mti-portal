@@ -1,11 +1,11 @@
 import { h, wireDrop, pickFiles } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
+import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring, tanyaTeks } from '../ui/components.js';
 import { readWorkbook } from '../core/xlsx.js';
 import { parseLabelSheet } from '../parsers/excelLabels.js';
 import { money, num, ppnFor, ppnModeFromForm, fmtDateTime } from '../core/format.js';
-import { can } from '../auth/roles.js';
+import { can, isReadOnly } from '../auth/roles.js';
 import { statusText } from '../core/statusText.js';
 import { insertLabelRequest, updateLabelRequest } from '../core/labelRequestsApi.js';
 import { insertPO, newLineId, duplicatePoNumber } from '../core/posApi.js';
@@ -673,6 +673,104 @@ const MEDAN_LR_SAYA = (rows) => [
   { kunci: 'status', label: t('col_status'), tipe: 'pilih', opsi: [...new Set(rows.map(r => statusText(r.status)).filter(Boolean))].sort(), ambil: r => statusText(r.status) },
 ];
 
+// MEMBATALKAN REQUEST — DAN CUMA SELAMA BELUM ADA PO.
+//
+// Batasnya bukan soal kerapian, itu soal apa yang ada di dunia nyata.
+//
+// Selama statusnya 'Diminta', yang dibatalkan cuma sebaris catatan niat: belum
+// ada supplier, belum ada nomor PO, belum ada kertas yang ditandatangani.
+// Membatalkannya tidak meninggalkan apa pun di belakang.
+//
+// Begitu statusnya 'PO Terbit', ada PO BETULAN di tabel pos — dan kalau yang
+// menerbitkannya wilbert, PO itu langsung 'Approved' dan melompati antrian
+// (lihat isWilbert di generatePO). Menandai request-nya batal di titik itu
+// tidak membatalkan apa pun: PO-nya tetap hidup di Outstanding PO, tetap
+// ditagih, dan yang berubah cuma satu lencana — yang justru membuat orang
+// BERHENTI mencarinya. Layar yang bilang "batal" sambil meninggalkan PO
+// approved di belakangnya lebih berbahaya daripada layar tanpa tombol batal.
+//
+// Membatalkan PO sudah punya jalurnya sendiri, sudah ada, dan sudah dijaga:
+// hapusPoSendiri() dan mintaHapusPo() di core/poAkses.js, lengkap dengan
+// alasan wajib dan approval supervisor. Layar ini sengaja TIDAK menduplikasinya.
+function bolehBatal(st, r) {
+  if (!r || r.status !== 'Diminta') return false;
+  if (isReadOnly(st.user.role)) return false;
+  // Punya sendiri — atau punya siapa pun, kalau dia supervisor.
+  return r.by === st.user.username || can(st.user.role, 'approve');
+}
+
+async function batalkanRequest(r) {
+  if (blockWrite('batalkan request label')) return;
+  const st = getState();
+  // DIPERIKSA ULANG PADA DETIK DIKLIK.
+  //
+  // Tombolnya digambar dari status yang terbaca waktu layarnya di-mount, dan
+  // mount() tidak menggambar ulang sendiri waktu cania menerbitkan PO dari
+  // request yang sama di layar seberang. Tanpa pemeriksaan kedua ini, tombol
+  // yang sudah basi tetap bisa ditekan — dan menutup request yang PO-nya baru
+  // saja terbit.
+  const kini = (st.labelRequests || []).find(x => x.id === r.id) || r;
+  if (!bolehBatal(st, kini)) {
+    toast({
+      id: `Tidak bisa dibatalkan — statusnya sudah ${statusText(kini.status)}`,
+      en: `Cannot be cancelled — it is already ${statusText(kini.status)}`,
+      zh: `无法取消 — 状态已是 ${statusText(kini.status)}`,
+    });
+    return;
+  }
+
+  const jml = (kini.rows || []).length;
+  const alasan = await tanyaTeks({
+    judul: tr({ id: 'Batalkan request label', en: 'Cancel label request', zh: '取消标签申请' }),
+    pesan: tr({
+      id: `${jml} baris dari ${kini.file || 'request ini'} ditutup sebagai Ditolak. Tidak masuk antrian lagi — kalau labelnya masih dibutuhkan, ajukan request baru.`,
+      en: `${jml} row(s) from ${kini.file || 'this request'} will be closed as Declined. It does not go back into the queue — raise a new request if the labels are still needed.`,
+      zh: `来自 ${kini.file || '本申请'} 的 ${jml} 行将被关闭为「已拒绝」。不会回到队列 — 如果仍需要该标签，请重新提交申请。`,
+    }),
+    label: tr({ id: 'Alasan', en: 'Reason', zh: '原因' }),
+    okLabel: tr({ id: 'Batalkan request', en: 'Cancel request', zh: '取消申请' }),
+    danger: true, multiline: true,
+  });
+  // null = dia menutup dialognya. Bukan pembatalan, dan bukan kesalahan.
+  if (alasan === null) return;
+
+  const patch = {
+    status: 'Ditolak', note: alasan.trim(),
+    handledBy: st.user.username, handledAt: new Date().toISOString(),
+  };
+  // SERVER DULU, BARU LAYAR. Urutan sebaliknya membuat request terlihat batal
+  // di layar sona padahal di server masih 'Diminta' — dan purchasing tetap
+  // membuatkannya PO untuk label yang sudah dia batalkan.
+  try {
+    if (UUID_RE.test(String(kini.id))) {
+      const kena = await updateLabelRequest(kini.id, patch);
+      // NOL BARIS BUKAN SUKSES.
+      //
+      // RLS menolak dengan diam: 200, nol baris, error null. Kalau ini tidak
+      // diperiksa, orang yang tidak punya hak UPDATE akan melihat toast hijau
+      // "request dibatalkan", lencananya berubah merah di layarnya sendiri, dan
+      // di server permintaan itu masih 'Diminta' — lalu dibuatkan PO.
+      if (kena === 0) throw new Error('server menolak perubahannya (0 baris) — hak update belum ada');
+    }
+  } catch (e) {
+    console.error('label request cancel failed', e);
+    toast({
+      id: 'Gagal membatalkan di server: ' + (e.message || e),
+      en: 'Cancelling on the server failed: ' + (e.message || e),
+      zh: '在服务器取消失败：' + (e.message || e),
+    });
+    return;
+  }
+  Object.assign(kini, patch);
+  logAudit({ entity: 'label', target: kini.file || String(kini.id), action: 'request_cancel', detail: patch.note.slice(0, 120) });
+  setState({ labelRequests: st.labelRequests });
+  toast({
+    id: `Request dibatalkan — ${jml} baris ditutup`,
+    en: `Request cancelled — ${jml} row(s) closed`,
+    zh: `申请已取消 — ${jml} 行已关闭`,
+  });
+}
+
 // sona's own view. Without it, submitting is a one-way drop: she would have to
 // ask someone whether her request had been picked up, which is the question the
 // record exists to answer.
@@ -709,6 +807,7 @@ function myRequests(st) {
         tr({ id: 'Sumber', en: 'Source', zh: '来源' }),
         tr({ id: 'File', en: 'File', zh: '文件' }), 'Sheet', t('col_qty'),
         tr({ id: 'Dikirim', en: 'Sent', zh: '发送时间' }), t('col_supplier'), 'PO', t('col_status'),
+        t('col_action'),
       ].map((c, i) => h('th' + (i === 3 ? '.r' : ''), c)))),
       h('tbody', mine.length ? mine.map(r => h('tr', [
         h('td', lencanaSumber(r)),
@@ -719,7 +818,13 @@ function myRequests(st) {
         h('td', r.supplier || '—'),
         h('td.mono', { style: { fontSize: '11px' } }, r.poNo || '—'),
         h('td', badge(statusText(r.status), tone(r.status))),
-      ])) : barisTakCocok(8, { id: 'lr-saya', adaFilter: jumlahFilterAktif(nilai) > 0 })),
+        // Kosong, bukan tombol mati. Tombol yang selalu ada tapi menolak
+        // ditekan mengundang orang mencobanya berkali-kali; ketiadaannya
+        // langsung terbaca sebagai "yang ini memang sudah lewat".
+        h('td', bolehBatal(st, r)
+          ? btn(tr({ id: 'Batalkan', en: 'Cancel', zh: '取消' }), { sm: true, variant: 'danger', onClick: () => batalkanRequest(r) })
+          : null),
+      ])) : barisTakCocok(9, { id: 'lr-saya', adaFilter: jumlahFilterAktif(nilai) > 0 })),
     ])),
   ]);
 }
@@ -775,7 +880,15 @@ function incomingRequests(st) {
         h('td.mono.r', String((r.rows || []).length)),
         h('td', catatanPortal(r)),
         h('td', { style: { fontSize: '11px', color: 'var(--text-3)' } }, fmtDateTime(r.at)),
-        h('td', btn(t('lr_open_req'), { sm: true, variant: 'primary', onClick: () => openRequest(r) })),
+        h('td', h('div.row.gap8', [
+          btn(t('lr_open_req'), { sm: true, variant: 'primary', onClick: () => openRequest(r) }),
+          // cania dan visca tidak lolos bolehBatal() untuk permintaan orang
+          // lain: mereka yang MENGERJAKAN, bukan yang memutuskan sebuah
+          // permintaan tidak jadi. Yang muncul di sini cuma untuk supervisor.
+          bolehBatal(st, r)
+            ? btn(tr({ id: 'Batalkan', en: 'Cancel', zh: '取消' }), { sm: true, variant: 'danger', onClick: () => batalkanRequest(r) })
+            : null,
+        ])),
       ])) : barisTakCocok(8, { id: 'lr-masuk', adaFilter: jumlahFilterAktif(nilai) > 0 })),
     ])),
   ]);

@@ -85,7 +85,17 @@ export async function updateLabelRequest(id, patch) {
   if ('handledBy' in patch) row.handled_by = patch.handledBy;
   if ('handledAt' in patch) row.handled_at = patch.handledAt;
   if ('note' in patch) row.note = patch.note;
-  if (!Object.keys(row).length) return;
-  const { error } = await c.from('label_requests').update(row).eq('id', id);
+  if (!Object.keys(row).length) return 0;
+  // BERAPA BARIS YANG BENAR-BENAR BERUBAH — dan kenapa itu harus dikembalikan.
+  //
+  // Sebuah UPDATE yang ditolak RLS bukan error. PostgREST membalas 200 dengan
+  // NOL baris, dan `error` tetap null. Tanpa .select() di sini, sebuah panggilan
+  // yang ditolak sepenuhnya terbaca persis seperti panggilan yang berhasil —
+  // layar bilang tersimpan, servernya tidak berubah sedikit pun.
+  //
+  // Ini kelas kesalahan yang sama dengan 42501 di label_gudang, cuma lebih
+  // sunyi: yang itu setidaknya melempar. Yang ini diam.
+  const { data, error } = await c.from('label_requests').update(row).eq('id', id).select('id');
   if (error) throw error;
+  return (data || []).length;
 }

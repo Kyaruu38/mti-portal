@@ -25,9 +25,9 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, logAudit } from '../core/store.js';
 import { tr } from '../i18n/index.js';
-import { card, badge, btn, icon, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring } from '../ui/components.js';
-import { num, fmtDate } from '../core/format.js';
-import { outstandingPOs, overDeliveredPOs, receivedBreakdown, isLabelPO } from '../core/outstanding.js';
+import { card, badge, btn, icon, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring, pager, pageSlice } from '../ui/components.js';
+import { num, fmtDate, BULAN_ID, BULAN_EN, BULAN_ZH } from '../core/format.js';
+import { outstandingPOs, overDeliveredPOs, receivedBreakdown, isLabelPO, poSudahMasuk } from '../core/outstanding.js';
 import { setPoItems } from '../core/posApi.js';
 import { isConfigured } from '../core/supabase.js';
 import { can } from '../auth/roles.js';
@@ -97,6 +97,143 @@ export function outstandingPoScreen() {
       ? h('div.stack', list.map(x => poCard(st, x, sel, canWrite)))
       : blokTakCocok(jumlahFilterAktif(nilai) > 0),
     canWrite && chosen.length ? actionBar(st, list, sel) : null,
+    masukCard(st),
+  ]);
+}
+
+// ===========================================================================
+// YANG SUDAH MASUK
+// ---------------------------------------------------------------------------
+// Layar ini sejak lahir cuma bisa menjawab "apa yang masih ditunggu". Lawannya
+// — "yang kemarin itu jadi masuk tanggal berapa" — tidak punya tempat sama
+// sekali, dan begitu sebuah PO tuntas ia hilang dari layar tanpa meninggalkan
+// baris apa pun.
+//
+// SATU BARIS PER PO, tanggalnya penerimaan TERAKHIR (pilihan Kyaru). Perlu
+// disebut terus terang: PO yang datang mencicil lintas bulan cuma muncul di
+// bulan cicilan terakhirnya. Itu diterima secara sadar, bukan kelupaan —
+// bentuk yang tidak punya kelemahan itu satu baris per KEJADIAN terima, dan
+// itu butuh tabel penerimaan sendiri.
+// ===========================================================================
+
+const kunciBulan = (iso) => String(iso || '').slice(0, 7);   // YYYY-MM
+const TANPA = '-';                                            // kelompok tak bertanggal
+
+function namaBulan(kunci) {
+  if (kunci === TANPA) return tr({ id: 'Tanpa tanggal', en: 'No date', zh: '无日期' });
+  const [th, bl] = kunci.split('-');
+  const i = Number(bl) - 1;
+  return tr({
+    id: `${BULAN_ID[i] || bl} ${th}`,
+    en: `${BULAN_EN[i] || bl} ${th}`,
+    zh: `${th}年${BULAN_ZH[i] || bl}`,
+  });
+}
+
+// PILIHAN BULANNYA DIBANGUN DARI DATANYA, BUKAN DARI KALENDER.
+//
+// Dropdown 12 bulan yang sebelas di antaranya kosong membuat orang mengira
+// portalnya rusak waktu memilih bulan yang memang tidak pernah ada barang
+// masuk. Yang muncul di sini cuma bulan yang benar-benar punya baris.
+function bulanAda(rows) {
+  const set = new Set();
+  let kosong = false;
+  for (const r of rows) {
+    if (!r.tgl) { kosong = true; continue; }
+    set.add(kunciBulan(r.tgl));
+  }
+  // Terbaru di atas: yang dicari orang hampir selalu yang barusan.
+  const urut = [...set].sort().reverse();
+  // "Tanpa tanggal" ditaruh PALING BAWAH dan tidak pernah jadi bawaan — itu
+  // sisa data lama, bukan tempat orang memulai.
+  return kosong ? [...urut, TANPA] : urut;
+}
+
+const MEDAN_MASUK = (rows) => [
+  { kunci: 'no', label: tr({ id: 'No. PO', en: 'PO No.', zh: '采购单号' }), tipe: 'teks', mono: true, ambil: r => `${r.po.contract || ''} ${r.po.no || ''}`.trim() },
+  { kunci: 'supplier', label: tr({ id: 'Supplier', en: 'Supplier', zh: '供应商' }), tipe: 'pilih', opsi: [...new Set(rows.map(r => r.po.supplier).filter(Boolean))].sort(), ambil: r => r.po.supplier },
+  { kunci: 'jenis', label: tr({ id: 'Jenis', en: 'Type', zh: '类型' }), tipe: 'pilih', opsi: [...new Set(rows.map(r => jenisPo(r.po)))].sort(), ambil: r => jenisPo(r.po) },
+  { kunci: 'status', label: tr({ id: 'Kelengkapan', en: 'Completeness', zh: '完成度' }), tipe: 'pilih', opsi: [...new Set(rows.map(statusMasukTeks))].sort(), ambil: statusMasukTeks },
+  { kunci: 'tgl', label: tr({ id: 'Masuk', en: 'Arrived', zh: '到货' }), tipe: 'tanggal', ambil: r => r.tgl },
+];
+
+const statusMasukTeks = (r) => (r.lunas
+  ? tr({ id: 'Lengkap', en: 'Complete', zh: '已齐' })
+  : tr({ id: 'Sebagian', en: 'Partial', zh: '部分' }));
+
+function masukCard(st) {
+  const ui = st.ui;
+  const semua = poSudahMasuk(st);
+  if (!semua.length) return null;
+
+  const pilihan = bulanAda(semua);
+  // Bawaannya bulan TERBARU YANG ADA ISINYA, bukan bulan berjalan: bulan
+  // berjalan bisa saja belum kedatangan apa-apa, dan menyambut orang dengan
+  // daftar kosong di layar yang datanya sebenarnya penuh.
+  let bln = ui.opMasukBulan;
+  if (!pilihan.includes(bln)) bln = pilihan[0];
+
+  const dibulan = semua.filter(r => (bln === TANPA ? !r.tgl : kunciBulan(r.tgl) === bln));
+  const medan = MEDAN_MASUK(dibulan);
+  const nilai = nilaiFilter('op-masuk');
+  const tersaring = saring(dibulan, medan, nilai)
+    .sort((a, b) => new Date(b.tgl || 0) - new Date(a.tgl || 0));
+
+  const size = ui.opMasukSize === 0 ? 0 : (Number(ui.opMasukSize) || 10);
+  const hal = { ...pageSlice(tersaring, ui.opMasukPage || 1, size), size };
+
+  const gantiBulan = (v) => setUI({ opMasukBulan: v, opMasukPage: 1 });
+
+  return card([
+    h('div.card-head', [
+      h('div.card-title', tr({ id: 'Sudah Masuk', en: 'Already Arrived', zh: '已到货' })),
+      // <select>, bukan deretan tab: jumlah bulannya tumbuh setiap bulan, dan
+      // tab akan melebar sampai membungkus baris kedua dalam setahun.
+      h('select.input', {
+        style: { width: 'auto', padding: '4px 10px', fontSize: '11.5px' },
+        onChange: e => gantiBulan(e.target.value),
+      }, pilihan.map(k => h('option', { value: k, selected: k === bln }, namaBulan(k)))),
+      badge(String(dibulan.length), 'accent'),
+      hitunganSaring(tersaring.length, dibulan.length, { id: 'PO', en: 'PO', zh: '张' }),
+      tombolFilter({ id: 'op-masuk', medan, judul: tr({ id: 'Sudah Masuk', en: 'Already Arrived', zh: '已到货' }) }),
+    ]),
+    h('div.tbl-wrap', h('table.tbl', [
+      h('thead', h('tr', [
+        tr({ id: 'Masuk', en: 'Arrived', zh: '到货日期' }),
+        tr({ id: 'No. PO', en: 'PO No.', zh: '采购单号' }),
+        tr({ id: 'Supplier', en: 'Supplier', zh: '供应商' }),
+        tr({ id: 'Jenis', en: 'Type', zh: '类型' }),
+        tr({ id: 'Diterima', en: 'Received', zh: '已收' }),
+        tr({ id: 'Dipesan', en: 'Ordered', zh: '订购' }),
+        tr({ id: 'Kelengkapan', en: 'Completeness', zh: '完成度' }),
+      ].map((c, i) => h('th' + (i === 4 || i === 5 ? '.r' : ''), c)))),
+      h('tbody', hal.items.length ? hal.items.map(r => h('tr', [
+        h('td', { style: { fontSize: '11px', color: r.tgl ? 'var(--text-2)' : 'var(--text-3)' } },
+          r.tgl ? fmtDate(r.tgl) : tr({ id: 'tidak tercatat', en: 'not recorded', zh: '未记录' })),
+        h('td.mono.cell-strong', { style: { fontSize: '11.5px' } }, r.po.contract || r.po.no || '—'),
+        h('td', r.po.supplier || '—'),
+        h('td', badge(jenisPo(r.po), isLabelPO(r.po) ? 'accent' : 'navy')),
+        h('td.mono.r', num(r.totalDiterima)),
+        h('td.mono.r', { style: { color: 'var(--text-3)' } }, num(r.totalDipesan)),
+        h('td', badge(statusMasukTeks(r), r.lunas ? 'green' : 'amber')),
+      ])) : h('tr', h('td', { colspan: '7', style: { padding: '26px 0', textAlign: 'center', fontSize: '12px', color: 'var(--text-3)' } },
+        tr({
+          id: 'Tidak ada yang cocok dengan saringan di bulan ini.',
+          en: 'Nothing matches the filter in this month.',
+          zh: '本月没有符合筛选条件的记录。',
+        })))),
+    ])),
+    pager(hal, {
+      onPage: n => setUI({ opMasukPage: n }),
+      onSize: n => setUI({ opMasukSize: n, opMasukPage: 1 }),
+      // Disebut di layar, bukan disembunyikan: satu baris per PO memang punya
+      // kelemahan ini, dan yang membaca angkanya berhak tahu.
+      note: tr({
+        id: 'tanggalnya penerimaan terakhir tiap PO',
+        en: 'the date is each PO\'s latest receipt',
+        zh: '日期为每张采购单最近一次收货',
+      }),
+    }),
   ]);
 }
 
@@ -310,6 +447,11 @@ async function markArrived(picked) {
 
   const gagal = [];
   let okPo = 0, okLines = 0;
+  // SATU cap waktu untuk seluruh penekanan tombol, bukan satu per baris.
+  // Menandai 40 baris sekaligus adalah SATU kejadian penerimaan; memberi
+  // tiap baris new Date()-nya sendiri menghasilkan 40 waktu yang berbeda
+  // beberapa milidetik dan tidak ada satu pun yang lebih benar.
+  const sekarang = new Date().toISOString();
 
   for (const { po, lines } of byPo.values()) {
     // Salinan, bukan objek aslinya: kalau simpannya gagal, state di layar tidak
@@ -317,7 +459,20 @@ async function markArrived(picked) {
     const items = (po.items || []).map(it => {
       const hit = lines.find(l => l.lineId === it.lineId);
       if (!hit) return it;
-      return { ...it, receivedDirect: (Number(it.receivedDirect) || 0) + hit.outstanding };
+      // receivedDirectAt = KAPAN TERAKHIR baris ini kedatangan barang.
+      // Bukan yang pertama: kalau satu baris datang mencicil, yang dicari orang
+      // di daftar "sudah masuk" adalah kedatangan terakhirnya. Riwayat lengkap
+      // per cicilan tidak disimpan di sini — kalau suatu hari itu dibutuhkan,
+      // tempatnya tabel penerimaan sendiri, bukan kolom kedua di dalam items.
+      //
+      // Perlu supabase_batal_request_dan_tgl_terima.sql: tanpa itu key baru ini
+      // ditolak pos_guard_approved untuk cania & visca (wilbert lolos duluan),
+      // dan penerimaan mereka gagal total.
+      return {
+        ...it,
+        receivedDirect: (Number(it.receivedDirect) || 0) + hit.outstanding,
+        receivedDirectAt: sekarang,
+      };
     });
     try {
       // Sengaja BUKAN updatePO(): itu mengirim seluruh baris termasuk `status`.
