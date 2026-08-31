@@ -21,6 +21,7 @@
 
 import { DRIVE_UPLOAD_URL, DRIVE_ROOT_FOLDER_ID, FEATURES } from '../config.js';
 import { getClient } from './supabase.js';
+import { toast } from './store.js';
 import { stash, markDone, markPending } from './driveOutbox.js';
 
 export function driveConfigured() { return FEATURES.useDrive; }
@@ -60,6 +61,29 @@ export async function uploadToDrive(file, folderPath, filename, category) {
   // worse than a net, and both are better than refusing to work.
   const entry = await stash(file, { fileName: name, folderPath, category });
 
+  // JARINGNYA TIDAK TERPASANG, DAN ITU HARUS BERBUNYI.
+  //
+  // stash() sengaja tidak melempar: kalau tabel outbox atau bucket-nya tidak
+  // bisa dipakai, unggahannya tetap jalan seperti sebelum modul ini ada. Itu
+  // keputusan yang masih benar — jaring yang hilang lebih baik daripada tombol
+  // yang menolak bekerja.
+  //
+  // Yang SALAH adalah diamnya. Sampai v15.22 keadaan ini persis sama rupanya
+  // dengan unggahan biasa: tidak ada satu pun tulisan di layar, dan orangnya
+  // menekan tombol berikutnya tanpa tahu bahwa untuk berkas ini tidak ada
+  // salinan cadangan sama sekali. Kalau Drive lalu menolak, berkasnya lenyap
+  // tanpa masuk antrean, tanpa masuk spanduk, tanpa jejak di mana pun.
+  //
+  // Itu satu-satunya jalur yang masih bisa menghilangkan berkas tanpa bunyi,
+  // dan sekarang ia berbunyi.
+  if (!entry) {
+    toast({
+      id: `"${name}" diunggah TANPA salinan cadangan — antrean pengamannya tidak bisa dipakai. Kalau gagal, filenya tidak bisa dicoba ulang otomatis.`,
+      en: `"${name}" is being uploaded with NO backup copy — the safety queue is unavailable. If it fails, the file cannot be retried automatically.`,
+      zh: `"${name}" 正在上传，但没有备份副本 — 安全队列不可用。若失败，该文件无法自动重试。`,
+    });
+  }
+
   const up = await pushToDrive(file, folderPath, name, category);
 
   if (!up.placeholder) {
@@ -69,8 +93,22 @@ export async function uploadToDrive(file, folderPath, filename, category) {
     return { ...up, outboxId: entry ? entry.id : null, stashed: !!entry };
   }
 
-  if (entry) await markPending(entry.id, up.reason, { ragu: !!up.tidakDiketahui });
-  return { ...up, outboxId: entry ? entry.id : null, stashed: !!entry };
+  if (entry) {
+    await markPending(entry.id, up.reason, { ragu: !!up.tidakDiketahui });
+  } else {
+    // TIDAK ADA JARING, DAN JATUH. Ini satu-satunya cabang di seluruh modul ini
+    // yang berarti berkasnya benar-benar tidak ada di mana pun — bukan di Drive,
+    // bukan di Storage, bukan di antrean. Tidak ada yang bisa memperbaikinya
+    // selain orang yang masih memegang berkasnya di layar sebelah, dan dia cuma
+    // punya beberapa detik untuk tahu.
+    console.error('Drive: unggahan gagal DAN tidak ada salinan antrean —', name, up.reason);
+    toast({
+      id: `GAGAL: "${name}" tidak sampai ke Drive dan tidak tersimpan di mana pun. Ulangi unggahnya sekarang selagi filenya masih ada. (${up.reason || 'sebab tidak diketahui'})`,
+      en: `FAILED: "${name}" did not reach Drive and was not saved anywhere. Upload it again now, while you still have the file. (${up.reason || 'reason unknown'})`,
+      zh: `失败："${name}" 未送达 Drive，也未保存在任何地方。请趁文件还在手边立即重新上传。（${up.reason || '原因未知'}）`,
+    });
+  }
+  return { ...up, outboxId: entry ? entry.id : null, stashed: !!entry, tanpaJaring: !entry };
 }
 
 /**
