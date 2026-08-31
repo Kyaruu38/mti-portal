@@ -1,7 +1,9 @@
 import { h } from '../core/dom.js';
-import { getState, setState, setUI, toast } from '../core/store.js';
+import { getState, setState, setUI, toast, logAudit } from '../core/store.js';
+import { blockWrite } from '../core/guard.js';
+import { sambungkanManual, gagalOutbox, adaTandaRagu } from '../core/driveOutbox.js';
 import { t, tr } from '../i18n/index.js';
-import { card, sectionHead, badge, btn, icon, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring } from '../ui/components.js';
+import { card, sectionHead, badge, btn, icon, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring , tanyaTeks } from '../ui/components.js';
 import { money, fmtDate, daysUntil, sumByCurrency, moneyMulti, BULAN_ID, BULAN_EN, BULAN_ZH } from '../core/format.js';
 import { outstandingPOs } from '../core/outstanding.js';
 import { statusText } from '../core/statusText.js';
@@ -109,18 +111,73 @@ function driveGagalBanner(st) {
       en: `${q.length} file(s) did NOT reach Google Drive and the server copy is gone. The portal cannot retry — these must be re-uploaded by hand.`,
       zh: `${q.length} 个文件未送达 Google Drive，且服务器上的副本已不存在。门户无法重试 — 这些文件需要人工重新上传。`,
     })]),
-    // Namanya disebut. Sebuah angka tanpa nama tidak bisa ditindaklanjuti:
-    // yang membacanya tetap harus menebak berkas mana yang harus dicari.
-    h('div.mono', { style: { fontSize: '10.5px', marginTop: '5px', opacity: 0.9, whiteSpace: 'normal', lineHeight: 1.6 } },
-      nama.join(' · ') + (sisa > 0 ? tr({
-        id: ` · dan ${sisa} lagi`, en: ` · and ${sisa} more`, zh: ` · 还有 ${sisa} 个`,
-      }) : '')),
-    h('div', { style: { fontSize: '10.5px', marginTop: '4px' } }, tr({
-      id: 'Setiap kali ada yang login, portal memeriksa ulang: kalau ternyata filenya masih ada di server, ia dikembalikan ke antrean sendiri dan hilang dari sini.',
-      en: 'On every login the portal re-checks: if the file turns out to still be on the server it goes back into the queue by itself and disappears from here.',
-      zh: '每次有人登录时门户都会重新检查：如果文件其实还在服务器上，它会自动回到队列并从这里消失。',
+    // TIAP NAMA ADALAH TOMBOL, bukan sekadar teks.
+    //
+    // Menyebut nama berkasnya saja masih menyisakan pekerjaan yang paling
+    // membosankan: mencocokkan nama di layar dengan baris mana di antrean.
+    // Karena berkas-berkas ini ternyata SUDAH ADA di Drive — unggahannya
+    // berhasil, balasannya yang hilang — yang dibutuhkan cuma menempelkan
+    // link-nya kembali. Jadi tombolnya ditaruh persis di tempat orang membaca
+    // masalahnya.
+    h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '7px' } },
+      q.slice(0, 12).map(row => h('button.btn.btn-sm', {
+        style: { fontSize: '10.5px', fontFamily: 'var(--mono, monospace)' },
+        title: tr({
+          id: 'Klik kalau filenya sudah ada di Drive — tempel link-nya, jangan upload ulang',
+          en: 'Click if the file is already in Drive — paste its link, do not re-upload',
+          zh: '如果文件已在 Drive 中请点击 — 粘贴链接，不要重新上传',
+        }),
+        onClick: () => sambungBerkas(row),
+      }, [
+        adaTandaRagu(row.last_error) ? '? ' : '',
+        row.file_name || '(tanpa nama)',
+      ]))),
+    sisa > 0 ? h('div', { style: { fontSize: '10.5px', marginTop: '4px', opacity: 0.85 } }, tr({
+      id: `dan ${sisa} lagi`, en: `and ${sisa} more`, zh: `还有 ${sisa} 个`,
+    })) : null,
+    h('div', { style: { fontSize: '10.5px', marginTop: '6px', whiteSpace: 'normal', lineHeight: 1.6 } }, tr({
+      id: 'CARI DULU DI DRIVE SEBELUM UPLOAD ULANG. Banyak dari file ini sebenarnya SUDAH ada di sana — unggahannya berhasil, cuma balasannya yang tidak sampai balik, jadi portal tidak pernah mencatat link-nya. Kalau ketemu: klik namanya di atas, tempel link Drive-nya, selesai. Upload ulang cuma akan membuat salinan kedua. Tanda "?" berarti hasilnya memang tidak diketahui — itu yang paling mungkin sudah ada di Drive.',
+      en: 'SEARCH DRIVE BEFORE RE-UPLOADING. Many of these are ALREADY there — the upload succeeded, only the reply never made it back, so the portal never recorded the link. If you find it: click its name above, paste the Drive link, done. Re-uploading only creates a second copy. A "?" means the outcome was genuinely unknown — those are the most likely to already be in Drive.',
+      zh: '重新上传前请先在 Drive 中搜索。其中很多其实已经在那里了 — 上传是成功的，只是响应没有返回，因此门户从未记录链接。若找到：点击上方文件名，粘贴 Drive 链接即可。重新上传只会产生第二个副本。带 "?" 表示结果确实未知 — 这些最有可能已在 Drive 中。',
     })),
   ]);
+}
+
+async function sambungBerkas(row) {
+  if (blockWrite('menyambungkan link Drive')) return;
+  const url = await tanyaTeks({
+    judul: tr({ id: 'Sambungkan ke file yang sudah ada di Drive', en: 'Link to the file already in Drive', zh: '关联到 Drive 中已有的文件' }),
+    pesan: tr({
+      id: `${row.file_name}\n\nBuka file ini di Google Drive, klik Share > Copy link, lalu tempel di bawah. Portal TIDAK akan mengunggah apa pun — ia cuma mencatat link-nya ke dokumen yang bersangkutan.`,
+      en: `${row.file_name}\n\nOpen this file in Google Drive, click Share > Copy link, then paste it below. The portal will NOT upload anything — it only records the link against the document it belongs to.`,
+      zh: `${row.file_name}\n\n请在 Google Drive 中打开此文件，点击「共享 > 复制链接」，然后粘贴到下方。门户不会上传任何内容 — 它只会把链接记录到对应单据上。`,
+    }),
+    label: tr({ id: 'Link Google Drive', en: 'Google Drive link', zh: 'Google Drive 链接' }),
+    okLabel: tr({ id: 'Sambungkan', en: 'Link it', zh: '关联' }),
+  });
+  if (url === null) return;
+  try {
+    await sambungkanManual(row.id, url);
+  } catch (e) {
+    toast({
+      id: 'Gagal menyambungkan: ' + (e.message || e),
+      en: 'Linking failed: ' + (e.message || e),
+      zh: '关联失败：' + (e.message || e),
+    });
+    return;
+  }
+  // Daftarnya dibaca ULANG dari server, bukan dicoret dari array di layar.
+  // Kalau penyimpanannya ternyata tidak jadi, spanduknya harus tetap
+  // menampilkannya — layar yang lebih optimis daripada servernya persis
+  // kesalahan yang membuat spanduk ini ada.
+  getState().driveGagal = await gagalOutbox().catch(() => getState().driveGagal || []);
+  logAudit({ entity: 'drive', target: row.file_name || String(row.id), action: 'link_manual', detail: 'link Drive ditempel manual' });
+  setState({});
+  toast({
+    id: `${row.file_name} tersambung — link-nya sudah tercatat, tidak ada file baru yang diunggah`,
+    en: `${row.file_name} linked — the link is recorded, nothing new was uploaded`,
+    zh: `${row.file_name} 已关联 — 链接已记录，未上传任何新文件`,
+  });
 }
 
 function driveQueueBanner(st) {

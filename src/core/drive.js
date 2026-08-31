@@ -69,7 +69,7 @@ export async function uploadToDrive(file, folderPath, filename, category) {
     return { ...up, outboxId: entry ? entry.id : null, stashed: !!entry };
   }
 
-  if (entry) await markPending(entry.id, up.reason);
+  if (entry) await markPending(entry.id, up.reason, { ragu: !!up.tidakDiketahui });
   return { ...up, outboxId: entry ? entry.id : null, stashed: !!entry };
 }
 
@@ -95,6 +95,10 @@ export async function pushToDrive(file, folderPath, filename, category) {
       if (data && data.session) headers.Authorization = `Bearer ${data.session.access_token}`;
     }
 
+    // Sampai di sini fetch() belum dipanggil. Apa pun yang meledak SESUDAH
+    // baris ini adalah balasan yang kita TERIMA; apa pun yang meledak PADA
+    // baris ini adalah balasan yang tidak pernah datang. Bedanya besar sekali,
+    // dan lihat catatan di blok catch di bawah.
     const res = await fetch(DRIVE_UPLOAD_URL, { method: 'POST', body: form, headers });
     // The body carries the ACTUAL reason (invalid_grant, quota, folder not
     // found). Throwing away that text is what turned a five-day outage into an
@@ -108,8 +112,26 @@ export async function pushToDrive(file, folderPath, filename, category) {
     return { url: json.webViewLink || json.url, id: json.id, name, placeholder: false };
   } catch (e) {
     const reason = String((e && e.message) || e);
-    console.warn('Drive upload ditolak:', reason);
-    return { url: `drive-error://${folderPath || ''}${name}`, id: null, name, placeholder: true, reason };
+    // "GAGAL" DAN "TIDAK TAHU" ADALAH DUA HAL YANG BERBEDA, DAN MENYAMAKANNYA
+    // SUDAH MELAHIRKAN DUPLIKAT DI DRIVE.
+    //
+    // Kalau server MENJAWAB dengan 4xx/5xx, kita tahu berkasnya tidak ditulis —
+    // mengulanginya aman. Tapi kalau fetch() sendiri yang meledak ("Failed to
+    // fetch", koneksi putus, tab ditutup di tengah jalan), yang hilang adalah
+    // BALASANNYA, bukan unggahannya. POST-nya bisa saja sudah mendarat dengan
+    // sempurna dan berkasnya sudah ada di Drive.
+    //
+    // Yang lama memperlakukan keduanya sama, jadi login berikutnya mengunggah
+    // ulang berkas yang sebenarnya sudah ada di sana. Itulah asal-usul pasangan
+    // kembar di folder 010220-26ID0641 dan 009851-SHIP: BL, PPKEK, SPPB, BC 1.1
+    // dan CEK HS CODE semuanya ada DUA, tanggalnya sama persis.
+    //
+    // TypeError dari fetch() adalah kegagalan jaringan — respons tidak pernah
+    // ada. Error yang lain di blok ini datang SESUDAH respons diterima, jadi
+    // hasilnya diketahui.
+    const tidakDiketahui = (e instanceof TypeError) || /failed to fetch|network|load failed/i.test(reason);
+    console.warn('Drive upload ' + (tidakDiketahui ? 'HASILNYA TIDAK DIKETAHUI' : 'ditolak') + ':', reason);
+    return { url: `drive-error://${folderPath || ''}${name}`, id: null, name, placeholder: true, reason, tidakDiketahui };
   }
 }
 

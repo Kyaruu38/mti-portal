@@ -30,6 +30,18 @@ import { getClient, isConfigured } from './supabase.js';
 
 const BUCKET = 'drive-outbox';
 
+// PENANDA "HASIL TIDAK DIKETAHUI", disimpan di depan last_error.
+//
+// Sengaja BUKAN nilai status baru: kolom status punya arti yang sudah dipakai
+// di tiga tempat dan menambah nilai keempat berarti SQL, sementara yang
+// dibutuhkan cuma satu bit "jangan diulang diam-diam". Barisnya tetap pending —
+// ia memang belum selesai — tapi retryPending melewatinya dan menyerahkannya ke
+// manusia, karena mengulang unggahan yang hasilnya tidak diketahui persis yang
+// melahirkan berkas kembar di Drive.
+export const RAGU = '[HASIL TIDAK DIKETAHUI]';
+export const beriTandaRagu = (s) => `${RAGU} ${s || ''}`.trim();
+export const adaTandaRagu = (s) => String(s || '').startsWith(RAGU);
+
 // Same contract as every other module here: a missing table/bucket is a warning,
 // never a throw. The business action this belongs to has its own guard.
 function warn(what, e) {
@@ -102,7 +114,7 @@ export async function markDone(outboxId, driveUrl) {
   }
 }
 
-export async function markPending(outboxId, err) {
+export async function markPending(outboxId, err, { ragu = false } = {}) {
   if (!outboxId || !isConfigured()) return;
   try {
     const c = await getClient();
@@ -114,7 +126,7 @@ export async function markPending(outboxId, err) {
     await c.from('drive_outbox').update({
       status: 'pending',
       attempts: ((data && data.attempts) || 0) + 1,
-      last_error: String((err && err.message) || err || '').slice(0, 500),
+      last_error: (ragu ? beriTandaRagu(String((err && err.message) || err || '')) : String((err && err.message) || err || '')).slice(0, 500),
     }).eq('id', outboxId);
   } catch (e) {
     warn('markPending gagal', e);
@@ -167,14 +179,67 @@ export async function gagalOutbox() {
   try {
     const c = await getClient();
     if (!c) return [];
-    const { data, error } = await c.from('drive_outbox')
+    // DUA KELOMPOK, SATU DAFTAR — karena tindakan manusianya sama persis:
+    // buka Drive, lihat berkasnya ada atau tidak, lalu sambungkan atau unggah
+    // ulang. Memisahkannya jadi dua spanduk cuma menyuruh orang membaca dua
+    // kali untuk satu pekerjaan.
+    const a = await c.from('drive_outbox')
       .select('*').eq('status', 'failed').order('created_at', { ascending: true }).limit(100);
-    if (error) { warn('gagal membaca daftar gagal', error); return []; }
-    return data || [];
+    if (a.error) { warn('gagal membaca daftar gagal', a.error); return []; }
+    const b = await c.from('drive_outbox')
+      .select('*').eq('status', 'pending').order('created_at', { ascending: true }).limit(100);
+    if (b.error) { warn('gagal membaca daftar pending', b.error); return a.data || []; }
+    const ragu = (b.data || []).filter(x => adaTandaRagu(x.last_error));
+    return [...(a.data || []), ...ragu];
   } catch (e) {
     warn('gagalOutbox gagal', e);
     return [];
   }
+}
+
+// MENYAMBUNGKAN BERKAS YANG SUDAH TERLANJUR ADA DI DRIVE.
+//
+// Untuk berkas yang unggahannya sebenarnya berhasil tapi balasannya hilang:
+// berkasnya ada di Drive, yang putus cuma CATATANNYA. Mengunggah ulang akan
+// membuat salinan ketiga; yang benar menempelkan link yang sudah ada.
+//
+// Link ditulis ke baris tujuannya lewat applyToTarget yang sama dengan yang
+// dipakai jalur otomatis — jadi tidak ada dua cara berbeda sebuah link bisa
+// mendarat di ppkek, dan tidak ada satu pun yang suatu hari berbeda perilaku.
+export async function sambungkanManual(outboxId, driveUrl) {
+  if (!outboxId) throw new Error('baris antrean tidak dikenal');
+  const url = String(driveUrl || '').trim();
+  // Penjagaan seadanya, dan memang cuma seadanya: yang menempel link ini orang
+  // yang sedang melihat berkasnya di Drive. Yang perlu dicegah bukan niat
+  // buruk, tapi salah tempel — teks acak, atau link yang ketinggalan http.
+  if (!/^https:\/\/(drive|docs)\.google\.com\//i.test(url)) {
+    throw new Error('itu bukan link Google Drive — buka filenya di Drive, Share > Copy link');
+  }
+  if (!isConfigured()) throw new Error('Supabase belum dikonfigurasi');
+  const c = await getClient();
+  if (!c) throw new Error('Supabase client unavailable');
+
+  const { data: row, error: eBaca } = await c.from('drive_outbox')
+    .select('*').eq('id', outboxId).maybeSingle();
+  if (eBaca || !row) throw new Error('baris antreannya tidak ketemu lagi');
+
+  // TUJUANNYA DULU, BARU STATUSNYA. Urutan sebaliknya membuat baris tertandai
+  // selesai sementara link-nya tidak pernah sampai ke ppkek — persis bentuk
+  // kesalahan yang seluruh modul ini ada untuk mencegahnya.
+  await applyToTarget(c, row, url);
+
+  const { error } = await c.from('drive_outbox').update({
+    status: 'done', drive_url: url, done_at: new Date().toISOString(),
+    last_error: 'disambungkan manual ke berkas yang sudah ada di Drive',
+  }).eq('id', outboxId);
+  if (error) throw error;
+
+  // Salinan antreannya dibuang kalau kebetulan masih ada. Gagal di sini tidak
+  // fatal: link-nya sudah tercatat, dan objek yatim cuma memakan beberapa kb.
+  if (row.storage_path) {
+    await c.storage.from(BUCKET).remove([row.storage_path]).catch(() => {});
+  }
+  return true;
 }
 
 // APAKAH OBJEKNYA MASIH ADA — tanpa mengunduhnya.
@@ -274,8 +339,14 @@ export async function retryPending(pushFn) {
   const c = await getClient();
   if (!c) return { tried: 0, sent: 0, still: rows.length };
 
-  let sent = 0;
+  let sent = 0, dilewati = 0;
   for (const row of rows) {
+    // YANG HASILNYA TIDAK DIKETAHUI TIDAK DIULANG DIAM-DIAM.
+    //
+    // Mengunggah ulang berkas yang mungkin sudah mendarat adalah cara membuat
+    // duplikat, bukan cara memperbaiki apa pun. Barisnya diserahkan ke spanduk
+    // supaya orang membuka Drive dan memutuskan: sambungkan, atau unggah ulang.
+    if (adaTandaRagu(row.last_error)) { dilewati++; continue; }
     try {
       const dl = await c.storage.from(BUCKET).download(row.storage_path);
       if (dl.error || !dl.data) {
@@ -315,5 +386,5 @@ export async function retryPending(pushFn) {
       await markPending(row.id, e);
     }
   }
-  return { tried: rows.length, sent, still: rows.length - sent };
+  return { tried: rows.length, sent, still: rows.length - sent, dilewati };
 }
