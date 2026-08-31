@@ -1,7 +1,7 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, logAudit } from '../core/store.js';
 import { blockWrite } from '../core/guard.js';
-import { sambungkanManual, gagalOutbox, adaTandaRagu } from '../core/driveOutbox.js';
+import { sambungkanManual, abaikanOutbox, gagalOutbox, adaTandaRagu } from '../core/driveOutbox.js';
 import { t, tr } from '../i18n/index.js';
 import { card, sectionHead, badge, btn, icon, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring , tanyaTeks } from '../ui/components.js';
 import { money, fmtDate, daysUntil, sumByCurrency, moneyMulti, BULAN_ID, BULAN_EN, BULAN_ZH } from '../core/format.js';
@@ -120,17 +120,35 @@ function driveGagalBanner(st) {
     // link-nya kembali. Jadi tombolnya ditaruh persis di tempat orang membaca
     // masalahnya.
     h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '7px' } },
-      q.slice(0, 12).map(row => h('button.btn.btn-sm', {
-        style: { fontSize: '10.5px', fontFamily: 'var(--mono, monospace)' },
-        title: tr({
-          id: 'Klik kalau filenya sudah ada di Drive — tempel link-nya, jangan upload ulang',
-          en: 'Click if the file is already in Drive — paste its link, do not re-upload',
-          zh: '如果文件已在 Drive 中请点击 — 粘贴链接，不要重新上传',
-        }),
-        onClick: () => sambungBerkas(row),
+      q.slice(0, 12).map(row => h('span', {
+        style: { display: 'inline-flex', alignItems: 'stretch', borderRadius: '6px', overflow: 'hidden' },
       }, [
-        adaTandaRagu(row.last_error) ? '? ' : '',
-        row.file_name || '(tanpa nama)',
+        h('button.btn.btn-sm', {
+          style: { fontSize: '10.5px', fontFamily: 'var(--mono, monospace)', borderTopRightRadius: 0, borderBottomRightRadius: 0 },
+          title: tr({
+            id: 'Filenya sudah ada di Drive — tempel link-nya. Jangan upload ulang.',
+            en: 'The file is already in Drive — paste its link. Do not re-upload.',
+            zh: '文件已在 Drive 中 — 粘贴其链接。不要重新上传。',
+          }),
+          onClick: () => sambungBerkas(row),
+        }, [
+          adaTandaRagu(row.last_error) ? '? ' : '',
+          row.file_name || '(tanpa nama)',
+        ]),
+        // TOMBOL KEDUA, dan ia ada karena orangnya menemukan jalan ketiga
+        // duluan: mengunggah ulang dokumennya lewat layar PPKEK. Itu SAH, dan
+        // sesudahnya baris ini memang tinggal sampah — tapi tanpa tombol ini
+        // tidak ada satu pun cara menutupnya, dan spanduknya menuntut pekerjaan
+        // yang sudah dikerjakan sampai akhir zaman.
+        h('button.btn.btn-sm', {
+          style: { fontSize: '10.5px', padding: '0 7px', borderTopLeftRadius: 0, borderBottomLeftRadius: 0, opacity: 0.75 },
+          title: tr({
+            id: 'Sudah diurus lewat jalan lain (misalnya sudah diunggah ulang) — tutup barisnya',
+            en: 'Already handled another way (e.g. re-uploaded) — close this row',
+            zh: '已通过其他方式处理（例如已重新上传）— 关闭此条',
+          }),
+          onClick: () => abaikanBerkas(row),
+        }, '\u00d7'),
       ]))),
     sisa > 0 ? h('div', { style: { fontSize: '10.5px', marginTop: '4px', opacity: 0.85 } }, tr({
       id: `dan ${sisa} lagi`, en: `and ${sisa} more`, zh: `还有 ${sisa} 个`,
@@ -141,6 +159,37 @@ function driveGagalBanner(st) {
       zh: '重新上传前请先在 Drive 中搜索。其中很多其实已经在那里了 — 上传是成功的，只是响应没有返回，因此门户从未记录链接。若找到：点击上方文件名，粘贴 Drive 链接即可。重新上传只会产生第二个副本。带 "?" 表示结果确实未知 — 这些最有可能已在 Drive 中。',
     })),
   ]);
+}
+
+async function abaikanBerkas(row) {
+  if (blockWrite('menutup baris antrean Drive')) return;
+  const alasan = await tanyaTeks({
+    judul: tr({ id: 'Tutup baris ini', en: 'Close this row', zh: '关闭此条' }),
+    pesan: tr({
+      id: `${row.file_name}\n\nPakai ini kalau dokumennya SUDAH beres lewat jalan lain — misalnya PPKEK-nya sudah diunggah ulang. Barisnya ditutup tanpa link, dan alasannya ikut tersimpan. Kalau filenya sebenarnya ada di Drive, lebih baik tekan namanya dan tempel link-nya.`,
+      en: `${row.file_name}\n\nUse this when the document is ALREADY handled another way — for example the PPKEK was re-uploaded. The row is closed with no link, and the reason is stored with it. If the file is actually in Drive, prefer clicking its name and pasting the link.`,
+      zh: `${row.file_name}\n\n当该文件已通过其他方式处理时使用 — 例如该 PPKEK 已重新上传。此条将在没有链接的情况下关闭，原因会一并保存。如果文件其实在 Drive 中，建议点击文件名并粘贴链接。`,
+    }),
+    label: tr({ id: 'Alasan', en: 'Reason', zh: '原因' }),
+    nilai: tr({ id: 'sudah diunggah ulang', en: 'already re-uploaded', zh: '已重新上传' }),
+    okLabel: tr({ id: 'Tutup barisnya', en: 'Close the row', zh: '关闭' }),
+    danger: true,
+  });
+  if (alasan === null) return;
+  try {
+    await abaikanOutbox(row.id, alasan);
+  } catch (e) {
+    toast({ id: 'Gagal menutup: ' + (e.message || e), en: 'Closing failed: ' + (e.message || e), zh: '关闭失败：' + (e.message || e) });
+    return;
+  }
+  getState().driveGagal = await gagalOutbox().catch(() => getState().driveGagal || []);
+  logAudit({ entity: 'drive', target: row.file_name || String(row.id), action: 'outbox_abaikan', detail: String(alasan).slice(0, 120) });
+  setState({});
+  toast({
+    id: `${row.file_name} ditutup — TANPA link. Kalau ternyata belum ada di record-nya, cek lagi.`,
+    en: `${row.file_name} closed — with NO link. If it is not on its record after all, check again.`,
+    zh: `${row.file_name} 已关闭 — 未附链接。若其实未挂在单据上，请再确认。`,
+  });
 }
 
 async function sambungBerkas(row) {

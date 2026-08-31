@@ -197,6 +197,44 @@ export async function gagalOutbox() {
   }
 }
 
+// MENUTUP BARIS YANG SUDAH BERES LEWAT JALAN LAIN.
+//
+// Ada cara ketiga sebuah berkas selesai, dan sampai sekarang portal buta
+// terhadapnya: orangnya MENGUNGGAH ULANG dokumennya lewat layar PPKEK.
+// Unggahan itu membuat baris antrean BARU dan berhasil, dokumennya menempel di
+// record-nya, dan pekerjaannya memang sudah selesai — tapi baris LAMA tetap
+// duduk di sana, karena tidak ada apa pun yang menghubungkan "dokumen ini sudah
+// diunggah ulang" dengan "baris lama ini boleh ditutup". Dua baris itu tidak
+// saling kenal.
+//
+// Akibatnya spanduk menuntut pekerjaan yang sudah dikerjakan. Spanduk yang
+// menuntut hal yang sudah beres akan diabaikan orang, dan spanduk yang
+// diabaikan tidak menyelamatkan berkas berikutnya.
+//
+// ALASANNYA WAJIB, dan itu bukan basa-basi konfirmasi. Baris yang ditutup tanpa
+// keterangan tidak bisa dibedakan enam bulan lagi dari baris yang ditutup
+// karena orangnya capek melihatnya. Yang satu catatan, yang satu lubang.
+export async function abaikanOutbox(outboxId, alasan) {
+  if (!outboxId) throw new Error('baris antrean tidak dikenal');
+  const teks = String(alasan || '').trim();
+  if (!teks) throw new Error('alasannya harus diisi');
+  if (!isConfigured()) throw new Error('Supabase belum dikonfigurasi');
+  const c = await getClient();
+  if (!c) throw new Error('Supabase client unavailable');
+
+  // drive_url sengaja DIBIARKAN KOSONG. Baris ini ditutup karena urusannya
+  // selesai di tempat lain, bukan karena link-nya ketemu — mengarang link di
+  // sini akan membuat baris yang berbohong tentang dirinya sendiri.
+  const { data, error } = await c.from('drive_outbox').update({
+    status: 'done',
+    done_at: new Date().toISOString(),
+    last_error: 'DIABAIKAN MANUAL — ' + teks.slice(0, 400),
+  }).eq('id', outboxId).select('id');
+  if (error) throw error;
+  if (!(data || []).length) throw new Error('server menolak perubahannya (0 baris)');
+  return true;
+}
+
 // MENYAMBUNGKAN BERKAS YANG SUDAH TERLANJUR ADA DI DRIVE.
 //
 // Untuk berkas yang unggahannya sebenarnya berhasil tapi balasannya hilang:
