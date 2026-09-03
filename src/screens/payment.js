@@ -1865,21 +1865,54 @@ async function openPrf(chosen, currency, supplierObj) {
   });
 }
 
-// Learning bilingual description dictionary: prefill from prior entries.
+// KETERANGAN PEMBAYARAN = APA YANG DILIHAT ORANGNYA WAKTU MENCENTANG.
+//
+// Daftar di PRF Builder menampilkan inv.poRef apa adanya (lihat baris invoice
+// di builderCard). Orang membaca teks itu, mencentang barisnya, lalu menekan
+// Preview. Kalau dokumen yang keluar mencetak sesuatu yang LAIN, yang
+// ditandatangani bukan yang diperiksa — dan PRF ini dokumen yang ditandatangani
+// tiga orang lalu dipakai membayar.
+//
+// YANG LAMA MENEBAK PO, LALU MENCETAK BARIS PERTAMANYA.
+//
+//     const po = st.pos.find(p => ref.includes(p.contract) || p.no.includes(ref…));
+//     const hint = po ? po.items[0].d : ref;
+//
+// Dua kesalahan bertumpuk di situ.
+//
+// Pertama, pencocokannya longgar DAN dua arah: klausa pertama menuntut ref
+// MEMUAT contract, klausa kedua menuntut nomor PO MEMUAT ref. Sebuah nomor
+// kontrak yang kebetulan potongan dari yang lain sudah cukup untuk menang.
+//
+// Kedua, dan ini yang mencetak angka salah di kertas: sesudah sebuah PO
+// terpilih, yang diambil `items[0].d` — deskripsi BARIS PERTAMA PO itu.
+// Invoice BSNINVMT2608262 memuat TUJUH baris di bawah PO ASCENDO-BSN-SNI-1308,
+// dan yang tercetak di PRF/PC/IX/019 adalah
+// "(ID-ASCENDO-BIAS-OEM)ID7.50-16-14PR[AB313]122/118G ASCENDO" — satu spec, dari
+// famili yang bahkan berbeda (BIAS-OEM, sementara PO-nya SNI). Enam baris
+// lainnya hilang tanpa jejak, dan yang tersisa terbaca sangat meyakinkan.
+//
+// Di PRF yang SAMA, baris satunya (BSNINVMT2608311) mencetak poRef apa adanya —
+// karena kebetulan tidak ada PO yang cocok untuknya. Dua baris, dua aturan, satu
+// dokumen. Itu sendiri sudah bukti aturannya salah.
+//
+// "Baris pertama sebuah PO" bukan keterangan pembayaran. Sebuah invoice bisa
+// memuat tujuh spec berbeda; memilih yang pertama bukan meringkas, itu membuang
+// enam yang lain sambil terlihat pasti.
+//
+// Sekarang yang dicetak poRef-nya sendiri, sama persis dengan yang tertulis di
+// builder. Kamusnya TIDAK dibuang — ia master data yang dirawat orang — tapi
+// turun pangkat jadi TAMBAHAN, dan cuma bagian Tionghoanya yang ditempel,
+// karena bagian Inggrisnya justru yang dipakai mencocokkan dan sudah ada di
+// dalam ref itu sendiri.
 function descFor(inv) {
   const st = getState();
-  // PO Ref itu OPSIONAL, dan invoicesApi menulis po_ref: inv.poRef || null —
-  // jadi sesudah satu kali reload nilainya benar-benar null. Operan kedua sudah
-  // dijaga sejak dulu; yang pertama tidak, dan begitu ada satu PO dengan
-  // contract terisi, null.includes() melempar TypeError. openPrf() async, jadi
-  // hasilnya unhandled rejection: tombol "Preview PRF" tidak melakukan APA PUN,
-  // tanpa toast, tanpa kotak error, dan invoice itu tidak bisa dibayar lewat
-  // portal selamanya. Persis crash yang sudah diperbaiki di poPpnPaid().
-  const ref = String(inv.poRef || '');
-  const po = st.pos.find(p => (p.contract && ref.includes(p.contract)) || (p.no && p.no.includes(ref.replace('PO ', ''))));
-  const hint = po && po.items && po.items[0] ? po.items[0].d : (ref || '');
-  const dictHit = st.descDict.find(d => hint && (hint.includes(d.en) || (d.zh && hint.includes(d.zh))));
-  return dictHit ? `${dictHit.en} / ${dictHit.zh}` : hint;
+  // poRef OPSIONAL, dan invoicesApi menulis po_ref: inv.poRef || null — jadi
+  // sesudah satu kali reload nilainya benar-benar null. String() dulu, selalu.
+  const ref = String(inv.poRef || '').trim();
+  if (!ref) return '';
+  const kamus = (st.descDict || []).find(d => d && d.en && d.zh && ref.includes(d.en));
+  return kamus ? `${ref} · ${kamus.zh}` : ref;
 }
 
 function prfModal() {
