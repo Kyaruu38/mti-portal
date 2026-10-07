@@ -20,6 +20,29 @@ export const USERS = {
   // Yang berganti cuma label di layar. (Jumlah layarnya jangan ditulis di sini
   // lagi: angka itu sudah dua kali basi. Hitung dari ACCESS.cenjc.)
   cenjc:      { name: 'cenjc',      tag: '经营管理部经理',            init: 'CE', color: '#5C6470', lang: 'id' },
+
+  // kevin — supervisor KEDUA. Wewenangnya sama persis dengan wilbert, dan itu
+  // dikerjakan dengan ALIAS PERAN, bukan dengan peran baru:
+  //
+  //   username kevin  →  role 'wilbert'
+  //
+  // Alasannya ada di basis data. 'wilbert' ditulis apa adanya di 37 tempat —
+  // is_admin(), is_purchasing(), is_label_staff(), pos_guard_*, dan selusin
+  // policy RLS — dan profiles_role_check hanya menerima nama peran yang sudah
+  // terdaftar. Peran baru bernama 'kevin' berarti menyentuh ke-37-nya plus satu
+  // ALTER pada check constraint; satu yang terlewat bukan error, melainkan satu
+  // tombol yang diam-diam tidak bekerja untuk satu orang saja — jenis kerusakan
+  // yang baru ketahuan saat dipakai. Alias mengubah NOL di antaranya.
+  //
+  // Identitasnya tetap miliknya sendiri: KEPEMILIKAN dicatat dari
+  // st.user.username (lihat `by:` di poConverter/labelRequest/payment) dan
+  // server membacanya lewat current_username(), yang BERBEDA dari
+  // current_role(). Jadi PO buatan kevin tertulis atas nama kevin, sementara
+  // haknya datang dari peran wilbert.
+  //
+  // Warnanya sengaja bukan jingga milik wilbert: dua orang dengan wewenang sama
+  // tetap harus bisa dibedakan dari avatarnya saja.
+  kevin:      { name: 'kevin',      tag: 'Purchasing — Supervisor 2', init: 'KE', color: '#2F8F6F', lang: 'en', role: 'wilbert' },
 };
 
 // Screen access per role (menus hidden + RLS enforced).
@@ -219,6 +242,12 @@ export function emailToUsername(email) { return String(email || '').split('@')[0
 export function makeUser(username) {
   const u = USERS[username];
   if (!u) return null;
-  // role === username for the built-in accounts.
-  return { username, role: username, email: usernameToEmail(username), ...u };
+  // role === username for the built-in accounts, KECUALI yang menyatakan `role`
+  // sendiri (kevin → wilbert). `role` dikeluarkan dulu dari sebaran supaya
+  // hasilnya tidak bergantung pada urutan properti di dalam USERS — kalau
+  // ditulis `{ role: username, ...u }` maka entri yang punya role akan menang
+  // secara kebetulan, dan kalau dibalik justru alias-nya yang tertimpa. Dua-duanya
+  // benar hari ini dan salah pada suntingan berikutnya.
+  const { role: peranAlias, ...sisa } = u;
+  return { username, email: usernameToEmail(username), ...sisa, role: peranAlias || username };
 }

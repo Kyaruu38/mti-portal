@@ -241,7 +241,13 @@ async function genConverterPO() {
     contact: res.contact || '', phone: res.phone || '',
     items,
   };
-  if (isWilbert) { po.approvedAt = new Date().toISOString(); po.approvedBy = 'wilbert'; }
+  // approvedBy = SIAPA yang menyetujui, bukan nama peran. Dulu ditulis
+  // 'wilbert' apa adanya — benar selama pemegang `approve` cuma satu orang,
+  // dan berbohong sejak kevin ada: PO buatan kevin akan tercatat disetujui
+  // wilbert. Trigger pos_guard_status hanya MEMBANDINGKAN approved_by lama
+  // dengan yang baru, tidak pernah menuntut nilainya 'wilbert', jadi tidak
+  // ada penjaga server yang dilanggar oleh perubahan ini.
+  if (isWilbert) { po.approvedAt = new Date().toISOString(); po.approvedBy = st.user.username; }
   // Peringatan yang harus ikut terbaca bareng pesan suksesnya, bukan
   // menggantikannya. toast() cuma punya SATU slot — alasannya di dalam catch().
   const peringatan = [];
