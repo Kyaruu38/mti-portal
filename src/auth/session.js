@@ -18,6 +18,7 @@ import { fetchItems } from '../core/itemsApi.js';
 import { fetchBrandMap } from '../core/brandMapApi.js';
 import { fetchDesigns } from '../core/designsApi.js';
 import { fetchLabelRequests } from '../core/labelRequestsApi.js';
+import { fetchComplaints } from '../core/complaintsApi.js';
 import { fetchUnits } from '../core/unitsApi.js';
 import { fetchInvoices } from '../core/invoicesApi.js';
 import { fetchLabelGudang, fetchLabelStockGudang } from '../core/labelStockApi.js';
@@ -147,6 +148,9 @@ async function hydrate(user, username, preferScreen, preferLang) {
     ['items',         () => fetchItems()],
     ['brandMap',      () => fetchBrandMap()],
     ['labelRequests', () => fetchLabelRequests()],
+    // Komplain gudang. Dibaca semua peran yang punya layarnya; RLS yang
+    // memutuskan siapa melihat apa, bukan daftar ini.
+    ['complaints',    () => fetchComplaints()],
     ['designs',       () => fetchDesigns()],
     ['units',         () => fetchUnits()],
     // Finance. Urutan invoices -> prfs -> payments dipertahankan supaya enak

@@ -60,6 +60,11 @@ const LAZY = {
   // walaupun jendelanya dipinjam dari approval.js — layar ini dibuka orang
   // yang tidak punya Approval sama sekali.
   'kas-label':      () => import('./screens/kasLabel.js').then(m => m.kasLabelScreen),
+  // Komplain gudang. Layar terpisah dan bukan tab di PO Outstanding: yang
+  // membukanya sering BUKAN orang yang sama, dan laporannya punya daur hidup
+  // sendiri (Open -> In progress -> Closed) yang tidak ada hubungannya dengan
+  // sisa PO.
+  complaints:       () => import('./screens/complaints.js').then(m => m.complaintsScreen),
   ppkek:            () => import('./screens/ppkek.js').then(m => m.ppkekScreen),
   payment:          () => import('./screens/payment.js').then(m => m.paymentScreen),
   // Modul yang SAMA dengan 'payment' — import() menyimpan hasilnya, jadi

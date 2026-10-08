@@ -59,6 +59,7 @@ export const DICT = {
   // begitu. Ini lembar internal gudang MTI untuk memeriksa label yang datang.
   s_surat: { id: 'Surat Jalan Internal (Label)', en: 'Internal Delivery Note (Label)', zh: '内部送货核对单（标签）' },
   s_outstanding: { id: 'PO Outstanding', en: 'Outstanding PO', zh: '未交采购单' },
+  s_complaints: { id: 'Komplain Gudang', en: 'Warehouse Complaints', zh: '仓库投诉' },
   s_converter: { id: 'PO Converter', en: 'PO Converter', zh: '采购单转换' },
   s_ppkek: { id: 'PPKEK', en: 'PPKEK', zh: '报关 PPKEK' },
   s_payment: { id: 'Payment', en: 'Payment', zh: '付款' },

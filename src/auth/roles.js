@@ -43,6 +43,18 @@ export const USERS = {
   // Warnanya sengaja bukan jingga milik wilbert: dua orang dengan wewenang sama
   // tetap harus bisa dibedakan dari avatarnya saja.
   kevin:      { name: 'kevin',      tag: 'Purchasing — Supervisor 2', init: 'KE', color: '#2F8F6F', lang: 'en', role: 'wilbert' },
+
+  // GUDANG. Dua akun, satu peran. Dipakai orang yang membongkar kardus dan
+  // menghitung isinya — merekalah yang pertama tahu barang datang dan pertama
+  // melihat labelnya salah. Bahasanya zh karena yang memakainya membaca Mandarin.
+  //
+  // wangyaqian dialias ke peran warehousemti dengan mekanisme yang sama seperti
+  // kevin: nama pemakainya sendiri (dipakai di kolom pelapor dan created_by),
+  // haknya menumpang satu peran. Menambah orang gudang berikutnya cukup satu
+  // baris di sini plus satu baris di profiles — bukan satu peran baru dengan
+  // policy RLS-nya sendiri.
+  warehousemti: { name: 'warehousemti', tag: '仓库 Warehouse', init: 'WH', color: '#8C5A2B', lang: 'zh' },
+  wangyaqian:   { name: 'wangyaqian',   tag: '仓库 Warehouse', init: 'WY', color: '#A8743A', lang: 'zh', role: 'warehousemti' },
 };
 
 // Screen access per role (menus hidden + RLS enforced).
@@ -97,6 +109,13 @@ export const ACCESS = {
   // designWrite / labelParse below), and those gates now protect every role,
   // not just this one.
   cenjc:   ['dashboard', 'approval', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports'],
+  // Gudang: TIGA layar. Dashboard supaya mendarat di tempat yang masuk akal,
+  // PO Outstanding untuk melihat apa yang belum datang DAN menandai yang sudah,
+  // Complaints untuk melapor. Tidak ada Reports, tidak ada harga, tidak ada
+  // Payment — mereka tidak pernah perlu melihat angka uang untuk mengerjakan
+  // pekerjaannya, dan layar yang tidak pernah dipakai cuma menambah yang harus
+  // dijelaskan ke orang berikutnya.
+  warehousemti: ['dashboard', 'outstanding-po', 'complaints'],
 };
 
 // Fine-grained capabilities (used to hide buttons + enforced by RLS).
@@ -177,15 +196,15 @@ export const CAPS = {
   //
   // Pembagian kerjanya tidak berubah: sona yang meminta, purchasing yang
   // menjadikannya PO.
-  wilbert:    grant('approve editMaster labelStockWrite paymentWrite prfCreate prfReceive markPaid sjWrite ppkekWrite designWrite poCreate poReceive labelParse labelRequestFill labelRequestAsk'),
+  wilbert:    grant('approve editMaster labelStockWrite paymentWrite prfCreate prfReceive markPaid sjWrite ppkekWrite designWrite poCreate poReceive labelParse labelRequestFill labelRequestAsk complaintClose'),
   // cania/visca RECEIVE the invoices and raise the PRF from them. Until v12.0
   // they held prfCreate WITHOUT paymentWrite, which read as a sensible split and
   // was not: an invoice only reaches the PRF builder once it has left stage 1,
   // and the control that moves it lives on the intake half of the screen. So
   // their builder was permanently empty — not because no invoice existed, but
   // because they could never enter one in the first place.
-  cania:      grant('editMaster labelStockWrite paymentWrite prfCreate sjWrite designWrite poCreate poReceive labelParse labelRequestFill'),
-  visca:      grant('editMaster labelStockWrite paymentWrite prfCreate sjWrite designWrite poCreate poReceive labelParse labelRequestFill'),
+  cania:      grant('editMaster labelStockWrite paymentWrite prfCreate sjWrite designWrite poCreate poReceive labelParse labelRequestFill complaintWrite complaintClose'),
+  visca:      grant('editMaster labelStockWrite paymentWrite prfCreate sjWrite designWrite poCreate poReceive labelParse labelRequestFill complaintWrite complaintClose'),
   // sekar: purchasing-side payment + PPKEK; payment STATUS is read-only for sekar.
   sekar:      grant('paymentWrite prfCreate paymentReadonly ppkekWrite markPaid'),
   // finance: receive + mark paid; cannot approve POs or raise a PRF. Keeps
@@ -200,6 +219,13 @@ export const CAPS = {
   sona:       grant('labelStockWrite labelParse labelRequestAsk'),
   // cenjc: nothing. Not one write capability, by design.
   cenjc:      grant('readOnly'),
+  // poReceive: menandai baris PO sudah sampai. Ini SATU-SATUNYA tulisan gudang
+  // ke tabel pos, dan trigger pos_guard_approved tetap membekukan kolom lain
+  // dari PO yang sudah disetujui untuk siapa pun selain wilbert — jadi mereka
+  // bisa mengubah angka penerimaan dan tidak bisa menyentuh isi kontraknya.
+  // complaintWrite: membuat komplain. TIDAK termasuk menutupnya — yang melapor
+  // tidak menutup laporannya sendiri, sama alasannya dengan prfReceive.
+  warehousemti: grant('poReceive complaintWrite'),
 };
 
 // Which Reports modules a role may see.
@@ -221,6 +247,7 @@ export const REPORT_MODULES = {
   // Full visibility, per the owner's decision on 31 Jul. This is the whole point
   // of the account: one place to see where every document actually is.
   cenjc:      ['Label', 'PO', 'PPKEK', 'PRF', 'Payment'],
+  warehousemti: [],   // tidak punya layar Reports sama sekali
 };
 export function allowedReportModules(role) { return REPORT_MODULES[role] || []; }
 
