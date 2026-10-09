@@ -241,6 +241,32 @@ function driveQueueBanner(st) {
       en: `${q.length} file(s) have not reached Google Drive — they are SAFE on the server and will be sent automatically once Drive is reachable.`,
       zh: `${q.length} 个文件尚未送达 Google Drive — 文件已安全保存在服务器，Drive 恢复后将自动上传。`,
     })]),
+    // NAMA BERKASNYA, dan ini bukan hiasan.
+    //
+    // Sampai v17.0 spanduk ini cuma menyebut JUMLAHNYA. Spanduk merah di
+    // atasnya sudah menyebutkan nama satu per satu sejak v15.20, tapi yang
+    // kuning tidak — padahal dua-duanya dibaca orang yang sama, berurutan, dan
+    // pertanyaan pertamanya persis sama: "berkas yang mana?". Tanpa namanya,
+    // satu-satunya cara menjawabnya adalah membuka Supabase.
+    //
+    // Yang mau diketahui orangnya bukan cuma "ada dua yang tertahan", tapi
+    // "apakah PUNYAKU yang tertahan" — dan itu tidak bisa dijawab oleh angka.
+    // Namanya ditampilkan sebagai teks, BUKAN tombol: baris pending memang
+    // tidak butuh tindakan apa pun, dan tombol di sebelah kalimat "tidak perlu
+    // upload ulang" cuma mengundang orang menekannya.
+    h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '7px' } },
+      q.slice(0, 12).map(row => h('span.mono', {
+        style: {
+          fontSize: '10.5px', padding: '2px 7px', borderRadius: '5px',
+          border: '1px solid currentColor', opacity: 0.9, whiteSpace: 'nowrap',
+          maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis',
+        },
+        title: [row.file_name, row.folder_path, row.created_by ? `oleh ${row.created_by}` : '']
+          .filter(Boolean).join(' \u00b7 '),
+      }, row.file_name || tr({ id: '(tanpa nama)', en: '(unnamed)', zh: '(\u65e0\u540d\u79f0)' })))),
+    q.length > 12 ? h('div', { style: { fontSize: '10.5px', marginTop: '4px', opacity: 0.85 } }, tr({
+      id: `dan ${q.length - 12} lagi`, en: `and ${q.length - 12} more`, zh: `\u8fd8\u6709 ${q.length - 12} \u4e2a`,
+    })) : null,
     // The reason, verbatim. Not decoration: "invalid_grant" is the difference
     // between an expired token and a full disk, and guessing between them is
     // exactly what took an hour.

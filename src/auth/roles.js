@@ -82,7 +82,7 @@ export const ACCESS = {
   // (pos_insert mensyaratkan is_label_staff()), jadi layarnya akan selalu
   // kosong. Menu yang selalu kosong adalah menu yang diklik sekali lalu
   // dianggap rusak.
-  wilbert: ['dashboard', 'approval', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports'],
+  wilbert: ['dashboard', 'approval', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports', 'log-hapus-po'],
   cania:   ['dashboard', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
   visca:   ['dashboard', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
   // 'finance' added 31 Jul 2026 so sekar can post the transfer proof. Finance
@@ -108,7 +108,7 @@ export const ACCESS = {
   // is what forced the real gates to exist (sjWrite / ppkekWrite / poCreate /
   // designWrite / labelParse below), and those gates now protect every role,
   // not just this one.
-  cenjc:   ['dashboard', 'approval', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports'],
+  cenjc:   ['dashboard', 'approval', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports', 'log-hapus-po'],
   // Gudang: TIGA layar. Dashboard supaya mendarat di tempat yang masuk akal,
   // PO Outstanding untuk melihat apa yang belum datang DAN menandai yang sudah,
   // Complaints untuk melapor. Tidak ada Reports, tidak ada harga, tidak ada
@@ -196,7 +196,7 @@ export const CAPS = {
   //
   // Pembagian kerjanya tidak berubah: sona yang meminta, purchasing yang
   // menjadikannya PO.
-  wilbert:    grant('approve editMaster labelStockWrite paymentWrite prfCreate prfReceive markPaid sjWrite ppkekWrite designWrite poCreate poReceive labelParse labelRequestFill labelRequestAsk complaintClose'),
+  wilbert:    grant('approve editMaster labelStockWrite paymentWrite prfCreate prfReceive markPaid sjWrite ppkekWrite designWrite poCreate poReceive labelParse labelRequestFill labelRequestAsk complaintClose auditHapus'),
   // cania/visca RECEIVE the invoices and raise the PRF from them. Until v12.0
   // they held prfCreate WITHOUT paymentWrite, which read as a sensible split and
   // was not: an invoice only reaches the PRF builder once it has left stage 1,
@@ -218,7 +218,12 @@ export const CAPS = {
   // see labelRequestAsk above.
   sona:       grant('labelStockWrite labelParse labelRequestAsk'),
   // cenjc: nothing. Not one write capability, by design.
-  cenjc:      grant('readOnly'),
+  //
+  // auditHapus BUKAN pengecualiannya: ia membuka SATU LAYAR BACA, tidak
+  // menulis apa pun dan tidak menghidupkan satu tombol pun di layar lain.
+  // Manajer yang tidak bisa melihat PO mana saja yang dibuang kehilangan justru
+  // kejadian yang paling perlu diawasi.
+  cenjc:      grant('readOnly auditHapus'),
   // poReceive: menandai baris PO sudah sampai. Ini SATU-SATUNYA tulisan gudang
   // ke tabel pos, dan trigger pos_guard_approved tetap membekukan kolom lain
   // dari PO yang sudah disetujui untuk siapa pun selain wilbert — jadi mereka

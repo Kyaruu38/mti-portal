@@ -73,6 +73,7 @@ const LAZY = {
   finance:          () => import('./screens/finance.js').then(m => m.financeScreen),
   'master-data':    () => import('./screens/masterData.js').then(m => m.masterDataScreen),
   reports:          () => import('./screens/reports.js').then(m => m.reportsScreen),
+  'log-hapus-po':   () => import('./screens/logHapusPo.js').then(m => m.logHapusPoScreen),
 };
 
 // Ganti password TIDAK ikut LAZY: modulnya sudah statis di atas, dan layar ini

@@ -67,6 +67,7 @@ export const DICT = {
   s_finance: { id: 'Finance Dashboard', en: 'Finance Dashboard', zh: '财务仪表盘' },
   s_master: { id: 'Master Data', en: 'Master Data', zh: '主数据' },
   s_reports: { id: 'Reports', en: 'Reports', zh: '报表' },
+  s_log_hapus: { id: 'Log Hapus PO', en: 'PO Deletion Log', zh: '采购单删除记录' },
 
   // --- login ---
   login_username: { id: 'Username', en: 'Username', zh: '用户名' },

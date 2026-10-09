@@ -286,17 +286,25 @@ export function approvalScreen() {
       await approvePoDelete(po.id);
       const idx = st.pos.indexOf(po);
       if (idx >= 0) st.pos.splice(idx, 1);
-      logAudit({ entity: 'po', target: po.no, action: 'approve_delete' });
+      // ALASANNYA IKUT, diambil dari PO-nya sebelum barisnya dibuang.
+      // Tanpa ini baris 'approve_delete' di Log Hapus PO berdiri tanpa
+      // keterangan apa pun — yang terbaca enam bulan lagi cuma "wilbert
+      // menyetujui penghapusan", tanpa satu kata pun tentang kenapa.
+      logAudit({ entity: 'po', target: po.no, action: 'approve_delete', detail: po.deleteReason || '' });
       toast({ id: `PO ${po.no} dihapus`, en: `PO ${po.no} deleted`, zh: `采购单 ${po.no} 已删除` });
       setUI({ selPO: null });
     } catch (e) { console.error(e); toast({ id: 'Gagal approve hapus: ' + (e.message || e), en: 'Failed to approve deletion: ' + (e.message || e), zh: '批准删除失败：' + (e.message || e) }); }
   };
   const rejectDelete = async () => {
     if (blockWrite('reject hapus PO')) return;
+    // Dibaca SEBELUM barisnya dikosongkan di bawah — kalau tidak, yang tercatat
+    // di Log Hapus PO cuma 'reject_delete' tanpa menyebut permintaan apa yang
+    // ditolak.
+    const alasanHapus = po.deleteReason || '';
     try {
       await rejectPoDelete(po.id);
       po.deleteRequested = false; po.deleteReason = null;
-      logAudit({ entity: 'po', target: po.no, action: 'reject_delete' });
+      logAudit({ entity: 'po', target: po.no, action: 'reject_delete', detail: alasanHapus });
       toast({
         id: `Request hapus PO ${po.no} ditolak`,
         en: `Delete request for PO ${po.no} rejected`,

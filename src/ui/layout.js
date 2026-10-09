@@ -55,6 +55,9 @@ const NAV = [
   { label: 'nav_system', items: [
     { id: 'master-data', t: 's_master', ic: 'db' },
     { id: 'reports', t: 's_reports', ic: 'chart' },
+    // Duduk di System, bukan di grup PO. Yang membukanya bukan yang mengurus
+    // PO hari ini, tapi yang memeriksa apa yang terjadi pada PO kemarin.
+    { id: 'log-hapus-po', t: 's_log_hapus', ic: 'lock' },
   ] },
 ];
 
@@ -145,7 +148,7 @@ function bilahTab(st) {
 const TITLES = {
   dashboard: 's_dashboard', approval: 's_approval', 'label-request': 's_label',
   'label-library': 's_library', 'label-stock': 's_labelstock', 'surat-jalan': 's_surat', 'po-converter': 's_converter', 'po-saya': 's_po_saya', 'kas-label': 's_kas_label', 'outstanding-po': 's_outstanding', complaints: 's_complaints',
-  ppkek: 's_ppkek', payment: 's_payment', finance: 's_finance', 'master-data': 's_master', reports: 's_reports',
+  ppkek: 's_ppkek', payment: 's_payment', finance: 's_finance', 'master-data': 's_master', reports: 's_reports', 'log-hapus-po': 's_log_hapus',
 };
 
 function badges(st) {
