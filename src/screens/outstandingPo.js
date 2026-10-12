@@ -35,6 +35,64 @@ import { blockWrite } from '../core/guard.js';
 
 const key = (poId, lineId) => `${poId}::${lineId}`;
 
+// ---------------------------------------------------------------------------
+// JUMLAH YANG BENAR-BENAR DATANG, per baris.
+//
+// Sampai v18.0 tombol "Tandai sudah sampai" selalu menutup SELURUH sisa baris.
+// Kiriman 8.000 dari 10.000 tidak punya cara dicatat: centang baris itu dan PO
+// ikut tertutup penuh, padahal 2.000 masih di jalan. Satu-satunya jalan keluar
+// adalah tidak mencentangnya sama sekali — jadi kedatangan 8.000 itu TIDAK
+// TERCATAT DI MANA PUN, dan Purchasing tetap menagih sepuluh ribu.
+//
+// KENAPA Map DI LUAR RENDER, BUKAN ui STATE
+// mount() di core/dom.js tidak punya diffing: setiap setUI membongkar seluruh
+// pohon dan membangunnya lagi. Angka yang disimpan lewat setUI akan membuat
+// kotaknya kehilangan fokus di digit pertama — orangnya mengetik "8", layar
+// dibangun ulang, dan "000" berikutnya jatuh entah ke mana. Jadi angkanya
+// disimpan di Map biasa TANPA setUI, kotaknya tidak dikendalikan state, dan
+// yang diperbarui saat mengetik cuma satu simpul teks di bilah bawah.
+const JUMLAH = new Map();
+
+// Daftar PO yang sedang tampil, disimpan saat render supaya segarkanTotal()
+// bisa menghitung ulang tanpa membangun ulang layar.
+let DAFTAR = [];
+
+// Default sebuah baris adalah SISA PENUHNYA. Kiriman penuh tetap satu klik —
+// yang berubah cuma: sekarang angkanya bisa dikurangi.
+function qtyBaris(k, l) {
+  const v = JUMLAH.get(k);
+  return v == null ? l.outstanding : v;
+}
+function setQtyBaris(k, v, l) {
+  const n = Math.floor(Number(v));
+  // Dijepit ke 1..sisa. Lebih dari sisa BUKAN kelebihan kiriman yang boleh
+  // diketik di sini: di MTI tidak ada toleransi, dan kelebihan jalurnya
+  // komplain Over qty, bukan angka penerimaan yang dibesarkan diam-diam.
+  if (!Number.isFinite(n) || n <= 0) { JUMLAH.set(k, 0); return 0; }
+  const jepit = Math.min(n, l.outstanding);
+  JUMLAH.set(k, jepit);
+  return jepit;
+}
+const lupakanQty = (k) => JUMLAH.delete(k);
+
+// Bilah bawah diperbarui LANGSUNG ke DOM, tanpa setUI. Lihat alasannya di atas.
+function segarkanTotal() {
+  const el = document.getElementById('op-total-qty');
+  if (!el) return;
+  const st = getState();
+  const sel = (st.ui && st.ui.opSel) || {};
+  let total = 0, baris = 0;
+  for (const x of DAFTAR) {
+    for (const l of x.lines) {
+      const k = key(x.po.id, l.lineId);
+      if (l.outstanding > 0 && sel[k]) { total += qtyBaris(k, l); baris++; }
+    }
+  }
+  el.textContent = num(total);
+  const elB = document.getElementById('op-total-baris');
+  if (elB) elB.textContent = String(baris);
+}
+
 // Nama jenis PO memakai kata yang tertulis di lencana kartunya, bukan kode
 // internal 'label'/'biasa'. Yang memilih di sini sedang menunjuk lencana yang
 // dia lihat; 'biasa' cuma ada di dalam kode dan tidak pernah muncul di layar.
@@ -96,7 +154,7 @@ export function outstandingPoScreen() {
     list.length
       ? h('div.stack', list.map(x => poCard(st, x, sel, canWrite)))
       : blokTakCocok(jumlahFilterAktif(nilai) > 0),
-    canWrite && chosen.length ? actionBar(st, list, sel) : null,
+    canWrite && chosen.length ? (DAFTAR = list, actionBar(st, list, sel)) : null,
     masukCard(st),
   ]);
 }
@@ -346,7 +404,10 @@ function poCard(st, x, sel, canWrite) {
         style: { accentColor: 'var(--accent)', cursor: 'pointer' },
         onChange: () => {
           const s = { ...(getState().ui.opSel || {}) };
-          if (s[k]) delete s[k]; else s[k] = true;
+          // Angka ketikan DIBUANG waktu barisnya dilepas. Kalau dibiarkan, baris
+          // yang dicentang lagi besok akan membawa angka kemarin tanpa ada yang
+          // menyadarinya.
+          if (s[k]) { delete s[k]; lupakanQty(k); } else s[k] = true;
           setUI({ opSel: s });
         },
       })) : null,
@@ -370,24 +431,52 @@ function poCard(st, x, sel, canWrite) {
               : null,
       ]),
       h('td.mono.r', { style: { fontWeight: 700, color: 'var(--st-red-tx)' } }, num(l.outstanding)),
+      // KOTAK JUMLAH DATANG. Hanya muncul kalau barisnya dicentang — kotak
+      // kosong di ratusan baris yang tidak sedang diurus cuma ramai.
+      canWrite ? h('td', { style: { width: '104px' } }, sel[k] ? h('input.input.mono', {
+        type: 'number', min: '1', max: String(l.outstanding),
+        value: String(qtyBaris(k, l)),
+        style: { width: '96px', padding: '3px 6px', fontSize: '11.5px', textAlign: 'right' },
+        title: tr({
+          id: `Maksimal ${num(l.outstanding)}. Lebih dari itu jalurnya komplain Over qty.`,
+          en: `At most ${num(l.outstanding)}. Anything beyond that is an Over qty complaint.`,
+          zh: `最多 ${num(l.outstanding)}。超出部分请提交「数量超出」投诉。`,
+        }),
+        onInput: e => {
+          const jepit = setQtyBaris(k, e.target.value, l);
+          // Nilai kotaknya sengaja TIDAK ditulis ulang saat mengetik; menulis
+          // ulang akan memindahkan kursor ke ujung di tengah ketikan.
+          e.target.style.borderColor = jepit > 0 ? '' : 'var(--st-red-tx)';
+          segarkanTotal();
+        },
+        onChange: e => {
+          const jepit = setQtyBaris(k, e.target.value, l);
+          if (String(jepit) !== e.target.value) e.target.value = String(jepit);
+          segarkanTotal();
+        },
+      }) : h('span', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, '—')) : null,
       h('td', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, l.unit || po.unit || ''),
     ]);
   });
 
+  // Perataan ikut tiap kolom, bukan dihitung dari nomor urut. Versi lama
+  // memakai rentang indeks (`i >= 3 && i <= 5`), dan menyisipkan satu kolom
+  // menggeser diam-diam kolom mana yang rata kanan.
   const head2 = [
-    canWrite ? '' : null,
-    tr({ id: 'ERP', en: 'ERP', zh: 'ERP' }),
-    tr({ id: 'Item', en: 'Item', zh: '物料' }),
-    tr({ id: 'Dipesan', en: 'Ordered', zh: '订购' }),
-    tr({ id: 'Diterima', en: 'Received', zh: '已收' }),
-    tr({ id: 'Sisa', en: 'Outstanding', zh: '未交' }),
-    tr({ id: 'Satuan', en: 'Unit', zh: '单位' }),
+    canWrite ? { t: '', r: false } : null,
+    { t: tr({ id: 'ERP', en: 'ERP', zh: 'ERP' }), r: false },
+    { t: tr({ id: 'Item', en: 'Item', zh: '物料' }), r: false },
+    { t: tr({ id: 'Dipesan', en: 'Ordered', zh: '订购' }), r: true },
+    { t: tr({ id: 'Diterima', en: 'Received', zh: '已收' }), r: true },
+    { t: tr({ id: 'Sisa', en: 'Outstanding', zh: '未交' }), r: true },
+    canWrite ? { t: tr({ id: 'Datang sekarang', en: 'Arrived now', zh: '本次到货' }), r: true } : null,
+    { t: tr({ id: 'Satuan', en: 'Unit', zh: '单位' }), r: false },
   ].filter(x => x !== null);
 
   return card([
     head,
     h('div.tbl-wrap', h('table.tbl', [
-      h('thead', h('tr', head2.map((c, i) => h('th' + (i >= (canWrite ? 3 : 2) && i <= (canWrite ? 5 : 4) ? '.r' : ''), c)))),
+      h('thead', h('tr', head2.map(c => h('th' + (c.r ? '.r' : ''), c.t)))),
       h('tbody', rows),
     ])),
   ], { pad: false });
@@ -400,28 +489,40 @@ function actionBar(st, list, sel) {
       if (l.outstanding > 0 && sel[key(x.po.id, l.lineId)]) picked.push({ po: x.po, line: l });
     }
   }
-  const totalQty = picked.reduce((s, p) => s + p.line.outstanding, 0);
+  // Totalnya dari angka yang DIKETIK, bukan dari sisa penuh.
+  const totalQty = picked.reduce((s, p) => s + qtyBaris(key(p.po.id, p.line.lineId), p.line), 0);
   const poCount = new Set(picked.map(p => p.po.id)).size;
+  const adaParsial = picked.some(p => qtyBaris(key(p.po.id, p.line.lineId), p.line) < p.line.outstanding);
 
   return h('div.card', { style: { padding: '13px 18px', position: 'sticky', bottom: '12px', zIndex: 5 } },
     h('div.row.gap12.wrap', { style: { alignItems: 'center' } }, [
+      // Dua angka ini punya id supaya bisa diperbarui langsung saat orangnya
+      // mengetik, tanpa membangun ulang seluruh layar.
       h('span', { style: { fontSize: '12px' } }, [
-        h('b', tr({
-          id: `${picked.length} baris dari ${poCount} PO`,
-          en: `${picked.length} lines from ${poCount} PO`,
-          zh: `${poCount} 张采购单中的 ${picked.length} 行`,
-        })),
-        h('span', { style: { color: 'var(--text-3)' } }, tr({
-          id: ` · total ${num(totalQty)} akan ditandai sudah sampai`,
-          en: ` · ${num(totalQty)} in total will be marked as arrived`,
-          zh: ` · 共 ${num(totalQty)} 将被标记为已到货`,
-        })),
+        h('b', [
+          h('span#op-total-baris', String(picked.length)),
+          tr({ id: ' baris dari ', en: ' lines from ', zh: ' 行 / ' }),
+          String(poCount),
+          tr({ id: ' PO', en: ' PO', zh: ' 张采购单' }),
+        ]),
+        h('span', { style: { color: 'var(--text-3)' } }, [
+          tr({ id: ' · total ', en: ' · ', zh: ' · 共 ' }),
+          h('span#op-total-qty', { style: { fontWeight: 700, color: 'var(--text)' } }, num(totalQty)),
+          tr({ id: ' akan ditandai sudah sampai', en: ' in total will be marked as arrived', zh: ' 将被标记为已到货' }),
+        ]),
       ]),
       h('span', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, tr({
         id: 'Stok TIDAK diubah — ini cuma menutup sisa PO.',
         en: 'Stock is NOT touched — this only closes the PO balance.',
         zh: '不会改动库存 — 仅结清采购单余量。',
       })),
+      adaParsial ? h('span', {
+        style: { fontSize: '10.5px', fontWeight: 700, color: 'var(--st-amber-tx)' },
+      }, tr({
+        id: 'Kiriman sebagian — sisanya tetap outstanding.',
+        en: 'Partial delivery — the remainder stays outstanding.',
+        zh: '部分到货 — 余量仍为未交。',
+      })) : null,
       h('div.mla.row.gap8', [
         btn(tr({ id: 'Batal pilih', en: 'Clear selection', zh: '清除选择' }), { sm: true, onClick: () => setUI({ opSel: {} }) }),
         btn(tr({
@@ -445,8 +546,21 @@ async function markArrived(picked) {
     byPo.get(p.po.id).lines.push(p.line);
   }
 
+  // Baris yang angkanya dikosongkan DITOLAK di depan, dengan menyebut barisnya.
+  // Menyimpan nol diam-diam akan terbaca sebagai "sudah dicek, memang tidak ada
+  // yang datang" — padahal yang terjadi cuma kotaknya belum diisi.
+  const nol = picked.filter(p => qtyBaris(key(p.po.id, p.line.lineId), p.line) <= 0);
+  if (nol.length) {
+    toast({
+      id: `${nol.length} baris jumlahnya masih kosong (${nol.map(p => p.line.erp).slice(0, 3).join(', ')}) — isi dulu`,
+      en: `${nol.length} line(s) have no quantity yet (${nol.map(p => p.line.erp).slice(0, 3).join(', ')}) — fill them in first`,
+      zh: `${nol.length} 行尚未填写数量（${nol.map(p => p.line.erp).slice(0, 3).join('、')}）— 请先填写`,
+    });
+    return;
+  }
+
   const gagal = [];
-  let okPo = 0, okLines = 0;
+  let okPo = 0, okLines = 0, okQty = 0;
   // SATU cap waktu untuk seluruh penekanan tombol, bukan satu per baris.
   // Menandai 40 baris sekaligus adalah SATU kejadian penerimaan; memberi
   // tiap baris new Date()-nya sendiri menghasilkan 40 waktu yang berbeda
@@ -470,7 +584,7 @@ async function markArrived(picked) {
       // dan penerimaan mereka gagal total.
       return {
         ...it,
-        receivedDirect: (Number(it.receivedDirect) || 0) + hit.outstanding,
+        receivedDirect: (Number(it.receivedDirect) || 0) + qtyBaris(key(po.id, it.lineId), hit),
         receivedDirectAt: sekarang,
       };
     });
@@ -485,10 +599,17 @@ async function markArrived(picked) {
     }
     const live = st.pos.find(p => p.id === po.id);
     if (live) live.items = items;
-    okPo++; okLines += lines.length;
+    const qtyPo = lines.reduce((s, l) => s + qtyBaris(key(po.id, l.lineId), l), 0);
+    const sisaPo = lines.reduce((s, l) => s + l.outstanding, 0);
+    okPo++; okLines += lines.length; okQty += qtyPo;
     logAudit({
       entity: 'po', target: po.contract || po.no, action: 'receive',
-      detail: `${lines.length} baris ditandai sudah sampai · ${num(lines.reduce((s, l) => s + l.outstanding, 0))} ${po.unit || ''} · stok tidak diubah`,
+      // Jejaknya menyebut PARSIAL atau tidak. Enam bulan lagi, "3 baris
+      // ditandai sampai" tidak bisa dibedakan antara kiriman penuh dan
+      // kiriman separuh, dan itu justru bedanya yang dicari orang.
+      detail: `${lines.length} baris ditandai sudah sampai · ${num(qtyPo)} dari sisa ${num(sisaPo)} ${po.unit || ''}`
+        + (qtyPo < sisaPo ? ' · PARSIAL, sisanya tetap outstanding' : ' · lengkap')
+        + ' · stok tidak diubah',
     });
   }
 
@@ -496,7 +617,11 @@ async function markArrived(picked) {
   // yang berhasil dibersihkan supaya tidak ditandai dua kali.
   const sel = { ...(getState().ui.opSel || {}) };
   for (const p of picked) {
-    if (!gagal.some(g => g.no === (p.po.contract || p.po.no))) delete sel[key(p.po.id, p.line.lineId)];
+    if (!gagal.some(g => g.no === (p.po.contract || p.po.no))) {
+      const k = key(p.po.id, p.line.lineId);
+      delete sel[k];
+      lupakanQty(k);
+    }
   }
   setUI({ opSel: sel });
 
@@ -508,9 +633,9 @@ async function markArrived(picked) {
     });
   } else {
     toast({
-      id: `${okLines} baris dari ${okPo} PO ditandai sudah sampai. Stok tidak diubah.`,
-      en: `${okLines} lines across ${okPo} PO marked as arrived. Stock untouched.`,
-      zh: `${okPo} 张采购单共 ${okLines} 行已标记为到货。库存未改动。`,
+      id: `${okLines} baris dari ${okPo} PO ditandai sudah sampai · ${num(okQty)}. Stok tidak diubah.`,
+      en: `${okLines} lines across ${okPo} PO marked as arrived · ${num(okQty)}. Stock untouched.`,
+      zh: `${okPo} 张采购单共 ${okLines} 行已标记为到货 · ${num(okQty)}。库存未改动。`,
     });
   }
   setState({});
