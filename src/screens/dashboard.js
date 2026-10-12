@@ -64,6 +64,7 @@ export function dashboardScreen() {
   else if (u.role === 'financemti') body = financeBody(st);
   else if (u.role === 'cenjc') body = observerBody(st);
   else if (u.role === 'sona') body = sonaBody(st, u);
+  else if (u.role === 'warehousemti') body = warehouseBody(st, u);
   // Still a real fallback: an unknown role reaching here gets the header and
   // nothing else rather than a thrown error. main.js already refuses to render
   // any screen for a role missing from ACCESS, so this is the second net.
@@ -426,6 +427,14 @@ function quickActions(st, u) {
       btn(tr({ id: 'Minta Label', en: 'Request Labels', zh: '申请标签' }), { iconName: 'tag', variant: 'primary', onClick: () => setState({ screen: 'label-request' }) }),
     ];
   }
+  if (u.role === 'warehousemti') {
+    return [
+      btn(tr({ id: 'PO Outstanding', en: 'Outstanding PO', zh: '\u672a\u4ea4\u91c7\u8d2d\u5355' }),
+        { iconName: 'box', variant: 'primary', onClick: () => setState({ screen: 'outstanding-po' }) }),
+      btn(tr({ id: 'Lapor Komplain', en: 'Report a Complaint', zh: '\u63d0\u4ea4\u6295\u8bc9' }),
+        { iconName: 'warn', onClick: () => setState({ screen: 'complaints' }) }),
+    ];
+  }
   if (u.role === 'cenjc') {
     // Navigation only — every destination is read-only for this account.
     return [
@@ -561,6 +570,128 @@ function labelPoBody(st, u) {
 // this job has: "what am I short of" and "did purchasing act on what I asked
 // for". Deliberately no supplier, no price, no PO value — sona does not choose
 // suppliers and showing her figures she cannot act on is noise, not access.
+// ---------------------------------------------------------------------------
+// DASHBOARD GUDANG.
+//
+// Sampai v19.0 peran ini jatuh ke cabang terakhir `else body = []` dan mendarat
+// di halaman yang isinya cuma judul. Itu bukan keputusan desain, itu kelalaian:
+// peran gudang ditambahkan di v17.0 dan tidak ada satu pun cabang yang
+// menyebutnya. Orang yang pertama kali login disambut halaman kosong, dan
+// halaman kosong mengajari orang bahwa sistemnya rusak sebelum dia sempat
+// dipakai sekali pun.
+//
+// Isinya sengaja CUMA yang datanya benar-benar ada. Kartu "rencana datang 7
+// hari" tidak dibuat di sini, walau terdengar paling berguna: ETA tidak
+// disimpan di tabel pos sama sekali — tempatnya di Spreadsheet — jadi kartunya
+// akan selalu nol, dan kartu yang selalu nol lebih buruk daripada tidak ada
+// kartu. Dia balik sendiri begitu sync Spreadsheet jalan.
+function warehouseBody(st, u) {
+  const sisa = outstandingPOs(st);
+  const barisSisa = sisa.reduce((n, x) => n + x.lines.filter(l => l.outstanding > 0).length, 0);
+  const qtySisa = sisa.reduce((n, x) => n + x.totalOutstanding, 0);
+
+  // Yang ditandai sampai belakangan ini. Dibaca dari receivedDirectAt, cap
+  // waktu yang ditulis layar PO Outstanding — bukan dari audit, yang cuma
+  // menyimpan 20 baris terakhir seluruh portal.
+  const BATAS = Date.now() - 7 * 864e5;
+  let barisMasuk = 0, qtyMasuk = 0;
+  for (const po of (st.pos || [])) {
+    for (const it of (po.items || [])) {
+      const at = it.receivedDirectAt ? new Date(it.receivedDirectAt).getTime() : 0;
+      if (at && at >= BATAS) { barisMasuk++; qtyMasuk += Number(it.receivedDirect) || 0; }
+    }
+  }
+
+  const kompl = st.complaints || [];
+  const terbuka = kompl.filter(k => (k.status || 'Open') === 'Open');
+  const punyaku = kompl.filter(k => k.by === u.username);
+  const punyakuTerbuka = punyaku.filter(k => (k.status || 'Open') === 'Open');
+
+  const angka = (n) => n.toLocaleString('id-ID');
+
+  const kartuSisa = sisa
+    .slice()
+    .sort((a, b) => b.totalOutstanding - a.totalOutstanding)
+    .slice(0, 8);
+
+  return [
+    h('div.grid.g4', [
+      stat(tr({ id: 'Belum datang', en: 'Not arrived yet', zh: '\u5c1a\u672a\u5230\u8d27' }),
+        angka(qtySisa),
+        tr({ id: `${angka(barisSisa)} baris dari ${sisa.length} PO`, en: `${angka(barisSisa)} lines across ${sisa.length} PO`, zh: `${sisa.length} \u5f20\u91c7\u8d2d\u5355\u5171 ${angka(barisSisa)} \u884c` }),
+        true),
+      stat(tr({ id: 'Ditandai sampai (7 hari)', en: 'Marked arrived (7 days)', zh: '\u5df2\u6807\u8bb0\u5230\u8d27\uff087 \u5929\uff09' }),
+        angka(qtyMasuk),
+        tr({ id: `${angka(barisMasuk)} baris`, en: `${angka(barisMasuk)} lines`, zh: `${angka(barisMasuk)} \u884c` })),
+      stat(tr({ id: 'Komplain terbuka', en: 'Open complaints', zh: '\u5f85\u5904\u7406\u6295\u8bc9' }),
+        String(terbuka.length),
+        tr({ id: `${kompl.length} total`, en: `${kompl.length} in total`, zh: `\u5171 ${kompl.length} \u6761` })),
+      stat(tr({ id: 'Komplain saya', en: 'My complaints', zh: '\u6211\u7684\u6295\u8bc9' }),
+        String(punyaku.length),
+        tr({ id: `${punyakuTerbuka.length} masih terbuka`, en: `${punyakuTerbuka.length} still open`, zh: `${punyakuTerbuka.length} \u6761\u5f85\u5904\u7406` })),
+    ]),
+
+    // PO dengan sisa terbesar. Dipakai untuk tahu apa yang paling ditunggu,
+    // bukan sebagai daftar kerja — daftar kerjanya tetap di layar PO Outstanding.
+    card([
+      sectionHead(
+        tr({ id: 'Sisa terbesar', en: 'Largest balances', zh: '\u672a\u4ea4\u6700\u591a' }),
+        btn(tr({ id: 'Buka PO Outstanding', en: 'Open Outstanding PO', zh: '\u6253\u5f00\u672a\u4ea4\u91c7\u8d2d\u5355' }),
+          { sm: true, onClick: () => setState({ screen: 'outstanding-po' }) })),
+      kartuSisa.length ? h('div.tbl-wrap', h('table.tbl', [
+        h('thead', h('tr', [
+          h('th', tr({ id: 'No. PO', en: 'PO No.', zh: '\u91c7\u8d2d\u5355\u53f7' })),
+          h('th', tr({ id: 'Supplier', en: 'Supplier', zh: '\u4f9b\u5e94\u5546' })),
+          h('th.r', tr({ id: 'Baris', en: 'Lines', zh: '\u884c\u6570' })),
+          h('th.r', tr({ id: 'Sisa', en: 'Outstanding', zh: '\u672a\u4ea4' })),
+        ])),
+        h('tbody', kartuSisa.map(x => h('tr', {
+          style: { cursor: 'pointer' },
+          onClick: () => setState({ screen: 'outstanding-po' }),
+        }, [
+          h('td.mono', { style: { fontSize: '11.5px', fontWeight: 700 } }, x.po.contract || x.po.no),
+          h('td', { style: { fontSize: '11.5px', color: 'var(--text-2)' } }, x.po.supplier || '\u2014'),
+          h('td.mono.r', { style: { fontSize: '11.5px' } }, String(x.lines.filter(l => l.outstanding > 0).length)),
+          h('td.mono.r', { style: { fontSize: '11.5px', fontWeight: 700, color: 'var(--st-red-tx)' } }, angka(x.totalOutstanding)),
+        ]))),
+      ])) : h('div', { style: { padding: '26px 18px', textAlign: 'center', fontSize: '12.5px', color: 'var(--text-3)' } },
+        tr({ id: 'Tidak ada PO dengan barang outstanding.', en: 'No PO with outstanding goods.', zh: '\u6ca1\u6709\u672a\u4ea4\u8d27\u7269\u7684\u91c7\u8d2d\u5355\u3002' })),
+    ]),
+
+    // Komplain milik orang ini. Yang melapor tidak bisa menutup laporannya
+    // sendiri, jadi satu-satunya cara dia tahu laporannya diurus adalah
+    // melihat statusnya berubah — dan sampai sekarang tidak ada tempat untuk
+    // melihatnya tanpa membuka layar komplain dan menyaring sendiri.
+    card([
+      sectionHead(
+        tr({ id: 'Komplain saya', en: 'My complaints', zh: '\u6211\u7684\u6295\u8bc9' }),
+        btn(tr({ id: 'Lapor komplain', en: 'Report a complaint', zh: '\u63d0\u4ea4\u6295\u8bc9' }),
+          { sm: true, variant: 'primary', iconName: 'warn', onClick: () => setState({ screen: 'complaints' }) })),
+      punyaku.length ? h('div.tbl-wrap', h('table.tbl', [
+        h('thead', h('tr', [
+          h('th', t('col_date')),
+          h('th', tr({ id: 'No. PO', en: 'PO No.', zh: '\u91c7\u8d2d\u5355\u53f7' })),
+          h('th', tr({ id: 'Masalah', en: 'Issue', zh: '\u95ee\u9898' })),
+          h('th', tr({ id: 'Status', en: 'Status', zh: '\u72b6\u6001' })),
+        ])),
+        h('tbody', punyaku.slice(0, 8).map(k => h('tr', [
+          h('td', { style: { fontSize: '11px', color: 'var(--text-3)' } }, k.at ? fmtDate(k.at) : '\u2014'),
+          h('td.mono', { style: { fontSize: '11px' } }, k.poNo || '\u2014'),
+          h('td', { style: { fontSize: '11px' } }, k.jenis || '\u2014'),
+          h('td', badge(
+            tr({ 'Open': { id: 'Terbuka', en: 'Open', zh: '\u5f85\u5904\u7406' },
+                 'In progress': { id: 'Diproses', en: 'In progress', zh: '\u5904\u7406\u4e2d' },
+                 'Closed': { id: 'Selesai', en: 'Closed', zh: '\u5df2\u89e3\u51b3' } }[k.status || 'Open']),
+            { 'Open': 'red', 'In progress': 'amber', 'Closed': 'green' }[k.status || 'Open'] || 'gray')),
+        ]))),
+      ])) : h('div', { style: { padding: '26px 18px', textAlign: 'center', fontSize: '12.5px', color: 'var(--text-3)', lineHeight: 1.7 } },
+        tr({ id: 'Belum ada komplain dari akun ini. Itu kabar baik.',
+             en: 'No complaints from this account yet. That is good news.',
+             zh: '\u6b64\u8d26\u53f7\u5c1a\u65e0\u6295\u8bc9\u3002\u8fd9\u662f\u597d\u6d88\u606f\u3002' })),
+    ]),
+  ];
+}
+
 function sonaBody(st, u) {
   const rows = st.labelStock || [];
   const buyNow = rows.filter(r => r.status === 'BUY NOW');
