@@ -321,9 +321,42 @@ export function suratJalanPaper(sj) {
         h('div', { style: { fontSize: '9px', fontWeight: 800, color: '#6B7280' } }, `ITEM ${idx + 1} · Approved Design Reference`),
         h('div.mono', { style: { fontSize: '8px', color: '#9CA3AF' } }, `${sj.docNo} · ${idx + 1}/${sj.items.length}`),
       ]),
-      h('div', { style: { display: 'flex', gap: '14px' } }, [
-        h('span', { style: { width: '110px', minHeight: '150px', borderRadius: '2px', background: it.designUrl && !it.designUrl.startsWith('drive-') ? '#fff' : 'repeating-linear-gradient(45deg,#EDEAE1 0 5px,#E2DED2 5px 10px)', border: '1px solid #D1D5DB', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' } },
-          it.designUrl && !it.designUrl.startsWith('drive-') ? h('img', { src: it.designUrl, style: { width: '100%', height: '100%', objectFit: 'cover' } }) : h('span.mono', { style: { fontSize: '7px', color: '#6B7280', writingMode: 'vertical-rl' } }, 'label design')),
+      // BINGKAI DESAIN MENGIKUTI BENTUK DESAINNYA, bukan sebaliknya.
+      //
+      // Dua kesalahan beruntun di sini, dan yang kedua lahir dari memperbaiki
+      // yang pertama. Versi lama memakai kotak 110x150 tegak dengan
+      // object-fit:cover — cover MENGISI kotak lalu membuang sisanya, jadi
+      // tiap label yang melebar kehilangan sisi kiri dan kanannya, persis
+      // bagian yang memuat ukuran ban, kode, dan barcode.
+      //
+      // Perbaikan pertamanya kotak PERSEGI + contain. Itu memang menghentikan
+      // pemotongan, tapi ukurannya tetap dipaksakan: label melebar 900x320 di
+      // dalam kotak 200x200 cuma terpakai 200x71, dan 129 piksel sisanya jadi
+      // ruang kosong yang TETAP DIPESAN di tiap kartu. Gambarnya utuh tapi
+      // kecil, dan halamannya penuh udara.
+      //
+      // Sekarang tidak ada kotak sama sekali. Yang ada cuma BATAS ATAS:
+      // gambarnya boleh sebesar apa pun asal tidak lewat 330px lebar dan 260px
+      // tinggi, lalu bingkainya menyusut mengikuti hasilnya (inline-flex,
+      // width auto). Label melebar memakai seluruh 330px; label tegak 79x254 mm
+      // memakai seluruh 260px tinggi. Masing-masing dapat batas yang relevan
+      // untuk bentuknya sendiri, dan tidak ada ruang kosong yang dipesan untuk
+      // bentuk yang bukan dirinya.
+      //
+      // Lebarnya berhenti di 330px karena kolom teks di sebelahnya butuh sisa
+      // halaman: di situ ada kode ERP 17 digit dan nama barang yang panjang,
+      // dan dua-duanya tidak boleh terbungkus jadi empat baris. Halaman tetap
+      // A4 tegak dengan alasan yang sama.
+      //
+      // Kotak ukuran tetap tetap dipakai untuk item yang BELUM punya desain:
+      // di situ tidak ada gambar yang bisa diukur, dan placeholder yang
+      // menyusut jadi segaris tidak terbaca sebagai "desainnya belum ada".
+      h('div', { style: { display: 'flex', gap: '14px', alignItems: 'flex-start' } }, [
+        it.designUrl && !it.designUrl.startsWith('drive-')
+          ? h('span', { style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '1px solid #D1D5DB', borderRadius: '2px', background: '#fff', padding: '4px' } },
+              h('img', { src: it.designUrl, style: { maxWidth: '330px', maxHeight: '260px', width: 'auto', height: 'auto', display: 'block' } }))
+          : h('span', { style: { width: '110px', height: '150px', borderRadius: '2px', background: 'repeating-linear-gradient(45deg,#EDEAE1 0 5px,#E2DED2 5px 10px)', border: '1px solid #D1D5DB', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 } },
+              h('span.mono', { style: { fontSize: '7px', color: '#6B7280', writingMode: 'vertical-rl' } }, 'label design')),
         h('div', { style: { flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 18px', alignContent: 'start' } }, [
           kv('No. ERP ERP物料编号', it.erp, true),
           kv('Nama 物料名字', it.name),
