@@ -38,6 +38,21 @@ const BUCKET = 'drive-outbox';
 // ia memang belum selesai — tapi retryPending melewatinya dan menyerahkannya ke
 // manusia, karena mengulang unggahan yang hasilnya tidak diketahui persis yang
 // melahirkan berkas kembar di Drive.
+// BATAS PERCOBAAN SEBELUM DISERAHKAN KE MANUSIA.
+//
+// Tidak ada batas apa pun sebelum ini, dan satu baris sudah mencoba 82 kali
+// selama dua minggu dengan pesan yang sama persis setiap kalinya. Delapan puluh
+// dua percobaan yang gagal dengan sebab identik bukan "sedang dicoba lagi", itu
+// macet — dan selama dia duduk di spanduk KUNING, yang dibaca orang justru
+// kalimat "filenya AMAN, akan dikirim otomatis". Spanduk yang menenangkan
+// tentang sesuatu yang tidak akan pernah selesai sendiri lebih berbahaya
+// daripada diam.
+//
+// Delapan: cukup longgar untuk melewati gangguan jaringan beberapa hari (retry
+// cuma jalan saat ada yang login), cukup ketat untuk tidak membiarkan yang
+// macet berbulan-bulan.
+const BATAS_COBA = 8;
+
 export const RAGU = '[HASIL TIDAK DIKETAHUI]';
 export const beriTandaRagu = (s) => `${RAGU} ${s || ''}`.trim();
 export const adaTandaRagu = (s) => String(s || '').startsWith(RAGU);
@@ -415,7 +430,29 @@ export async function retryPending(pushFn) {
       }
       const file = new File([dl.data], row.file_name, { type: dl.data.type || 'application/octet-stream' });
       const up = await pushFn(file, row.folder_path, row.file_name, row.category);
-      if (!up || up.placeholder) { await markPending(row.id, up && up.reason); continue; }
+      if (!up || up.placeholder) {
+        // DUA SEBAB BERBEDA, SATU TUJUAN YANG SAMA: serahkan ke manusia.
+        //
+        // (1) up.tidakDiketahui — fetch() sendiri yang meledak, jadi BALASANnya
+        //     yang hilang, bukan unggahannya; berkasnya bisa saja sudah ada di
+        //     Drive. pushToDrive sudah membedakan ini sejak v15.x, tapi jalur
+        //     retry MEMBUANG penandanya: markPending dipanggil tanpa opsi apa
+        //     pun, jadi seluruh mekanisme RAGU — yang dibangun persis untuk
+        //     kasus ini — tidak pernah menyala di sini. Itu sebabnya satu baris
+        //     bisa mengulang 82 kali: dia tidak pernah ditandai ragu, jadi
+        //     retryPending tidak pernah melewatinya.
+        //
+        // (2) sudah lewat BATAS_COBA — apa pun sebabnya, yang gagal sekian kali
+        //     dengan pesan yang sama tidak akan sembuh pada percobaan ke-83.
+        //
+        // Ditandai RAGU berarti dia pindah dari spanduk kuning ke spanduk
+        // MERAH, yang menyebut namanya, menawarkan "tempel link Drive" dan
+        // "tutup barisnya" — dua tindakan yang memang cuma bisa diputuskan
+        // orang yang membuka Drive-nya.
+        const lewatBatas = ((row.attempts || 0) + 1) >= BATAS_COBA;
+        await markPending(row.id, up && up.reason, { ragu: !!(up && up.tidakDiketahui) || lewatBatas });
+        continue;
+      }
 
       await applyToTarget(c, row, up.url);
       await markDone(row.id, up.url);
