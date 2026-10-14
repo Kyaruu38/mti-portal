@@ -138,11 +138,17 @@ export async function markPending(outboxId, err, { ragu = false } = {}) {
     // PostgREST, and an approximate count is fine — this number is read by a
     // human deciding whether something is stuck, not by any logic.
     const { data } = await c.from('drive_outbox').select('attempts').eq('id', outboxId).maybeSingle();
+    // HANYA KALAU DIA MASIH MENGANTRE.
+    //
+    // markDone bisa saja sudah jalan di antara pembacaan daftar dan baris ini —
+    // lihat catatan panjang di retryPending. Tanpa syarat ini, sebuah baris yang
+    // SUDAH selesai dan sudah punya drive_url bisa diseret balik jadi 'pending'
+    // oleh percobaan yang sudah tidak relevan lagi.
     await c.from('drive_outbox').update({
       status: 'pending',
       attempts: ((data && data.attempts) || 0) + 1,
       last_error: (ragu ? beriTandaRagu(String((err && err.message) || err || '')) : String((err && err.message) || err || '')).slice(0, 500),
-    }).eq('id', outboxId);
+    }).eq('id', outboxId).eq('status', 'pending');
   } catch (e) {
     warn('markPending gagal', e);
   }
@@ -400,6 +406,37 @@ export async function retryPending(pushFn) {
     // duplikat, bukan cara memperbaiki apa pun. Barisnya diserahkan ke spanduk
     // supaya orang membuka Drive dan memutuskan: sambungkan, atau unggah ulang.
     if (adaTandaRagu(row.last_error)) { dilewati++; continue; }
+
+    // DAFTARNYA DIBACA SEKALI, TAPI DIKERJAKAN SATU PER SATU SELAMA BERMENIT-MENIT.
+    //
+    // 13 Oktober pukul 01:43–01:59 tujuh berkas divonis "objek tidak ada di
+    // Storage — perlu diunggah ulang manual", dan SEMUA TUJUHNYA bohong: ketujuh
+    // barisnya punya drive_url dan punya done_at, 5 sampai 13 detik sesudah
+    // dibuat. Artinya markDone sudah jalan, berkasnya sudah mendarat di Drive,
+    // dan salinan antreannya memang sudah dihapus — oleh kita sendiri, dengan
+    // benar. Yang salah bukan Storage-nya. Yang salah adalah retry ini
+    // menyimpulkan "hilang" dari sebuah penghapusan yang dia tidak tahu baru
+    // saja terjadi.
+    //
+    // Urutannya begini. pendingOutbox() membaca daftar SEKALI. Lalu setiap baris
+    // dikerjakan berurutan — unduh, kirim, catat — dan satu baris bisa makan
+    // belasan detik. Selama itu orangnya di layar sebelah TERUS mengunggah, dan
+    // setiap unggahan baru lahir sebagai 'pending'. Baris yang tadi terbaca
+    // masih mengantre bisa sudah selesai lewat jalur normal sebelum gilirannya
+    // tiba di sini. markDone menulis status 'done' DULU, baru menghapus
+    // objeknya — jadi pada detik objeknya hilang, statusnya sudah bukan
+    // 'pending' lagi. Retry yang datang terlambat cuma melihat objek yang tidak
+    // ada, dan memvonis.
+    //
+    // Makanya statusnya dibaca ULANG persis sebelum disentuh, bukan dipercaya
+    // dari daftar yang mungkin sudah basi semenit lalu. Ini juga menutup
+    // separuh masalah yang lain: tanpa pembacaan ulang, retry bisa MENGUNGGAH
+    // ULANG berkas yang barusan sukses lewat jalur normal — satu dokumen jadi
+    // dua di Drive, dan tidak ada yang tahu yang mana yang dipakai.
+    const { data: segar } = await c.from('drive_outbox')
+      .select('status').eq('id', row.id).maybeSingle();
+    if (!segar || segar.status !== 'pending') { dilewati++; continue; }
+
     try {
       const dl = await c.storage.from(BUCKET).download(row.storage_path);
       if (dl.error || !dl.data) {
@@ -418,10 +455,15 @@ export async function retryPending(pushFn) {
         // "tidak ada" yang boleh memvonis. Ragu-ragu (null) tetap mengantre.
         const ada = await objekAda(c, row.storage_path);
         if (ada === false) {
+          // VONISNYA BERSYARAT. Pembacaan ulang di atas menutup jendela yang
+          // lebar; syarat ini menutup sisanya — markDone bisa jatuh tepat di
+          // antara unduhan yang gagal dan baris ini. Kalau statusnya sudah
+          // bukan 'pending', update ini mengenai NOL baris dan vonisnya batal,
+          // persis seperti yang seharusnya.
           await c.from('drive_outbox').update({
             status: 'failed',
             last_error: 'objek tidak ada di Storage — tidak bisa dicoba ulang. Perlu diunggah ulang manual.',
-          }).eq('id', row.id);
+          }).eq('id', row.id).eq('status', 'pending');
         } else {
           await markPending(row.id, (dl.error && dl.error.message) || dl.error
             || 'gagal mengunduh salinan antrean, sebabnya tidak jelas');
