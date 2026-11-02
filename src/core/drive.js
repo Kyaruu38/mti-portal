@@ -149,7 +149,24 @@ export async function pushToDrive(file, folderPath, filename, category) {
     // Expected: { id, webViewLink }
     return { url: json.webViewLink || json.url, id: json.id, name, placeholder: false };
   } catch (e) {
-    const reason = String((e && e.message) || e);
+    // UKURAN BERKASNYA IKUT DICATAT, dan ini bukan hiasan.
+    //
+    // "Failed to fetch" tidak memberi tahu apa pun: tidak ada status, tidak ada
+    // body, tidak ada pesan dari server — karena memang tidak ada balasan sama
+    // sekali. Satu-satunya hal yang masih kita pegang tentang kegagalan itu
+    // adalah berkas yang barusan dikirim, dan yang paling menjelaskan tentang
+    // berkas itu adalah ukurannya.
+    //
+    // Dugaan terkuatnya: yang gagal adalah yang besar, karena Edge Function
+    // menampung berkasnya di memori dan jatahnya jebol. Tapi dugaan tidak boleh
+    // jadi dasar perbaikan. Jadi daripada menebak batasnya sekarang lalu
+    // menolak unggahan yang sebenarnya baik-baik saja, ukurannya ditempelkan ke
+    // pesan errornya — dan kegagalan BERIKUTNYA akan menjawab pertanyaannya
+    // sendiri, langsung di spanduk, tanpa perlu membuka basis data.
+    const mentah = String((e && e.message) || e);
+    const bytes = (file && typeof file.size === 'number') ? file.size : null;
+    const ukuran = bytes === null ? '' : ` [${(bytes / 1048576).toFixed(1)} MB]`;
+    const reason = mentah + ukuran;
     // "GAGAL" DAN "TIDAK TAHU" ADALAH DUA HAL YANG BERBEDA, DAN MENYAMAKANNYA
     // SUDAH MELAHIRKAN DUPLIKAT DI DRIVE.
     //
@@ -167,7 +184,7 @@ export async function pushToDrive(file, folderPath, filename, category) {
     // TypeError dari fetch() adalah kegagalan jaringan — respons tidak pernah
     // ada. Error yang lain di blok ini datang SESUDAH respons diterima, jadi
     // hasilnya diketahui.
-    const tidakDiketahui = (e instanceof TypeError) || /failed to fetch|network|load failed/i.test(reason);
+    const tidakDiketahui = (e instanceof TypeError) || /failed to fetch|network|load failed/i.test(mentah);
     console.warn('Drive upload ' + (tidakDiketahui ? 'HASILNYA TIDAK DIKETAHUI' : 'ditolak') + ':', reason);
     return { url: `drive-error://${folderPath || ''}${name}`, id: null, name, placeholder: true, reason, tidakDiketahui };
   }

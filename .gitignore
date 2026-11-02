@@ -112,3 +112,5 @@ test-*.json
 test.mjs
 verify.mjs
 run.mjs
+Claude outputs/
+*.patch

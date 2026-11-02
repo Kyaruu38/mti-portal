@@ -143,7 +143,29 @@ serve(async (req) => {
     const boundary = 'mti' + crypto.randomUUID();
     const pre = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\nContent-Type: ${file.type || 'application/octet-stream'}\r\n\r\n`;
     const post = `\r\n--${boundary}--`;
-    const body = new Blob([pre, await file.arrayBuffer(), post]);
+    // JANGAN SALIN ISI BERKASNYA KE MEMORI LAGI.
+    //
+    // await file.arrayBuffer() menarik SELURUH isi berkas jadi satu ArrayBuffer
+    // baru, lalu new Blob([...]) menyalinnya sekali lagi. Ditambah salinan yang
+    // sudah dibuat req.formData() waktu menerima unggahannya, puncak pemakaian
+    // memorinya jadi sekitar TIGA KALI ukuran berkas.
+    //
+    // Edge Function punya jatah memori. Begitu jatahnya jebol, worker-nya
+    // dimatikan SEBELUM sempat membalas apa pun — dan karena tidak ada balasan,
+    // fetch() di browser melempar TypeError "Failed to fetch". Bukan 4xx, bukan
+    // 5xx, bukan pesan error: tidak ada apa-apa. Itu persis gejala yang membuat
+    // satu berkas gagal 82 kali dengan kalimat yang sama persis sementara 2.023
+    // berkas lain pada rentang yang sama lolos: penyebabnya bukan jaringan yang
+    // acak, tapi sesuatu pada berkas ITU — dan variabel yang paling masuk akal
+    // adalah ukurannya.
+    //
+    // Blob menerima File sebagai bagian apa adanya, tanpa membacanya dulu. Satu
+    // salinan hilang. Ini meringankan, bukan menyembuhkan: req.formData() masih
+    // menampung berkasnya, jadi berkas yang benar-benar besar tetap bisa jebol.
+    // Obat tuntasnya resumable upload yang mengalirkan datanya tanpa ditampung
+    // sama sekali, dan itu baru dikerjakan setelah ukuran berkas yang gagal
+    // benar-benar terbaca — lihat catatan ukuran di core/drive.js.
+    const body = new Blob([pre, file, post]);
 
     const up = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
       method: 'POST',
