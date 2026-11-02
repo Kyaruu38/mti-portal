@@ -182,7 +182,22 @@ export async function pendingOutbox() {
     const { data, error } = await c.from('drive_outbox')
       .select('*').eq('status', 'pending').order('created_at', { ascending: true }).limit(100);
     if (error) { warn('gagal membaca antrean', error); return []; }
-    return data || [];
+    // YANG RAGU DIKELUARKAN DARI SINI, karena gagalOutbox() sudah mengambilnya.
+    //
+    // Sampai v20.3 keduanya membaca baris yang sama: pendingOutbox() mengambil
+    // SEMUA yang pending, gagalOutbox() mengambil yang pending DAN bertanda
+    // ragu. Satu baris ragu karena itu muncul di DUA spanduk sekaligus, dan
+    // keduanya mengatakan hal yang bertolak belakang tentang berkas yang sama:
+    // yang merah "salinannya sudah tidak ada, unggah ulang manual", yang kuning
+    // "filenya AMAN, akan dikirim otomatis". Orang yang membacanya berurutan
+    // tidak punya cara tahu mana yang benar — dan kalau ia percaya yang merah,
+    // ia mengunggah ulang berkas yang sebenarnya sudah ada di Drive, lalu
+    // membayar salinan keduanya dengan kuota Drive yang sudah 96% penuh.
+    //
+    // Satu berkas, satu spanduk. Yang ragu butuh mata manusia, jadi ia milik
+    // spanduk merah; yang benar-benar polos memang aman ditunggu, jadi ia milik
+    // yang kuning. Dua daftar ini sekarang tidak pernah beririsan.
+    return (data || []).filter(r => !adaTandaRagu(r.last_error));
   } catch (e) {
     warn('pendingOutbox gagal', e);
     return [];

@@ -104,14 +104,46 @@ function driveGagalBanner(st) {
   if (!q.length) return null;
   const nama = q.slice(0, 12).map(r => r.file_name).filter(Boolean);
   const sisa = q.length - nama.length;
+  const ragu = q.filter(r => adaTandaRagu(r.last_error)).length;
+  const mati = q.length - ragu;
   return h('div.cfg-banner', {
     style: { display: 'block', background: 'var(--st-red-bg)', color: 'var(--st-red-tx)', borderColor: 'var(--st-red-tx)' },
   }, [
-    h('div', { style: { fontWeight: 700 } }, [icon('warn', 14), ' ', tr({
-      id: `${q.length} file TIDAK sampai ke Google Drive dan salinannya sudah tidak ada di server. Portal tidak bisa mencoba lagi — file ini harus diunggah ulang manual.`,
-      en: `${q.length} file(s) did NOT reach Google Drive and the server copy is gone. The portal cannot retry — these must be re-uploaded by hand.`,
-      zh: `${q.length} 个文件未送达 Google Drive，且服务器上的副本已不存在。门户无法重试 — 这些文件需要人工重新上传。`,
-    })]),
+    // JUDULNYA MENGIKUTI ISINYA, karena spanduk ini memuat DUA hal berbeda.
+    //
+    // Sejak v20.3 baris yang ragu ikut duduk di sini — keputusan yang benar,
+    // karena tindakan manusianya sama: buka Drive, lihat ada atau tidak. Tapi
+    // judulnya tidak ikut berubah, dan untuk baris ragu kalimat itu salah pada
+    // DUA hal sekaligus: salinannya MASIH ada di server, dan portal MASIH
+    // TIDAK akan mencoba ulang sendiri — retryPending justru MELEWATI baris
+    // ragu, supaya ia tidak mengunggah salinan kedua dari berkas yang mungkin
+    // sudah ada di Drive. Menyuruh orang mengunggah ulang berkas yang
+    // besar kemungkinan sudah ada di Drive adalah ongkos yang nyata, bukan
+    // sekadar kalimat yang kurang tepat.
+    //
+    // Jadi judulnya dihitung dari komposisi barisnya: yang benar-benar mati,
+    // yang ragu, atau campuran. Warnanya tetap merah untuk ketiganya — ragu
+    // memang tidak gawat, tapi ia tetap butuh mata manusia, dan itu persis yang
+    // merah ada untuk lakukan.
+    h('div', { style: { fontWeight: 700 } }, [icon('warn', 14), ' ', (
+      mati && ragu
+        ? tr({
+            id: `${q.length} file belum tercatat di Google Drive: ${mati} salinannya sudah tidak ada di server dan HARUS diunggah ulang manual, ${ragu} lagi hasilnya tidak diketahui — bisa jadi sudah ada di Drive.`,
+            en: `${q.length} file(s) are not recorded in Google Drive: ${mati} whose server copy is gone and MUST be re-uploaded by hand, and ${ragu} whose outcome is unknown — they may already be in Drive.`,
+            zh: `${q.length} 个文件未记录到 Google Drive：其中 ${mati} 个服务器副本已不存在，必须人工重新上传；另有 ${ragu} 个结果未知 — 可能已在 Drive 中。`,
+          })
+        : mati
+        ? tr({
+            id: `${mati} file TIDAK sampai ke Google Drive dan salinannya sudah tidak ada di server. Portal tidak bisa mencoba lagi — file ini harus diunggah ulang manual.`,
+            en: `${mati} file(s) did NOT reach Google Drive and the server copy is gone. The portal cannot retry — these must be re-uploaded by hand.`,
+            zh: `${mati} 个文件未送达 Google Drive，且服务器上的副本已不存在。门户无法重试 — 这些文件需要人工重新上传。`,
+          })
+        : tr({
+            id: `${ragu} file hasilnya TIDAK DIKETAHUI — mungkin sudah sampai di Drive, mungkin belum. Salinannya MASIH aman di server, tapi portal sengaja TIDAK mencoba ulang sendiri: mengulang bisa membuat salinan kedua. Cek Drive dulu, lalu tempel link-nya atau tutup barisnya.`,
+            en: `${ragu} file(s) have an UNKNOWN outcome — they may already be in Drive, or not. The server copy is STILL safe, but the portal deliberately will NOT retry on its own: retrying could create a second copy. Check Drive, then paste the link or close the row.`,
+            zh: `${ragu} 个文件结果未知 — 可能已送达 Drive，也可能未送达。服务器副本仍然安全，但门户有意不会自行重试：重试可能产生第二个副本。请先查找 Drive，然后粘贴链接或关闭该记录。`,
+          })
+    )]),
     // TIAP NAMA ADALAH TOMBOL, bukan sekadar teks.
     //
     // Menyebut nama berkasnya saja masih menyisakan pekerjaan yang paling
