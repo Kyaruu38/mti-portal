@@ -1,0 +1,145 @@
+From ec6ce27852d52482554e9976361552bfddc863c7 Mon Sep 17 00:00:00 2001
+From: claude <noreply@anthropic.com>
+Date: Mon, 2 Nov 2026 02:57:11 +0000
+Subject: [PATCH] v20.4 - satu berkas, satu spanduk: yang ragu berhenti muncul
+ di dua tempat dengan dua cerita
+
+---
+ src/changelog.js         |  8 ++++++++
+ src/core/driveOutbox.js  | 17 +++++++++++++++-
+ src/screens/dashboard.js | 42 +++++++++++++++++++++++++++++++++++-----
+ src/version.js           | 10 +++++-----
+ 4 files changed, 66 insertions(+), 11 deletions(-)
+
+diff --git a/src/changelog.js b/src/changelog.js
+index 0716842..c80aa21 100644
+--- a/src/changelog.js
++++ b/src/changelog.js
+@@ -9,6 +9,14 @@
+ // menjawab "perubahan ini masuk di rilis mana".
+ 
+ export const CHANGELOG = [
++  {
++    v: 'v20.4', date: '2 Nov 2026',
++    what: {
++      id: "SATU BERKAS DUDUK DI DUA SPANDUK SEKALIGUS, DAN KEDUANYA MENGATAKAN HAL YANG BERTOLAK BELAKANG TENTANG BERKAS YANG SAMA. Di layar: spanduk MERAH menyebut enam berkas dengan kalimat salinannya sudah tidak ada di server, portal tidak bisa mencoba lagi, harus diunggah ulang manual. Tepat di bawahnya spanduk KUNING menyebut ENAM NAMA YANG SAMA PERSIS dengan kalimat filenya AMAN, tersimpan di server, akan dikirim otomatis. Dua-duanya tidak mungkin benar, dan orang yang membacanya berurutan tidak punya cara tahu yang mana. SEBABNYA DUA QUERY YANG BERIRISAN. pendingOutbox() mengambil SEMUA baris berstatus pending. gagalOutbox(), sejak v20.3, sengaja ikut mengambil baris pending yang bertanda RAGU — keputusan yang benar, karena baris ragu memang butuh mata manusia: hasilnya tidak diketahui, berkasnya besar kemungkinan SUDAH ada di Drive, dan yang dibutuhkan cuma menempelkan link-nya. Tapi tidak ada satu pun dari keduanya yang mengeluarkan baris itu dari daftar lawannya, jadi setiap baris ragu muncul DUA KALI di dasbor, satu per spanduk. Enam baris terbaca sebagai dua belas masalah. YANG LEBIH MAHAL BUKAN HITUNGANNYA, TAPI KALIMATNYA. Judul spanduk merah tidak pernah ikut diubah waktu baris ragu mulai masuk ke sana, jadi untuk baris ragu kalimat itu salah pada DUA hal sekaligus: salinannya MASIH ada di server, dan portal justru sengaja TIDAK mencoba ulang baris ragu. Spanduk itu menyuruh orang mengunggah ulang berkas yang besar kemungkinan sudah ada di Drive — persis kesalahan yang v20.3 dibangun untuk menghentikan, muncul lagi lewat pintu lain. Dan ongkosnya nyata: kuota Drive akun itu sudah 96% penuh, jadi tiap salinan kedua dibayar dengan ruang yang memang sudah habis. SEKARANG SATU BERKAS CUMA PUNYA SATU SPANDUK. pendingOutbox() membuang yang bertanda ragu, karena spanduk merah sudah mengurusnya; dua daftar itu tidak pernah lagi beririsan. Dan judul spanduk merah dihitung dari isinya: kalau semuanya benar-benar mati, kalimatnya seperti dulu; kalau semuanya ragu, kalimatnya mengatakan apa adanya — hasilnya tidak diketahui, salinannya MASIH aman tapi portal sengaja TIDAK mencoba ulang sendiri (retryPending memang MELEWATI baris ragu, supaya tidak lahir salinan kedua), jadi cek Drive dulu lalu tempel link-nya atau tutup barisnya; kalau campuran, dua-duanya disebut dengan jumlahnya masing-masing. Warnanya tetap merah untuk ketiganya, karena ragu memang tidak gawat tapi tetap butuh orang yang membuka Drive — dan itu persis tugas spanduk merah. Tombol nama dan tombol tutup tidak disentuh: untuk baris ragu, menempel link Drive memang tetap tindakan yang paling benar.",
++      en: "ONE FILE SAT IN TWO BANNERS AT ONCE, AND THEY SAID OPPOSITE THINGS ABOUT THE SAME FILE. On screen: the RED banner named six files and said the server copy is gone, the portal cannot retry, these must be re-uploaded by hand. Directly below it the YELLOW banner named THE SAME SIX FILES and said they are SAFE on the server and will be sent automatically. Both cannot be true, and a person reading them in order has no way to tell which is. THE CAUSE IS TWO OVERLAPPING QUERIES. pendingOutbox() returns EVERY row with status pending. gagalOutbox(), since v20.3, deliberately also returns pending rows carrying the RAGU marker — the right call, because an uncertain row does need human eyes: the outcome is unknown, the file is most likely ALREADY in Drive, and all that is needed is pasting its link. But neither query excluded those rows from the other's list, so every uncertain row appeared TWICE on the dashboard, once per banner. Six rows read as twelve problems. THE EXPENSIVE PART IS NOT THE COUNT, IT IS THE SENTENCE. The red banner's headline was never updated when uncertain rows started landing there, so for those rows it is wrong on TWO counts at once: the server copy is STILL there, and the portal deliberately does NOT retry uncertain rows. That banner was telling people to re-upload files that are most likely already in Drive — precisely the mistake v20.3 was built to stop, returning through another door. And the cost is real: that account's Drive quota is already 96% full, so every second copy is paid for with space that has already run out. NOW ONE FILE HAS EXACTLY ONE BANNER. pendingOutbox() drops rows marked uncertain, because the red banner already handles them; the two lists never overlap again. And the red banner's headline is computed from what it holds: if everything is truly dead the wording is as before; if everything is uncertain it says so plainly — the outcome is unknown, the copy is STILL safe but the portal deliberately will NOT retry on its own (retryPending skips uncertain rows precisely so a second copy is never created), so check Drive, then paste the link or close the row; if it is a mix, both are named with their own counts. The colour stays red for all three, because uncertain is not an emergency but it still needs someone to open Drive — which is exactly what the red banner is for. The name buttons and the close button are untouched: for an uncertain row, pasting the Drive link is still the right action.",
++      zh: "同一个文件同时出现在两条横幅中，而这两条横幅对同一个文件说着相反的话。屏幕上：红色横幅列出六个文件，写着服务器副本已不存在、门户无法重试、必须人工重新上传。紧挨其下的黄色横幅列出完全相同的六个文件，写着文件已安全保存在服务器，将自动上传。二者不可能同时为真，而按顺序阅读的人无从判断哪一条才对。原因是两个相互重叠的查询。pendingOutbox() 返回所有状态为 pending 的记录。自 v20.3 起，gagalOutbox() 有意同时返回带 RAGU 标记的 pending 记录 — 这个决定是对的，因为结果未知的记录确实需要人眼：结果未知，文件很可能已在 Drive 中，所需要做的只是粘贴链接。但两个查询都没有把这些记录从对方的列表中排除，于是每一条未知记录都在仪表板上出现两次，每条横幅各一次。六条记录被读成了十二个问题。代价最大的不是数量，而是措辞。当未知记录开始进入红色横幅时，其标题从未相应修改，因此对这些记录而言，那句话同时在两点上是错的：服务器副本仍然存在，而门户有意不会重试未知记录。那条横幅在让人们重新上传很可能已在 Drive 中的文件 — 正是 v20.3 所要制止的错误，从另一扇门回来了。而代价是实在的：该账号的 Drive 配额已占用 96%，因此每一份第二副本都要用本已耗尽的空间来支付。现在一个文件只对应一条横幅。pendingOutbox() 会剔除带未知标记的记录，因为红色横幅已经在处理它们；两份列表不再重叠。红色横幅的标题则依其内容计算：若全部确实已丢失，措辞照旧；若全部为未知，则如实说明 — 结果未知，副本仍然安全，但门户有意不会自行重试（retryPending 正是会跳过未知记录，以免产生第二个副本），请先查找 Drive，然后粘贴链接或关闭该记录；若为混合，则分别列出各自的数量。三种情况颜色都保持红色，因为未知虽不紧急，但仍需有人去打开 Drive — 而这正是红色横幅的职责。文件名按钮与关闭按钮未作改动：对于未知记录，粘贴 Drive 链接仍然是最正确的操作。",
++    },
++  },
+   {
+     v: 'v20.3', date: '13 Okt 2026',
+     what: {
+diff --git a/src/core/driveOutbox.js b/src/core/driveOutbox.js
+index 1814f0f..4653ad0 100644
+--- a/src/core/driveOutbox.js
++++ b/src/core/driveOutbox.js
+@@ -182,7 +182,22 @@ export async function pendingOutbox() {
+     const { data, error } = await c.from('drive_outbox')
+       .select('*').eq('status', 'pending').order('created_at', { ascending: true }).limit(100);
+     if (error) { warn('gagal membaca antrean', error); return []; }
+-    return data || [];
++    // YANG RAGU DIKELUARKAN DARI SINI, karena gagalOutbox() sudah mengambilnya.
++    //
++    // Sampai v20.3 keduanya membaca baris yang sama: pendingOutbox() mengambil
++    // SEMUA yang pending, gagalOutbox() mengambil yang pending DAN bertanda
++    // ragu. Satu baris ragu karena itu muncul di DUA spanduk sekaligus, dan
++    // keduanya mengatakan hal yang bertolak belakang tentang berkas yang sama:
++    // yang merah "salinannya sudah tidak ada, unggah ulang manual", yang kuning
++    // "filenya AMAN, akan dikirim otomatis". Orang yang membacanya berurutan
++    // tidak punya cara tahu mana yang benar — dan kalau ia percaya yang merah,
++    // ia mengunggah ulang berkas yang sebenarnya sudah ada di Drive, lalu
++    // membayar salinan keduanya dengan kuota Drive yang sudah 96% penuh.
++    //
++    // Satu berkas, satu spanduk. Yang ragu butuh mata manusia, jadi ia milik
++    // spanduk merah; yang benar-benar polos memang aman ditunggu, jadi ia milik
++    // yang kuning. Dua daftar ini sekarang tidak pernah beririsan.
++    return (data || []).filter(r => !adaTandaRagu(r.last_error));
+   } catch (e) {
+     warn('pendingOutbox gagal', e);
+     return [];
+diff --git a/src/screens/dashboard.js b/src/screens/dashboard.js
+index a3dbaed..3720116 100644
+--- a/src/screens/dashboard.js
++++ b/src/screens/dashboard.js
+@@ -104,14 +104,46 @@ function driveGagalBanner(st) {
+   if (!q.length) return null;
+   const nama = q.slice(0, 12).map(r => r.file_name).filter(Boolean);
+   const sisa = q.length - nama.length;
++  const ragu = q.filter(r => adaTandaRagu(r.last_error)).length;
++  const mati = q.length - ragu;
+   return h('div.cfg-banner', {
+     style: { display: 'block', background: 'var(--st-red-bg)', color: 'var(--st-red-tx)', borderColor: 'var(--st-red-tx)' },
+   }, [
+-    h('div', { style: { fontWeight: 700 } }, [icon('warn', 14), ' ', tr({
+-      id: `${q.length} file TIDAK sampai ke Google Drive dan salinannya sudah tidak ada di server. Portal tidak bisa mencoba lagi — file ini harus diunggah ulang manual.`,
+-      en: `${q.length} file(s) did NOT reach Google Drive and the server copy is gone. The portal cannot retry — these must be re-uploaded by hand.`,
+-      zh: `${q.length} 个文件未送达 Google Drive，且服务器上的副本已不存在。门户无法重试 — 这些文件需要人工重新上传。`,
+-    })]),
++    // JUDULNYA MENGIKUTI ISINYA, karena spanduk ini memuat DUA hal berbeda.
++    //
++    // Sejak v20.3 baris yang ragu ikut duduk di sini — keputusan yang benar,
++    // karena tindakan manusianya sama: buka Drive, lihat ada atau tidak. Tapi
++    // judulnya tidak ikut berubah, dan untuk baris ragu kalimat itu salah pada
++    // DUA hal sekaligus: salinannya MASIH ada di server, dan portal MASIH
++    // TIDAK akan mencoba ulang sendiri — retryPending justru MELEWATI baris
++    // ragu, supaya ia tidak mengunggah salinan kedua dari berkas yang mungkin
++    // sudah ada di Drive. Menyuruh orang mengunggah ulang berkas yang
++    // besar kemungkinan sudah ada di Drive adalah ongkos yang nyata, bukan
++    // sekadar kalimat yang kurang tepat.
++    //
++    // Jadi judulnya dihitung dari komposisi barisnya: yang benar-benar mati,
++    // yang ragu, atau campuran. Warnanya tetap merah untuk ketiganya — ragu
++    // memang tidak gawat, tapi ia tetap butuh mata manusia, dan itu persis yang
++    // merah ada untuk lakukan.
++    h('div', { style: { fontWeight: 700 } }, [icon('warn', 14), ' ', (
++      mati && ragu
++        ? tr({
++            id: `${q.length} file belum tercatat di Google Drive: ${mati} salinannya sudah tidak ada di server dan HARUS diunggah ulang manual, ${ragu} lagi hasilnya tidak diketahui — bisa jadi sudah ada di Drive.`,
++            en: `${q.length} file(s) are not recorded in Google Drive: ${mati} whose server copy is gone and MUST be re-uploaded by hand, and ${ragu} whose outcome is unknown — they may already be in Drive.`,
++            zh: `${q.length} 个文件未记录到 Google Drive：其中 ${mati} 个服务器副本已不存在，必须人工重新上传；另有 ${ragu} 个结果未知 — 可能已在 Drive 中。`,
++          })
++        : mati
++        ? tr({
++            id: `${mati} file TIDAK sampai ke Google Drive dan salinannya sudah tidak ada di server. Portal tidak bisa mencoba lagi — file ini harus diunggah ulang manual.`,
++            en: `${mati} file(s) did NOT reach Google Drive and the server copy is gone. The portal cannot retry — these must be re-uploaded by hand.`,
++            zh: `${mati} 个文件未送达 Google Drive，且服务器上的副本已不存在。门户无法重试 — 这些文件需要人工重新上传。`,
++          })
++        : tr({
++            id: `${ragu} file hasilnya TIDAK DIKETAHUI — mungkin sudah sampai di Drive, mungkin belum. Salinannya MASIH aman di server, tapi portal sengaja TIDAK mencoba ulang sendiri: mengulang bisa membuat salinan kedua. Cek Drive dulu, lalu tempel link-nya atau tutup barisnya.`,
++            en: `${ragu} file(s) have an UNKNOWN outcome — they may already be in Drive, or not. The server copy is STILL safe, but the portal deliberately will NOT retry on its own: retrying could create a second copy. Check Drive, then paste the link or close the row.`,
++            zh: `${ragu} 个文件结果未知 — 可能已送达 Drive，也可能未送达。服务器副本仍然安全，但门户有意不会自行重试：重试可能产生第二个副本。请先查找 Drive，然后粘贴链接或关闭该记录。`,
++          })
++    )]),
+     // TIAP NAMA ADALAH TOMBOL, bukan sekadar teks.
+     //
+     // Menyebut nama berkasnya saja masih menyisakan pekerjaan yang paling
+diff --git a/src/version.js b/src/version.js
+index c6f2a19..d75b8e5 100644
+--- a/src/version.js
++++ b/src/version.js
+@@ -24,8 +24,8 @@
+ // deploy, not the code.
+ // =============================================================================
+ 
+-export const VERSION = 'v20.3';
+-export const VERSION_DATE = '13 Okt 2026';
++export const VERSION = 'v20.4';
++export const VERSION_DATE = '2 Nov 2026';
+ 
+ // Newest first. Kept short on purpose: this is the "did my thing land?" list,
+ // not a changelog. The commit messages carry the reasoning.
+@@ -40,7 +40,7 @@ export const VERSION_DATE = '13 Okt 2026';
+ // Waktu menaikkan versi: perbarui VERSION, VERSION_DATE, LATEST di sini, dan
+ // tambahkan entri lengkapnya di changelog.js.
+ export const LATEST = {
+-      id: "SPANDUK MERAH BERHENTI MENUDUH STORAGE MENGHILANGKAN BERKAS YANG SEBENARNYA SUDAH SAMPAI DI DRIVE. Pagi 13 Oktober pukul 01:43-01:59 muncul tujuh baris merah sekaligus, semuanya dengan kalimat yang sama: objek tidak ada di Storage, perlu diunggah ulang manual. Pemeriksaan basis data menjawabnya dalam satu query: KETUJUHNYA punya drive_url dan punya done_at, 5 sampai 13 detik sesudah barisnya dibuat. markDone sudah jalan, berkasnya sudah mendarat di Drive, dan salinan antreannya memang sudah dihapus - oleh portal ini sendiri, dengan benar. Tidak ada satu berkas pun yang hilang. Yang hilang cuma kepercayaan pada spanduknya, dan itu yang paling mahal: spanduk yang menuduh orang kehilangan dokumen akan membuat orang mengunggah ulang dokumen yang sudah ada, dan itulah yang terjadi - tiga dari tujuh nama itu adalah berkas yang sama diunggah berkali-kali. SEBABNYA SEBUAH DAFTAR YANG DIBACA SEKALI LALU DIPERCAYA TERLALU LAMA. retryPending membaca daftar antrean SEKALI, lalu mengerjakan isinya satu per satu - unduh, kirim, catat - dan satu baris bisa makan belasan detik. Selama itu orangnya di layar sebelah terus mengunggah, dan setiap unggahan baru lahir sebagai pending. Baris yang tadi terbaca masih mengantre bisa sudah selesai lewat jalur normal sebelum gilirannya tiba. markDone menulis status done DULU, baru menghapus objeknya - jadi pada detik objeknya hilang, statusnya sudah bukan pending. Retry yang datang terlambat cuma melihat objek yang tidak ada, lalu memvonis permanen. Enam belas ribu dua ratus tiga puluh tujuh unggahan sebelumnya tidak pernah kena, karena vonis ini butuh dua hal bertemu dalam hitungan detik: unggahan beruntun dan retry yang sedang berjalan. Pagi itu keduanya bertemu tujuh kali. SEKARANG STATUSNYA DIBACA ULANG PERSIS SEBELUM DISENTUH, bukan dipercaya dari daftar yang mungkin sudah basi semenit lalu, dan vonisnya dibuat BERSYARAT: kalau statusnya sudah bukan pending, update-nya mengenai NOL baris dan vonisnya batal sendiri. markPending ikut diberi syarat yang sama, supaya baris yang sudah selesai tidak bisa diseret balik jadi pending oleh percobaan yang sudah tidak relevan. Pembacaan ulang itu juga menutup separuh masalah lain yang belum sempat kelihatan: tanpa dia, retry bisa MENGUNGGAH ULANG berkas yang barusan sukses lewat jalur normal - satu dokumen jadi dua di Drive, dan tidak ada yang tahu yang mana yang dipakai. TUJUH BARIS YANG TERLANJUR DIVONIS SUDAH DIKEMBALIKAN JADI done langsung di basis data, karena ketujuhnya memang sudah selesai sejak detik pertama. Spanduk merahnya kosong lagi. Yang tersisa di antrean cuma satu baris lama dari 29 September - bukti bayar #118 - yang memang betul-betul macet dan sudah dijelaskan di v20.2: langkah Bukti Bayar-nya mati di tengah, ulangi dari layar Payment lalu tutup barisnya.",
+-      en: "THE RED BANNER STOPS ACCUSING STORAGE OF LOSING FILES THAT ARE ALREADY IN DRIVE. Between 01:43 and 01:59 on 13 October seven red rows appeared at once, every one carrying the same sentence: the object is not in Storage, it must be uploaded again by hand. One database query answered it: ALL SEVEN have a drive_url and a done_at, 5 to 13 seconds after the row was created. markDone had already run, the file had already landed in Drive, and the queued copy had indeed been deleted - by this portal itself, correctly. Not one file was lost. What was lost was trust in the banner, and that is the expensive part: a banner that tells people their documents are gone makes them upload documents that are already there, and that is exactly what happened - three of those seven names are the same file uploaded over and over. THE CAUSE WAS A LIST READ ONCE AND TRUSTED FOR TOO LONG. retryPending reads the queue ONCE, then works through it one row at a time - download, send, record - and a single row can take a dozen seconds. Meanwhile the person in the next window keeps uploading, and every new upload is born pending. A row that was still queued when the list was read can finish through the normal path before its turn arrives here. markDone writes status done FIRST and removes the object second - so by the moment the object disappears, the status is no longer pending. The late retry sees only an object that is not there, and condemns it permanently. Sixteen thousand two hundred and thirty-seven earlier uploads were never hit, because this verdict needs two things to meet within seconds: uploads in quick succession and a retry already running. That morning they met seven times. THE STATUS IS NOW RE-READ IMMEDIATELY BEFORE THE ROW IS TOUCHED, instead of being trusted from a list that may be a minute stale, and the verdict is CONDITIONAL: if the status is no longer pending the update hits ZERO rows and the verdict cancels itself. markPending gets the same condition, so a finished row cannot be dragged back to pending by an attempt that is no longer relevant. That re-read also closes the other half of the problem, which had not yet shown itself: without it the retry can RE-UPLOAD a file that just succeeded through the normal path - one document becomes two in Drive, and nobody knows which one is the real one. THE SEVEN CONDEMNED ROWS HAVE BEEN RESTORED TO done directly in the database, because all seven were finished from the first second. The red banner is empty again. All that is left in the queue is one old row from 29 September - payment proof #118 - which really is stuck and was already explained in v20.2: its Bukti Bayar step died halfway, redo it from the Payment screen and then close the row.",
+-      zh: "红色横幅不再指控 Storage 弄丢了其实已经送达 Drive 的文件。10 月 13 日 01:43 至 01:59 之间一次出现七条红色记录，每一条都写着同一句话：对象不在 Storage 中，需要手动重新上传。一条数据库查询就给出了答案：这七条全都有 drive_url，也都有 done_at，时间在记录创建后的 5 到 13 秒。markDone 已经执行，文件已经送达 Drive，队列副本也确实被删除了 — 由门户自己删除的，而且是正确的。没有任何一个文件丢失。丢失的是对横幅的信任，而这才是代价最高的部分：一个告诉人们文档已丢失的横幅，会让人重新上传本已存在的文档，而这正是实际发生的事 — 那七个名字中有三个是同一个文件被反复上传。原因是一份只读取一次、却被信任太久的列表。retryPending 只读取队列一次，然后逐条处理 — 下载、发送、记录 — 而一条记录可能耗时十几秒。与此同时，旁边窗口的人仍在持续上传，每一次新上传都以 pending 状态诞生。读取列表时仍在排队的记录，可能在轮到它之前就已经通过正常路径完成。markDone 先写入 done 状态，然后才删除对象 — 因此在对象消失的那一刻，状态早已不是 pending。迟到的重试只看到一个不存在的对象，于是作出永久判决。此前一万六千二百三十七次上传从未中招，因为这个判决需要两件事在数秒之内相遇：连续的上传，和正在运行的重试。那天早晨它们相遇了七次。现在状态会在触碰记录之前重新读取，而不是信任一份可能已过时一分钟的列表，并且判决是有条件的：若状态已不是 pending，该更新将命中零行，判决自行作废。markPending 也加上了同样的条件，使已完成的记录不会被一次早已无关的尝试拖回 pending。这次重新读取同时也堵上了另一半尚未显形的问题：若没有它，重试可能会重新上传一个刚刚通过正常路径成功的文件 — 一份文档在 Drive 中变成两份，而没人知道哪一份才是真的。那七条被误判的记录已直接在数据库中恢复为 done，因为它们从第一秒起就已经完成。红色横幅重新归空。队列中仅剩 9 月 29 日的一条旧记录 — 付款凭证 #118 — 它确实卡住了，并已在 v20.2 中说明：其付款凭证步骤中途中断，请在付款页面重做，然后关闭该记录。",
++  id: "SATU BERKAS DUDUK DI DUA SPANDUK SEKALIGUS, DAN KEDUANYA MENGATAKAN HAL YANG BERTOLAK BELAKANG TENTANG BERKAS YANG SAMA. Di layar: spanduk MERAH menyebut enam berkas dengan kalimat salinannya sudah tidak ada di server, portal tidak bisa mencoba lagi, harus diunggah ulang manual. Tepat di bawahnya spanduk KUNING menyebut ENAM NAMA YANG SAMA PERSIS dengan kalimat filenya AMAN, tersimpan di server, akan dikirim otomatis. Dua-duanya tidak mungkin benar, dan orang yang membacanya berurutan tidak punya cara tahu yang mana. SEBABNYA DUA QUERY YANG BERIRISAN. pendingOutbox() mengambil SEMUA baris berstatus pending. gagalOutbox(), sejak v20.3, sengaja ikut mengambil baris pending yang bertanda RAGU — keputusan yang benar, karena baris ragu memang butuh mata manusia: hasilnya tidak diketahui, berkasnya besar kemungkinan SUDAH ada di Drive, dan yang dibutuhkan cuma menempelkan link-nya. Tapi tidak ada satu pun dari keduanya yang mengeluarkan baris itu dari daftar lawannya, jadi setiap baris ragu muncul DUA KALI di dasbor, satu per spanduk. Enam baris terbaca sebagai dua belas masalah. YANG LEBIH MAHAL BUKAN HITUNGANNYA, TAPI KALIMATNYA. Judul spanduk merah tidak pernah ikut diubah waktu baris ragu mulai masuk ke sana, jadi untuk baris ragu kalimat itu salah pada DUA hal sekaligus: salinannya MASIH ada di server, dan portal justru sengaja TIDAK mencoba ulang baris ragu. Spanduk itu menyuruh orang mengunggah ulang berkas yang besar kemungkinan sudah ada di Drive — persis kesalahan yang v20.3 dibangun untuk menghentikan, muncul lagi lewat pintu lain. Dan ongkosnya nyata: kuota Drive akun itu sudah 96% penuh, jadi tiap salinan kedua dibayar dengan ruang yang memang sudah habis. SEKARANG SATU BERKAS CUMA PUNYA SATU SPANDUK. pendingOutbox() membuang yang bertanda ragu, karena spanduk merah sudah mengurusnya; dua daftar itu tidak pernah lagi beririsan. Dan judul spanduk merah dihitung dari isinya: kalau semuanya benar-benar mati, kalimatnya seperti dulu; kalau semuanya ragu, kalimatnya mengatakan apa adanya — hasilnya tidak diketahui, salinannya MASIH aman tapi portal sengaja TIDAK mencoba ulang sendiri (retryPending memang MELEWATI baris ragu, supaya tidak lahir salinan kedua), jadi cek Drive dulu lalu tempel link-nya atau tutup barisnya; kalau campuran, dua-duanya disebut dengan jumlahnya masing-masing. Warnanya tetap merah untuk ketiganya, karena ragu memang tidak gawat tapi tetap butuh orang yang membuka Drive — dan itu persis tugas spanduk merah. Tombol nama dan tombol tutup tidak disentuh: untuk baris ragu, menempel link Drive memang tetap tindakan yang paling benar.",
++  en: "ONE FILE SAT IN TWO BANNERS AT ONCE, AND THEY SAID OPPOSITE THINGS ABOUT THE SAME FILE. On screen: the RED banner named six files and said the server copy is gone, the portal cannot retry, these must be re-uploaded by hand. Directly below it the YELLOW banner named THE SAME SIX FILES and said they are SAFE on the server and will be sent automatically. Both cannot be true, and a person reading them in order has no way to tell which is. THE CAUSE IS TWO OVERLAPPING QUERIES. pendingOutbox() returns EVERY row with status pending. gagalOutbox(), since v20.3, deliberately also returns pending rows carrying the RAGU marker — the right call, because an uncertain row does need human eyes: the outcome is unknown, the file is most likely ALREADY in Drive, and all that is needed is pasting its link. But neither query excluded those rows from the other's list, so every uncertain row appeared TWICE on the dashboard, once per banner. Six rows read as twelve problems. THE EXPENSIVE PART IS NOT THE COUNT, IT IS THE SENTENCE. The red banner's headline was never updated when uncertain rows started landing there, so for those rows it is wrong on TWO counts at once: the server copy is STILL there, and the portal deliberately does NOT retry uncertain rows. That banner was telling people to re-upload files that are most likely already in Drive — precisely the mistake v20.3 was built to stop, returning through another door. And the cost is real: that account's Drive quota is already 96% full, so every second copy is paid for with space that has already run out. NOW ONE FILE HAS EXACTLY ONE BANNER. pendingOutbox() drops rows marked uncertain, because the red banner already handles them; the two lists never overlap again. And the red banner's headline is computed from what it holds: if everything is truly dead the wording is as before; if everything is uncertain it says so plainly — the outcome is unknown, the copy is STILL safe but the portal deliberately will NOT retry on its own (retryPending skips uncertain rows precisely so a second copy is never created), so check Drive, then paste the link or close the row; if it is a mix, both are named with their own counts. The colour stays red for all three, because uncertain is not an emergency but it still needs someone to open Drive — which is exactly what the red banner is for. The name buttons and the close button are untouched: for an uncertain row, pasting the Drive link is still the right action.",
++  zh: "同一个文件同时出现在两条横幅中，而这两条横幅对同一个文件说着相反的话。屏幕上：红色横幅列出六个文件，写着服务器副本已不存在、门户无法重试、必须人工重新上传。紧挨其下的黄色横幅列出完全相同的六个文件，写着文件已安全保存在服务器，将自动上传。二者不可能同时为真，而按顺序阅读的人无从判断哪一条才对。原因是两个相互重叠的查询。pendingOutbox() 返回所有状态为 pending 的记录。自 v20.3 起，gagalOutbox() 有意同时返回带 RAGU 标记的 pending 记录 — 这个决定是对的，因为结果未知的记录确实需要人眼：结果未知，文件很可能已在 Drive 中，所需要做的只是粘贴链接。但两个查询都没有把这些记录从对方的列表中排除，于是每一条未知记录都在仪表板上出现两次，每条横幅各一次。六条记录被读成了十二个问题。代价最大的不是数量，而是措辞。当未知记录开始进入红色横幅时，其标题从未相应修改，因此对这些记录而言，那句话同时在两点上是错的：服务器副本仍然存在，而门户有意不会重试未知记录。那条横幅在让人们重新上传很可能已在 Drive 中的文件 — 正是 v20.3 所要制止的错误，从另一扇门回来了。而代价是实在的：该账号的 Drive 配额已占用 96%，因此每一份第二副本都要用本已耗尽的空间来支付。现在一个文件只对应一条横幅。pendingOutbox() 会剔除带未知标记的记录，因为红色横幅已经在处理它们；两份列表不再重叠。红色横幅的标题则依其内容计算：若全部确实已丢失，措辞照旧；若全部为未知，则如实说明 — 结果未知，副本仍然安全，但门户有意不会自行重试（retryPending 正是会跳过未知记录，以免产生第二个副本），请先查找 Drive，然后粘贴链接或关闭该记录；若为混合，则分别列出各自的数量。三种情况颜色都保持红色，因为未知虽不紧急，但仍需有人去打开 Drive — 而这正是红色横幅的职责。文件名按钮与关闭按钮未作改动：对于未知记录，粘贴 Drive 链接仍然是最正确的操作。",
+ };
+-- 
+2.43.0
+
