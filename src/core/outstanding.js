@@ -13,6 +13,26 @@
 const EPS = 1e-6;
 const snap = n => (Math.abs(n) < EPS ? 0 : n);
 
+// SURAT JALAN YANG DIBATALKAN TIDAK PERNAH MENGIRIM APA PUN.
+//
+// Revoke ada karena kenyataan di gudang: kedatangannya berubah, atau dokumennya
+// memang salah terbit. Begitu sebuah surat jalan dicap BATAL, barisnya TETAP
+// ada — nomornya hangus, jejaknya utuh, dan layar riwayat masih menyebutnya.
+// Yang hilang cuma satu: haknya untuk ikut dihitung sebagai barang yang sudah
+// dikirim.
+//
+// Penyaringannya ditaruh DI SINI, bukan di tiap pemanggil, karena berkas ini
+// satu-satunya tempat qty terkirim dijumlahkan. Outstanding PO, Label Orders,
+// kartu Dashboard, dan tanggal terima semuanya membaca angka dari sini — jadi
+// satu saringan di satu tempat membuat keempatnya benar sekaligus, dan tidak
+// ada layar yang bisa ketinggalan waktu aturannya berubah lagi.
+//
+// Kebalikannya — menyaring di tiap layar — persis cara sebuah angka bisa benar
+// di satu tempat dan salah di tempat lain tanpa ada yang sadar, karena tidak
+// pernah ada yang membandingkan keduanya.
+export const sjDibatalkan = (sj) => String((sj && sj.status) || '') === 'batal';
+export const sjHidup = (st) => (st.suratJalan || []).filter(sj => !sjDibatalkan(sj));
+
 // DUA SUMBER PENERIMAAN, DIJUMLAHKAN — BUKAN DIPILIH SALAH SATU
 // ---------------------------------------------------------------------------
 // 1. Surat Jalan Verifikasi — jalur label. Gudang memeriksa desainnya, dan
@@ -35,7 +55,7 @@ export function directReceived(po, lineId) {
 // Sum of qty already shipped against one PO line across every surat jalan ever
 // created, PLUS anything marked as arrived directly on the Outstanding PO screen.
 export function receivedQty(st, poId, lineId) {
-  const viaSj = st.suratJalan
+  const viaSj = sjHidup(st)
     .filter(sj => (sj.poIds || []).includes(poId))
     .flatMap(sj => sj.items || [])
     .filter(it => it.poId === poId && it.lineId === lineId)
@@ -48,7 +68,7 @@ export function receivedQty(st, poId, lineId) {
 // "Diterima 100" tanpa keterangan dari mana membuat orang tidak bisa menyanggah
 // angkanya; "80 lewat surat jalan, 20 ditandai manual oleh cania" bisa.
 export function receivedBreakdown(st, poId, lineId) {
-  const viaSj = st.suratJalan
+  const viaSj = sjHidup(st)
     .filter(sj => (sj.poIds || []).includes(poId))
     .flatMap(sj => sj.items || [])
     .filter(it => it.poId === poId && it.lineId === lineId)
@@ -151,7 +171,7 @@ export function tanggalTerimaTerakhir(st, po) {
     if (isNaN(w)) return;
     if (!paling || w > paling) paling = w;
   };
-  for (const sj of st.suratJalan || []) {
+  for (const sj of sjHidup(st)) {
     if (!(sj.poIds || []).includes(po.id)) continue;
     // Surat jalan bisa memuat beberapa PO sekaligus. Tanggalnya cuma dihitung
     // kalau dokumen itu benar-benar memuat baris DARI PO INI — kalau tidak,
@@ -188,6 +208,31 @@ export function poSudahMasuk(st, { labelOnly = false } = {}) {
 }
 
 // Set po.closed when every line of every PO in poIds is fully received.
+// KEBALIKAN DARI closeFullyReceivedPOs, DAN HARUS ADA BERSAMANYA.
+//
+// Sebuah surat jalan yang melengkapi PO akan menutup PO itu otomatis. Begitu
+// dokumennya dibatalkan atau qty-nya diturunkan, PO yang sama berhenti lengkap
+// — tapi statusnya tetap 'closed' kalau tidak ada yang membukanya kembali, dan
+// PO tertutup tidak muncul di layar Outstanding. Barang yang belum datang jadi
+// tidak terlihat oleh siapa pun: persis bentuk kehilangan yang paling mahal di
+// portal ini, karena tidak ada pesan error di mana pun.
+//
+// Syarat membuka sengaja sama persis dengan syarat menutup, cuma dibalik: PO
+// dibuka HANYA kalau sekarang benar-benar belum lengkap. PO yang masih lengkap
+// walau dokumennya dibatalkan (karena ada surat jalan lain yang menutupinya)
+// dibiarkan tertutup.
+export function reopenIfNotFullyReceived(st, poIds, logAudit) {
+  (poIds || []).forEach(id => {
+    const po = (st.pos || []).find(p => p.id === id);
+    if (!po || !po.closed) return;
+    const roll = poOutstanding(st, po);
+    if (roll.isFullyReceived) return;
+    po.closed = false;
+    po.closedAt = null;
+    if (logAudit) logAudit({ entity: 'po', target: po.no, action: 'reopen', detail: 'surat jalan dibatalkan/diubah — barang belum lengkap' });
+  });
+}
+
 export function closeFullyReceivedPOs(st, poIds, logAudit) {
   poIds.forEach(id => {
     const po = st.pos.find(p => p.id === id);

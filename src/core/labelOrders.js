@@ -18,7 +18,7 @@
 // Received qty comes from receivedQty() rather than a second implementation, so
 // this screen and the Surat Jalan screen can never disagree about what shipped.
 
-import { receivedQty } from './outstanding.js';
+import { receivedQty, sjHidup } from './outstanding.js';
 
 export const PRIORITIES = ['Normal', 'Urgent', 'Super Urgent'];
 
@@ -87,7 +87,7 @@ export function labelOrders(st, settings, now = new Date()) {
 
       // Received date = the LAST surat jalan that shipped against this line.
       let receivedAt = null;
-      for (const sj of st.suratJalan || []) {
+      for (const sj of sjHidup(st)) {
         if (!(sj.poIds || []).includes(po.id)) continue;
         if (!(sj.items || []).some(i => i.poId === po.id && i.lineId === line.lineId)) continue;
         if (!receivedAt || new Date(sj.date) > new Date(receivedAt)) receivedAt = sj.date;

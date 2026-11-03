@@ -1,13 +1,13 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, checkRow, selectEl, icon, driveLink, modal, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
+import { card, badge, btn, checkRow, selectEl, icon, driveLink, modal, tanyaTeks, inputEl, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
 import { suratJalanPaper } from '../ui/documents.js';
 import { romanMonth, nextMonthlySeq, fmtDate, num } from '../core/format.js';
 import { parseNumber, qtyInputText } from '../parsers/numbers.js';
-import { outstandingPOs, closeFullyReceivedPOs, receivedQty, overDeliveredPOs } from '../core/outstanding.js';
+import { outstandingPOs, closeFullyReceivedPOs, reopenIfNotFullyReceived, receivedQty, overDeliveredPOs, sjDibatalkan } from '../core/outstanding.js';
 import { wrapPrintable } from './approval.js';
-import { fetchSuratJalan, createSuratJalanGuarded, updateSuratJalan } from '../core/suratJalanApi.js';
+import { fetchSuratJalan, createSuratJalanGuarded, updateSuratJalan, revokeSuratJalan, amendSuratJalan } from '../core/suratJalanApi.js';
 import { can } from '../auth/roles.js';
 import { blockWrite } from '../core/guard.js';
 import { isConfigured } from '../core/supabase.js';
@@ -180,7 +180,7 @@ export function suratJalanScreen() {
       id: 'Tidak ada PO label dengan barang outstanding untuk dibuat lembar verifikasi.',
       en: 'No label PO with outstanding goods to raise a verification sheet for.',
       zh: '没有尚未到货的标签采购单可开具核对表。',
-    }))], { pad: false }), historyCard(st, canWrite)]);
+    }))], { pad: false }), historyCard(st, canWrite), ui.sjEdit ? editSjModal(st, ui) : null]);
   }
 
   const poSel = ui.sjPoSel || {};
@@ -246,7 +246,7 @@ export function suratJalanScreen() {
 
   const preview = ui.sjLastId ? previewCard(st, ui.sjLastId) : null;
 
-  return h('div.stack', [internalBanner, overBanner, summary, supplierBar, poChecklist, itemsTable, rows.length ? actionBar : null, preview, historyCard(st, canWrite), ui.sjWarnMissing ? missingDesignModal(ui) : null]);
+  return h('div.stack', [internalBanner, overBanner, summary, supplierBar, poChecklist, itemsTable, rows.length ? actionBar : null, preview, historyCard(st, canWrite), ui.sjWarnMissing ? missingDesignModal(ui) : null, ui.sjEdit ? editSjModal(st, ui) : null]);
 }
 
 // Design master is empty at rollout on purpose (built now, filled in later —
@@ -563,20 +563,34 @@ function historyCard(st, canWrite) {
     ]),
     h('div.tbl-wrap', h('table.tbl', [
       h('thead', h('tr', kepala.map(c => h('th', c)))),
-      h('tbody', list.length ? list.map(sj => h('tr', [
-        h('td.mono.cell-strong', sj.no), h('td', sj.supplier), h('td.mono', { style: { color: 'var(--text-3)' } }, sj.poNo),
-        h('td.mono', fmtDate(sj.date)),
-        h('td', driveLink(sj.driveUrl || '')),
-        h('td', h('div.row.gap8', [
-          btn(tr({ id: 'Lihat', en: 'View', zh: '查看' }), { sm: true, onClick: () => setUI({ sjLastId: sj.id }) }),
-          // Offered only when there's no Drive link: either the upload failed,
-          // or it succeeded and the DB write that stores the link didn't.
-          // Without this the file was unreachable forever.
-          (canWrite && (!sj.driveUrl || String(sj.driveUrl).startsWith('drive-')))
-            ? btn('Arsip ulang', { sm: true, iconName: 'upload', onClick: () => reArchive(sj) })
-            : null,
-        ])),
-      ])) : barisTakCocok(kepala.length, { id: 'sj-riwayat', adaFilter: jumlahFilterAktif(nilai) > 0 })),
+      h('tbody', list.length ? list.map(sj => {
+        const batal = sjDibatalkan(sj);
+        return h('tr', { style: batal ? { opacity: 0.62 } : null }, [
+          // NOMORNYA TETAP TERBACA, DAN SENGAJA TIDAK DICORET SAMPAI HILANG.
+          // Dokumen batal masih dicari orang justru KARENA batal — "SJ nomor
+          // sekian kenapa?" adalah pertanyaan yang paling sering muncul tentang
+          // dokumen yang dibatalkan, dan nomor yang tidak terbaca membuatnya
+          // tidak bisa dijawab.
+          h('td.mono.cell-strong', [
+            h('span', { style: batal ? { textDecoration: 'line-through' } : null }, sj.no),
+            batal ? h('span', { style: { marginLeft: '6px' } }, badge('BATAL', 'red')) : null,
+          ]),
+          h('td', sj.supplier), h('td.mono', { style: { color: 'var(--text-3)' } }, sj.poNo),
+          h('td.mono', fmtDate(sj.date)),
+          h('td', driveLink(sj.driveUrl || '')),
+          h('td', h('div.row.gap8', [
+            btn(tr({ id: 'Lihat', en: 'View', zh: '查看' }), { sm: true, onClick: () => setUI({ sjLastId: sj.id }) }),
+            // Offered only when there's no Drive link: either the upload failed,
+            // or it succeeded and the DB write that stores the link didn't.
+            // Without this the file was unreachable forever.
+            (canWrite && !batal && (!sj.driveUrl || String(sj.driveUrl).startsWith('drive-')))
+              ? btn('Arsip ulang', { sm: true, iconName: 'upload', onClick: () => reArchive(sj) })
+              : null,
+            (canWrite && !batal) ? btn(tr({ id: 'Edit', en: 'Edit', zh: '编辑' }), { sm: true, onClick: () => mulaiEditSj(sj) }) : null,
+            (canWrite && !batal) ? btn(tr({ id: 'Revoke', en: 'Revoke', zh: '作废' }), { sm: true, onClick: () => revokeSj(sj) }) : null,
+          ])),
+        ]);
+      }) : barisTakCocok(kepala.length, { id: 'sj-riwayat', adaFilter: jumlahFilterAktif(nilai) > 0 })),
     ])),
     // Catatan pemotongan cuma muncul waktu memang ada yang terpotong. Dulu
     // tidak ada catatan sama sekali: 20 baris teratas ditampilkan diam-diam,
@@ -587,4 +601,191 @@ function historyCard(st, canWrite) {
       zh: `显示 ${tersaring.length} 份中的 20 份 — 请使用筛选缩小范围。`,
     })) : null,
   ]);
+}
+
+
+// ===========================================================================
+// REVOKE & EDIT SURAT JALAN YANG SUDAH TERBIT.
+//
+// Kenapa ini ada: kedatangan berubah. Barang yang tercatat 500 datang 480,
+// satu item batal dikirim, atau dokumennya memang salah terbit. Sebelum ini
+// satu-satunya jalan keluar adalah membiarkan angkanya salah — dan angka
+// terkirim yang salah merembet jauh: Outstanding PO, tanggal terima di Label
+// Orders, dan penjaga over-delivery semuanya membaca dari sana.
+//
+// Yang TIDAK dilakukan: menghapus barisnya. Nomor surat jalan dipegang orang
+// di luar layar ini — gudang, supplier, arsip Drive. Nomor yang hilang dari
+// sistem tapi masih ada di tangan orang adalah pertanyaan tanpa jawaban.
+// Jadi dokumen batal tetap tampil, dicap BATAL, lengkap dengan siapa yang
+// membatalkan dan alasannya; nomornya hangus dan tidak dipakai ulang.
+//
+// Izinnya memakai sjWrite yang sudah ada — wilbert, cania, visca, plus kevin
+// lewat peran wilbert. Persis empat orang yang diminta, dan daftarnya sama
+// dengan policy sj_rw di database, jadi layar dan server tidak bisa berbeda
+// pendapat.
+
+function gantiDiState(sjBaru) {
+  const st = getState();
+  const i = st.suratJalan.findIndex(x => x.id === sjBaru.id);
+  if (i >= 0) st.suratJalan[i] = { ...st.suratJalan[i], ...sjBaru };
+  setState({});
+}
+
+async function revokeSj(sj) {
+  if (blockWrite('revoke surat jalan')) return;
+  // ALASANNYA WAJIB, dan bukan formalitas. Dokumen batal tanpa alasan memaksa
+  // orang berikutnya menebak apakah barangnya tidak jadi datang, salah ketik,
+  // atau dikirim ulang lewat nomor lain — tiga kemungkinan dengan tindak
+  // lanjut yang berbeda-beda.
+  const alasan = await tanyaTeks({
+    judul: tr({ id: `Revoke ${sj.no}`, en: `Revoke ${sj.no}`, zh: `作废 ${sj.no}` }),
+    pesan: tr({
+      id: `Qty di dokumen ini akan dikembalikan jadi outstanding, dan PO yang terlanjur ditutup karenanya dibuka lagi. Nomornya hangus — tidak dipakai ulang.`,
+      en: `The quantities on this document go back to outstanding, and any PO closed because of it is reopened. The number is burned — it is never reused.`,
+      zh: `此单据上的数量将恢复为未结，因它而关闭的采购单会重新打开。该单号作废，不再重复使用。`,
+    }),
+    label: tr({ id: 'Alasan', en: 'Reason', zh: '原因' }),
+    placeholder: tr({ id: 'mis. barang tidak jadi datang', en: 'e.g. delivery did not arrive', zh: '例如：货物未到' }),
+    okLabel: tr({ id: 'Revoke', en: 'Revoke', zh: '作废' }),
+    danger: true, multiline: true,
+  });
+  if (alasan == null) return;
+  if (!String(alasan).trim()) {
+    toast({ id: 'Alasan wajib diisi — revoke dibatalkan.', en: 'A reason is required — revoke cancelled.', zh: '必须填写原因 — 已取消作废。' });
+    return;
+  }
+  try {
+    const hasil = await revokeSuratJalan(sj.id, alasan);
+    // Demo mode (Supabase tidak dikonfigurasi) mengembalikan null — layarnya
+    // tetap harus masuk akal, jadi ditandai lokal.
+    gantiDiState(hasil || { ...sj, status: 'batal', revokeReason: String(alasan), revokedAt: new Date().toISOString(), revokedBy: getState().user.username });
+    reopenIfNotFullyReceived(getState(), sj.poIds || [], logAudit);
+    logAudit({ entity: 'suratJalan', target: sj.no, action: 'revoke', detail: String(alasan).slice(0, 180) });
+    toast({ id: `${sj.no} dibatalkan`, en: `${sj.no} revoked`, zh: `${sj.no} 已作废` });
+  } catch (e) {
+    toast({
+      id: 'Gagal revoke di server: ' + ((e && e.message) || e),
+      en: 'Revoke failed on the server: ' + ((e && e.message) || e),
+      zh: '服务器作废失败：' + ((e && e.message) || e),
+    });
+  }
+}
+
+function mulaiEditSj(sj) {
+  if (blockWrite('edit surat jalan')) return;
+  setUI({ sjEdit: { id: sj.id, items: (sj.items || []).map(it => ({ ...it })) } });
+}
+
+function tutupEditSj() { setUI({ sjEdit: null }); }
+
+function editSjModal(st, ui) {
+  const draft = ui.sjEdit;
+  const sj = st.suratJalan.find(x => x.id === draft.id);
+  if (!sj) return null;
+  const items = draft.items || [];
+
+  const ubahQty = (idx, nilai) => {
+    const d = getState().ui.sjEdit;
+    d.items[idx].qtyShipped = Math.max(0, parseNumber(nilai) || 0);
+    d.items[idx].qty = d.items[idx].qtyShipped;
+    setUI({ sjEdit: { ...d } });
+  };
+  const buang = (idx) => {
+    const d = getState().ui.sjEdit;
+    d.items.splice(idx, 1);
+    setUI({ sjEdit: { ...d } });
+  };
+
+  // KANDIDAT TAMBAHAN cuma dari PO yang memang disebut dokumen ini. Membuka
+  // seluruh PO di sini akan mengubah arti nomornya: satu surat jalan yang
+  // tiba-tiba memuat PO yang tidak pernah ada waktu dokumennya dicetak.
+  const sudah = new Set(items.map(it => `${it.poId}::${it.lineId}`));
+  const kandidat = [];
+  for (const po of st.pos || []) {
+    if (!(sj.poIds || []).includes(po.id)) continue;
+    for (const it of po.items || []) {
+      const k = `${po.id}::${it.lineId}`;
+      if (sudah.has(k)) continue;
+      kandidat.push({ key: k, poId: po.id, lineId: it.lineId, erp: it.erp, name: it.name, dimension: it.dimension, unit: it.unit, designUrl: it.designUrl || '' });
+    }
+  }
+  const tambah = (key) => {
+    const c = kandidat.find(x => x.key === key);
+    if (!c) return;
+    const d = getState().ui.sjEdit;
+    d.items.push({ poId: c.poId, lineId: c.lineId, erp: c.erp, name: c.name, dimension: c.dimension, warna: '', qtyShipped: 0, qty: 0, unit: c.unit, designUrl: c.designUrl });
+    setUI({ sjEdit: { ...d } });
+  };
+
+  return modal({
+    title: tr({ id: `Edit ${sj.no}`, en: `Edit ${sj.no}`, zh: `编辑 ${sj.no}` }),
+    subtitle: tr({
+      id: 'Server mengecek ulang jumlah pesanan waktu disimpan — kelebihan kirim tetap ditolak. Arsip Drive-nya digenerate ulang supaya isinya tidak beda dengan yang di sistem.',
+      en: 'The server re-checks ordered quantities on save — over-delivery is still refused. The Drive archive is regenerated so it cannot disagree with the system.',
+      zh: '保存时服务器会重新核对订购数量 — 超量发货仍会被拒绝。Drive 归档会重新生成，以免与系统不一致。',
+    }),
+    width: 720, onClose: tutupEditSj,
+    body: [
+      h('div.tbl-wrap', h('table.tbl', [
+        h('thead', h('tr', ['ERP', tr({ id: 'Item', en: 'Item', zh: '物料' }), t('col_qty'), ''].map(c => h('th', c)))),
+        h('tbody', items.length ? items.map((it, idx) => h('tr', [
+          h('td.mono', it.erp),
+          h('td', [h('div', it.name), it.dimension ? h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, it.dimension) : null]),
+          h('td', { style: { width: '120px' } }, inputEl({
+            value: qtyInputText(it.qtyShipped), mono: true,
+            onBlur: (v) => ubahQty(idx, v),
+          })),
+          h('td', { style: { width: '44px' } }, btn('×', { sm: true, onClick: () => buang(idx) })),
+        ])) : h('tr', h('td', { colspan: 4, style: { padding: '14px', color: 'var(--text-3)', fontSize: '12px' } }, tr({
+          id: 'Semua item dibuang. Simpan dalam keadaan ini sama dengan membatalkan dokumennya — pakai Revoke supaya alasannya ikut tercatat.',
+          en: 'Every line removed. Saving like this is the same as cancelling the document — use Revoke instead so the reason is recorded.',
+          zh: '所有明细已移除。以此状态保存等同于作废该单据 — 请改用「作废」，以便记录原因。',
+        })))),
+      ])),
+      kandidat.length ? h('div', { style: { marginTop: '10px' } }, [
+        h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginBottom: '4px' } }, tr({
+          id: 'Tambah item dari PO yang sama', en: 'Add a line from the same PO', zh: '从同一采购单添加明细',
+        })),
+        selectEl([{ value: '', label: '— pilih —' }, ...kandidat.map(c => ({ value: c.key, label: `${c.erp} — ${c.name}` }))],
+          { value: '', onChange: tambah }),
+      ]) : null,
+    ],
+    footer: [
+      btn(t('cancel'), { onClick: tutupEditSj }),
+      btn(t('save'), { variant: 'primary', onClick: () => simpanEditSj(sj, items) }),
+    ],
+  });
+}
+
+async function simpanEditSj(sj, items) {
+  if (blockWrite('edit surat jalan')) return;
+  if (!items.length) {
+    toast({
+      id: 'Tidak ada item tersisa — pakai Revoke, bukan Edit.',
+      en: 'No lines left — use Revoke, not Edit.',
+      zh: '没有剩余明细 — 请使用「作废」而非「编辑」。',
+    });
+    return;
+  }
+  try {
+    const hasil = await amendSuratJalan(sj.id, items);
+    const baru = hasil || { ...sj, items, amendedAt: new Date().toISOString(), amendedBy: getState().user.username };
+    gantiDiState(baru);
+    tutupEditSj();
+    reopenIfNotFullyReceived(getState(), sj.poIds || [], logAudit);
+    closeFullyReceivedPOs(getState(), sj.poIds || [], logAudit);
+    logAudit({ entity: 'suratJalan', target: sj.no, action: 'edit', detail: `${items.length} item` });
+    // ARSIP DRIVE-NYA WAJIB DIGENERATE ULANG. HTML yang sudah terunggah memuat
+    // angka lama; membiarkannya berarti ada dua versi dokumen yang sama dengan
+    // isi berbeda, dan yang dipegang orang justru yang salah.
+    await archiveSuratJalanToDrive({ ...baru, items }, { announce: true });
+    toast({ id: `${sj.no} diperbarui`, en: `${sj.no} updated`, zh: `${sj.no} 已更新` });
+  } catch (e) {
+    const msg = String((e && e.message) || e);
+    toast({
+      id: /over-delivery/i.test(msg) ? 'DITOLAK server — kelebihan kirim: ' + msg.replace(/^.*over-delivery blocked:\s*/i, '') : 'Gagal simpan perubahan: ' + msg,
+      en: /over-delivery/i.test(msg) ? 'REJECTED by the server — over-delivery: ' + msg.replace(/^.*over-delivery blocked:\s*/i, '') : 'Failed to save the changes: ' + msg,
+      zh: /over-delivery/i.test(msg) ? '服务器已拒绝 — 超量发货：' + msg.replace(/^.*over-delivery blocked:\s*/i, '') : '保存修改失败：' + msg,
+    });
+  }
 }

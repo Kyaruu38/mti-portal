@@ -24,6 +24,15 @@ function fromRow(row) {
     createdAt: row.created_at,
     items,
     driveUrl: row.drive_url || '',
+    // BATAL BUKAN HAPUS. Barisnya tetap ada, nomornya tetap hangus, dan siapa
+    // yang membatalkan + alasannya ikut terbaca di layar riwayat. Yang hilang
+    // cuma haknya ikut dihitung sebagai barang terkirim (core/outstanding.js).
+    status: row.status || 'aktif',
+    revokedBy: row.revoked_by || '',
+    revokedAt: row.revoked_at || '',
+    revokeReason: row.revoke_reason || '',
+    amendedBy: row.amended_by || '',
+    amendedAt: row.amended_at || '',
   };
 }
 
@@ -121,4 +130,46 @@ export async function createSuratJalanGuarded(sj) {
     return insertSuratJalan(sj);
   }
   throw error;                                    // over-delivery, RLS, bad line
+}
+
+
+// ---------------------------------------------------------------------------
+// REVOKE & AMEND — KEPUTUSANNYA TETAP DI DATABASE, SAMA SEPERTI CREATE.
+//
+// createSuratJalanGuarded() sudah memindahkan penjaga over-delivery ke Postgres
+// karena dua orang di layar yang sama bisa sama-sama lolos cek versi browser
+// lalu sama-sama menyimpan. Mengubah dokumen yang SUDAH terbit punya persoalan
+// yang sama persis, cuma arahnya dua-duanya: menurunkan qty membebaskan sisa
+// PO yang bisa langsung dipakai orang lain, menaikkannya bisa melewati jumlah
+// pesanan. Jadi kedua jalur ini juga RPC, bukan UPDATE dari browser.
+//
+// Keduanya mengunci PO yang disebut dokumen itu, menghitung ulang
+// ordered-vs-shipped di dalam transaksi DENGAN MENGABAIKAN dokumen berstatus
+// 'batal', lalu menolak kalau hasilnya melewati pesanan. Pesan penolakannya
+// menyebut barisnya, jumlah pesanan, yang sudah terkirim, dan yang dokumen ini
+// tambahkan — bukan kalimat gagal yang generik.
+//
+// Izinnya tidak ditambah apa-apa: policy sj_rw yang sudah ada (is_purchasing →
+// wilbert/cania/visca, kevin lewat peran wilbert) adalah daftar yang sama
+// dengan kapabilitas sjWrite di layar. Satu daftar, dua tempat, tidak bisa
+// berbeda pendapat.
+
+export async function revokeSuratJalan(id, reason) {
+  if (!isConfigured()) return null;
+  const c = await getClient();
+  if (!c) throw new Error('Supabase client unavailable');
+  const { data, error } = await c.rpc('revoke_surat_jalan', { p_id: id, p_reason: String(reason || '') });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  return row ? fromRow(row) : null;
+}
+
+export async function amendSuratJalan(id, items) {
+  if (!isConfigured()) return null;
+  const c = await getClient();
+  if (!c) throw new Error('Supabase client unavailable');
+  const { data, error } = await c.rpc('amend_surat_jalan', { p_id: id, p_items: items });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  return row ? fromRow(row) : null;
 }
