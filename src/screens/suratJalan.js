@@ -5,7 +5,7 @@ import { card, badge, btn, checkRow, selectEl, icon, driveLink, modal, tanyaTeks
 import { suratJalanPaper } from '../ui/documents.js';
 import { romanMonth, nextMonthlySeq, fmtDate, num } from '../core/format.js';
 import { parseNumber, qtyInputText } from '../parsers/numbers.js';
-import { outstandingPOs, closeFullyReceivedPOs, reopenIfNotFullyReceived, receivedQty, overDeliveredPOs, sjDibatalkan } from '../core/outstanding.js';
+import { outstandingPOs, closeFullyReceivedPOs, reopenIfNotFullyReceived, receivedQty, receivedBreakdown, overDeliveredPOs, sjDibatalkan } from '../core/outstanding.js';
 import { wrapPrintable } from './approval.js';
 import { fetchSuratJalan, createSuratJalanGuarded, updateSuratJalan, revokeSuratJalan, amendSuratJalan } from '../core/suratJalanApi.js';
 import { can } from '../auth/roles.js';
@@ -84,6 +84,21 @@ function pulledInRows(st, entries) {
         key: rowKey(po.id, li.lineId), poId: po.id, poNo: po.contract || po.no, lineId: li.lineId,
         erp: design ? design.erp : (li.erp || '—'), name: li.d, dimension: li.dimension || '',
         unit: li.unit || po.unit || '张', outstanding: li.outstanding, ordered: li.qty, received: li.received,
+        // ASAL-USUL ANGKA DITERIMA, bukan cuma totalnya.
+        //
+        // Penerimaan punya DUA pintu: surat jalan ini, dan tombol "tandai sudah
+        // sampai" di layar PO Outstanding. Keduanya dijumlahkan di
+        // core/outstanding.js, lalu ditampilkan di sini sebagai SATU angka.
+        //
+        // Akibatnya nyata: 22 Okt 2026 sebuah baris OMNIMAX menunjukkan
+        // "diterima 270" padahal tidak seorang pun pernah membuat surat jalan
+        // untuknya — angkanya masuk lewat pintu satunya, dan tidak ada apa pun
+        // di layar yang menyebutkan itu. Yang membacanya menyimpulkan portalnya
+        // salah hitung, dan itu kesimpulan yang wajar.
+        //
+        // receivedBreakdown() sudah ada sejak lama justru untuk ini; yang belum
+        // ada cuma pemakaiannya di layar ini.
+        rincian: receivedBreakdown(st, po.id, li.lineId),
         designUrl: design ? (design.thumb || '') : '', // persisted thumb, not the old session-only blob
         designFull: design ? (design.driveUrl || '') : '', // full design PDF/image on Drive
       });
@@ -221,7 +236,21 @@ export function suratJalanScreen() {
           h('td', h('input', { type: 'checkbox', checked: on, onChange: () => { const s = { ...itemSel }; s[r.key] = !on; setUI({ sjItemSel: s }); } })),
           h('td.mono', r.erp), h('td', r.name),
           h('td.mono', { style: { color: 'var(--text-3)' } }, r.poNo),
-          h('td.mono.r', num(r.ordered)), h('td.mono.r', num(r.received)), h('td.mono.r', num(r.outstanding)),
+          h('td.mono.r', num(r.ordered)),
+          h('td.mono.r', {
+            title: (r.rincian && r.rincian.direct)
+              ? `${num(r.rincian.viaSj)} lewat surat jalan · ${num(r.rincian.direct)} ditandai manual di layar PO Outstanding`
+              : null,
+          }, [
+            h('div', num(r.received)),
+            (r.rincian && r.rincian.direct)
+              ? h('div', { style: { fontSize: '9.5px', color: 'var(--text-3)', whiteSpace: 'nowrap', fontWeight: 400 } },
+                  r.rincian.viaSj
+                    ? `${num(r.rincian.viaSj)} SJ · ${num(r.rincian.direct)} manual`
+                    : tr({ id: 'semua ditandai manual', en: 'all marked manually', zh: '全部为手动标记' }))
+              : null,
+          ]),
+          h('td.mono.r', num(r.outstanding)),
           h('td', qtyInput(r, getQty(ui, r), canWrite)),
         ]);
       })),
