@@ -190,7 +190,16 @@ function sidebar(st) {
           h('span.bar'),
           icon(i.ic, 15),
           h('span.grow', t(i.t)),
-          bcount ? h('span.nav-badge', String(bcount)) : null,
+          // LENCANANYA SELALU ADA DI DOM, cuma disembunyikan waktu nol.
+          //
+          // core/approvalWatch.js menambal angka ini LANGSUNG lewat
+          // querySelector, tanpa menggambar ulang halaman. Simpul yang cuma
+          // lahir kalau angkanya > 0 berarti tambalan pertama — justru yang
+          // paling penting, dari nol jadi satu — tidak punya apa pun untuk
+          // ditambal, dan kabar pertama itulah yang hilang.
+          i.badgeKey
+            ? h('span.nav-badge', { dataset: { badge: i.badgeKey }, style: bcount ? null : { display: 'none' } }, String(bcount || ''))
+            : null,
         ]);
       }),
     ]))),
