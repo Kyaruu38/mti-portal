@@ -43,7 +43,7 @@ function lukisHuruf(n, currency) {
   if (node) node.textContent = hurufNominal(n, currency);
 }
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, statusTone, driveLink, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
+import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, pilihCari, statusTone, driveLink, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
 import { money, num, fmtDate, romanMonth, daysUntil, topDays, addDays, ccyTone, CURRENCIES } from '../core/format.js';
 import { prfPaper } from '../ui/documents.js';
 import { downloadBlob } from '../core/dom.js';
@@ -1414,7 +1414,18 @@ function invoiceModal() {
     onClose: () => setUI({ invoiceModal: false, invoiceQueue: null, invoiceQueueTotal: 0 }),
     body: [
       field(tr({ id: 'No. Invoice', en: 'Invoice No.', zh: '发票号' }), inputEl({ value: f.no, mono: true, onInput: v => (f.no = v) })),
-      field(t('col_supplier'), selectEl(st.suppliers.map(s => ({ value: s.id, label: s.name })), { value: f.supplierId, onChange: v => (f.supplierId = v) })),
+      // pilihCari, bukan selectEl: 46 pemasok di dalam modal yang .modal-nya
+      // sendiri overflow-y:auto. Panelnya ditempel ke <body> (lihat
+      // components.js) justru supaya tidak terpotong di sini.
+      field(t('col_supplier'), pilihCari(st.suppliers.map(s => ({ value: s.id, label: s.name, sub: s.name_zh || '' })), {
+        value: f.supplierId,
+        // f adalah draf modal, BUKAN state: onChange di sini sengaja tidak
+        // memanggil setUI, sama seperti selectEl yang digantikannya. Label di
+        // tombolnya ikut ditulis langsung karena tidak ada gambar ulang.
+        onChange: v => { f.supplierId = v; },
+        minWidth: '100%',
+        cariPlaceholder: tr({ id: 'Cari pemasok…', en: 'Search supplier…', zh: '搜索供应商…' }),
+      })),
       field('PO Ref', inputEl({ value: f.poRef, onInput: v => (f.poRef = v) })),
       h('div.grid.g2', [
         // MENGUBAH MATA UANG MEMBACA ULANG NOMINALNYA. Kalau tidak, nominal yang
@@ -1770,7 +1781,12 @@ function prfBuilder(st) {
     h('div.card-head', [h('div.card-title', t('pay_prf_builder')), h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, t('pay_prf_builder_sub'))]),
     h('div.row.gap8.wrap', { style: { padding: '13px 16px', borderBottom: '1px solid var(--border)' } }, [
       h('span', { style: { fontSize: '11px', fontWeight: 600, color: 'var(--text-3)' } }, t('pay_supplier') + ':'),
-      h('select.input', { style: { width: 'auto', minWidth: '260px' }, onChange: e => setUI({ prfSupplierId: e.target.value, prfSel: {}, prfCcy: null }) }, st.suppliers.map(s => h('option', { value: s.id, selected: s.id === supplierId }, s.name))),
+      pilihCari(st.suppliers.map(s => ({ value: s.id, label: s.name, sub: s.name_zh || '' })), {
+        value: supplierId,
+        onChange: v => setUI({ prfSupplierId: v, prfSel: {}, prfCcy: null }),
+        minWidth: '260px',
+        cariPlaceholder: tr({ id: 'Cari pemasok…', en: 'Search supplier…', zh: '搜索供应商…' }),
+      }),
       // Currency selector — enforces one currency per PRF (never mixed).
       //
       // The caption says which of the two sources this came from. It used to

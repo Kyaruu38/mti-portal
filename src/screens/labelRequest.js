@@ -1,7 +1,7 @@
 import { h, wireDrop, pickFiles } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring, tanyaTeks } from '../ui/components.js';
+import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, pilihCari, poNoField, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring, tanyaTeks } from '../ui/components.js';
 import { readWorkbook } from '../core/xlsx.js';
 import { parseLabelSheet } from '../parsers/excelLabels.js';
 import { money, num, ppnFor, ppnModeFromForm, fmtDateTime } from '../core/format.js';
@@ -566,7 +566,11 @@ function step3() {
     })),
   ]);
 
+  // Nama Mandarin ikut dibawa sebagai `sub` supaya bisa jadi kata kunci juga:
+  // separuh pemasok di sini perusahaan Tiongkok, dan yang hafal 海润 belum
+  // tentu hafal ejaan latinnya.
   const supplierNames = st.suppliers.map(s => s.name);
+  const supplierOpts = st.suppliers.map(s => ({ value: s.name, label: s.name, sub: s.name_zh || '' }));
   const actionBar = h('div.card', { style: { position: 'sticky', bottom: '14px', display: 'flex', alignItems: 'center', gap: '14px', border: '1.5px solid var(--accent)', boxShadow: 'var(--paper-shadow)', padding: '12px 18px' } }, [
     h('div', [
       h('div', { style: { fontSize: '13px', fontWeight: 800 } }, [h('span.mono', { style: { color: 'var(--accent-tx)' } }, String(selCount)), ' ' + t('lr_selected')]),
@@ -588,7 +592,12 @@ function step3() {
       // Hidden for the requester: offering a supplier picker to someone whose
       // choice is ignored is worse than not offering it — it reads as input.
       can(st.user.role, 'poCreate') ? h('span', { style: { fontSize: '11px', fontWeight: 600, color: 'var(--text-3)' } }, t('lr_assign_sup')) : null,
-      can(st.user.role, 'poCreate') ? selectEl(supplierNames, { value: ui.assignSup || supplierNames[0], onChange: v => setUI({ assignSup: v }) }) : null,
+      can(st.user.role, 'poCreate') ? pilihCari(supplierOpts, {
+        value: ui.assignSup || supplierNames[0],
+        onChange: v => setUI({ assignSup: v }),
+        minWidth: '260px',
+        cariPlaceholder: tr({ id: 'Cari pemasok…', en: 'Search supplier…', zh: '搜索供应商…' }),
+      }) : null,
       // Two different jobs, two different buttons — never both.
       //
       // poCreate (cania/visca/wilbert) assigns a supplier and raises the PO.

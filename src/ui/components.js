@@ -308,6 +308,228 @@ export function poNoField(f, key = 'no') {
   return h('div', [input, warn]);
 }
 
+// ---------------------------------------------------------------------------
+// PILIH-CARI — <select> yang bisa diketik.
+//
+// Lahir dari satu daftar: 46 pemasok di satu <select> asli, tanpa cara
+// menyaringnya. <select> memang punya pencarian bawaan, dan di daftar ini dia
+// justru menyesatkan: dia mencocokkan dari HURUF PERTAMA saja. Mengetik
+// "cahaya" tidak akan pernah menemukan "CV BINTANG CAHAYA LABEL", dan yang
+// mengetiknya menyimpulkan pemasoknya belum terdaftar — lalu menambahkannya
+// lagi. Dua baris NEWFORTUNE yang kembar di basis data ini kemungkinan besar
+// lahir persis begitu.
+//
+// KENAPA DOM LANGSUNG, BUKAN setUI.
+// mount() di core/dom.js tidak punya diffing: satu setState() menghapus seluruh
+// pohon halaman lalu membangunnya ulang. Menyaring lewat setUI per ketikan
+// berarti kotak ketiknya sendiri diganti node baru di tengah orang mengetik,
+// dan fokusnya hilang tiap huruf. Jadi seluruh penyaringan di sini terjadi di
+// DOM, dan setState baru disentuh SEKALI — saat orangnya memilih. Pola yang
+// sama persis dipakai globalSearchBox() di ui/layout.js, dengan alasan yang
+// sama.
+//
+// KENAPA PANELNYA DITEMPEL DI <body>, BUKAN DI SEBELAH TOMBOLNYA.
+// .modal punya overflow-y:auto (app.css). Panel position:absolute di dalamnya
+// akan TERPOTONG begitu daftarnya lebih panjang dari ruang yang tersisa —
+// dan pemilih pemasok di modal Add Invoice persis duduk di situ. Ditempel ke
+// body dengan position:fixed, dia tidak bisa dipotong oleh siapa pun.
+// Konsekuensinya harus diurus sendiri: posisinya dihitung dari rect tombolnya,
+// dan panelnya harus ikut mati kalau tombolnya dibuang oleh mount(). Itu
+// dijaga lewat pemeriksaan isConnected di rAF selama panel terbuka — murah,
+// dan tidak bergantung pada siapa pun ingat memanggil penutupnya.
+//
+// PENCOCOKANNYA TOLERAN TANDA BACA. Nama pemasok di basis data ini ditulis
+// "CO.,LTD", "CO., LTD" dan "CO.,LIMITED" — ketiganya ada, dan ketiganya di
+// daftar yang sama. Mengetik "coltd" harus menemukan ketiganya. `sub` (nama
+// Mandarin) ikut dicari supaya 海润 juga jadi kata kunci yang sah.
+const pcNorm = x => String(x == null ? '' : x).toUpperCase().replace(/[^0-9A-Z一-鿿]/g, '');
+
+export function pilihCari(options, { value, onChange, mono, placeholder, cariPlaceholder, minWidth } = {}) {
+  const opts = (options || []).map(o => (typeof o === 'object' && o !== null)
+    ? { value: o.value, label: String(o.label == null ? o.value : o.label), sub: o.sub || '' }
+    : { value: o, label: String(o), sub: '' });
+  // `nilai` DIPEGANG SENDIRI, tidak cuma dibaca dari argumen.
+  //
+  // Sebagian pemanggil tidak menggambar ulang apa pun sesudah memilih: di modal
+  // Add Invoice, onChange cuma menulis ke draf modal (f.supplierId = v) tanpa
+  // setUI, karena memang tidak boleh ada setState di tengah modal terbuka.
+  // <select> asli memperbarui tampilannya sendiri dan menutupi itu. Tombol
+  // buatan tidak — kalau labelnya tidak ditulis ulang di sini, orangnya memilih
+  // pemasok dan tombolnya tetap menampilkan yang lama. Dia akan mengira
+  // kliknya tidak masuk, lalu memilih lagi.
+  let nilai = value;
+  const terpilih = opts.find(o => o.value === nilai) || null;
+  const kosongTeks = placeholder || tr({ id: '— pilih —', en: '— select —', zh: '— 请选择 —' });
+
+  const tombol = h('button.input' + (mono ? '.mono' : ''), {
+    type: 'button',
+    style: {
+      display: 'flex', alignItems: 'center', gap: '8px', textAlign: 'left',
+      cursor: 'pointer', minWidth: minWidth || '220px',
+    },
+  }, []);
+  const labelEl = h('span.grow', {
+    style: {
+      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      color: terpilih ? 'var(--text)' : 'var(--text-3)',
+    },
+  }, terpilih ? terpilih.label : kosongTeks);
+  tombol.appendChild(labelEl);
+  tombol.appendChild(icon('chevD', 13, { stroke: 'var(--text-3)' }));
+
+  let panel = null, rafId = 0, idx = 0, tersaring = opts.slice();
+
+  const tutup = () => {
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    if (panel && panel.parentNode) panel.parentNode.removeChild(panel);
+    panel = null;
+    document.removeEventListener('mousedown', luarKlik, true);
+    window.removeEventListener('resize', tutup, true);
+    window.removeEventListener('scroll', tutup, true);
+  };
+  function luarKlik(e) {
+    if (!panel) return;
+    if (panel.contains(e.target) || tombol.contains(e.target)) return;
+    tutup();
+  }
+
+  const pilih = (o) => {
+    tutup();
+    if (!o) return;
+    const berubah = o.value !== nilai;
+    nilai = o.value;
+    labelEl.textContent = o.label;
+    labelEl.style.color = 'var(--text)';
+    // Dilaporkan ke pemanggil cuma kalau nilainya BERUBAH. Sebagian pemanggil
+    // menjawabnya dengan setUI, dan setUI berarti satu gambar ulang penuh
+    // halaman — tidak ada gunanya melakukan itu untuk pilihan yang sama.
+    if (berubah && typeof onChange === 'function') onChange(o.value);
+  };
+
+  const buka = () => {
+    if (panel) { tutup(); return; }
+    const r = tombol.getBoundingClientRect();
+    const lebar = Math.max(r.width, 280);
+    // Membuka ke ATAS kalau ruang di bawah tidak cukup. Pemilih pemasok di
+    // layar Label Request duduk di baris paling bawah; tanpa ini panelnya
+    // selalu tergambar di luar layar dan terbaca seperti tombol yang rusak.
+    const ruangBawah = window.innerHeight - r.bottom;
+    const keAtas = ruangBawah < 240 && r.top > ruangBawah;
+    const tinggiMaks = Math.max(180, Math.min(320, (keAtas ? r.top : ruangBawah) - 12));
+
+    const kotak = h('input.input', {
+      placeholder: cariPlaceholder || tr({ id: 'Ketik untuk mencari…', en: 'Type to search…', zh: '输入以搜索…' }),
+      autocomplete: 'off',
+      style: { fontSize: '12.5px' },
+    });
+    const daftar = h('div', { style: { overflowY: 'auto', maxHeight: (tinggiMaks - 56) + 'px' } });
+
+    panel = h('div', {
+      style: {
+        position: 'fixed', left: r.left + 'px', width: lebar + 'px',
+        top: keAtas ? '' : (r.bottom + 4) + 'px',
+        bottom: keAtas ? (window.innerHeight - r.top + 4) + 'px' : '',
+        background: 'var(--surface)', border: '1px solid var(--border-strong)',
+        borderRadius: '10px', boxShadow: 'var(--paper-shadow)',
+        // Di atas .overlay (z-index 70), supaya tetap terlihat waktu dipakai
+        // di dalam modal.
+        zIndex: 90, padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px',
+      },
+    }, [kotak, daftar]);
+
+    const gambar = () => {
+      while (daftar.firstChild) daftar.removeChild(daftar.firstChild);
+      if (!tersaring.length) {
+        daftar.appendChild(h('div', { style: { padding: '10px 8px', fontSize: '11.5px', color: 'var(--text-3)' } },
+          tr({ id: 'Tidak ada yang cocok', en: 'No match', zh: '无匹配' })));
+        return;
+      }
+      tersaring.forEach((o, i) => {
+        const aktif = i === idx;
+        daftar.appendChild(h('div' + (mono ? '.mono' : ''), {
+          style: {
+            padding: '7px 9px', borderRadius: '7px', cursor: 'pointer', fontSize: '12.5px',
+            background: aktif ? 'var(--surface2)' : 'transparent',
+            color: o.value === nilai ? 'var(--accent)' : 'var(--text)',
+            fontWeight: o.value === nilai ? 700 : 500,
+          },
+          onMouseenter: () => { idx = i; gambar(); },
+          // mousedown, BUKAN click: kotak ketiknya kehilangan fokus lebih dulu,
+          // dan penutup-karena-klik-di-luar sempat jalan sebelum click mendarat.
+          onMousedown: (e) => { e.preventDefault(); pilih(o); },
+        }, [
+          h('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, o.label),
+          o.sub ? h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, o.sub) : null,
+        ]));
+      });
+      const aktifEl = daftar.children[idx];
+      if (aktifEl && aktifEl.scrollIntoView) aktifEl.scrollIntoView({ block: 'nearest' });
+    };
+
+    // DICOCOKKAN PER KATA, SEMUA KATA HARUS KENA.
+    //
+    // Nama pemasok di sini panjang-panjang: "NEWFORTUNE INTERNATIONAL HOLDING
+    // CO.,LTD". Orang tidak mengetiknya utuh — dia mengetik potongan yang dia
+    // ingat, "newfortune ltd" atau "bintang label". Sebagai satu substring
+    // tunggal itu TIDAK PERNAH cocok, karena potongannya tidak bersebelahan di
+    // nama aslinya; hasilnya nol, dan nol hasil di kotak pencarian terbaca
+    // sebagai "pemasoknya belum ada".
+    //
+    // Tiap kata dicocokkan sendiri-sendiri (mentah ATAU ternormalisasi), lalu
+    // SEMUANYA harus kena. Jadi mengetik lebih banyak kata selalu menyempitkan,
+    // tidak pernah melebarkan — sifat yang diharapkan orang dari kotak cari.
+    const saring = () => {
+      const q = kotak.value.trim();
+      if (!q) { tersaring = opts.slice(); }
+      else {
+        const kata = q.split(/\s+/).filter(Boolean).map(w => ({ m: w.toLowerCase(), n: pcNorm(w) }));
+        tersaring = opts.filter(o => {
+          const teks = o.label + ' ' + o.sub;
+          const tLower = teks.toLowerCase();
+          const tNorm = pcNorm(teks);
+          return kata.every(w => tLower.includes(w.m) || (w.n.length >= 2 && tNorm.includes(w.n)));
+        });
+      }
+      idx = 0;
+      gambar();
+    };
+
+    kotak.addEventListener('input', saring);
+    kotak.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); tutup(); tombol.focus(); return; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); idx = Math.min(idx + 1, tersaring.length - 1); gambar(); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); idx = Math.max(idx - 1, 0); gambar(); return; }
+      if (e.key === 'Enter') { e.preventDefault(); if (tersaring[idx]) pilih(tersaring[idx]); }
+    });
+
+    document.body.appendChild(panel);
+    tersaring = opts.slice();
+    idx = Math.max(0, opts.findIndex(o => o.value === nilai));
+    gambar();
+    kotak.focus();
+
+    document.addEventListener('mousedown', luarKlik, true);
+    window.addEventListener('resize', tutup, true);
+    window.addEventListener('scroll', tutup, true);
+
+    // Panelnya tinggal di <body>, jadi dia TIDAK ikut terbuang waktu mount()
+    // membangun ulang halaman. Kalau tombolnya hilang dan panelnya tidak,
+    // yang tertinggal adalah kotak melayang yang tidak menempel pada apa pun.
+    const jaga = () => {
+      if (!panel) return;
+      if (!tombol.isConnected) { tutup(); return; }
+      rafId = requestAnimationFrame(jaga);
+    };
+    rafId = requestAnimationFrame(jaga);
+  };
+
+  tombol.addEventListener('click', (e) => { e.preventDefault(); buka(); });
+  tombol.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') { e.preventDefault(); buka(); }
+  });
+  return tombol;
+}
+
 export function selectEl(options, { value, onChange, mono } = {}) {
   const sel = h('select.input' + (mono ? '.mono' : ''), {
     onChange: onChange ? (e) => onChange(e.target.value) : null,

@@ -1,7 +1,7 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, checkRow, selectEl, icon, driveLink, modal, tanyaTeks, inputEl, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
+import { card, badge, btn, checkRow, selectEl, pilihCari, icon, driveLink, modal, tanyaTeks, inputEl, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
 import { suratJalanPaper } from '../ui/documents.js';
 import { romanMonth, nextMonthlySeq, fmtDate, num } from '../core/format.js';
 import { parseNumber, qtyInputText } from '../parsers/numbers.js';
@@ -270,7 +270,14 @@ export function suratJalanScreen() {
 
   const supplierBar = h('div.card', { style: { padding: '12px 18px', display: 'flex', alignItems: 'center', gap: '10px' } }, [
     h('span', { style: { fontSize: '11px', fontWeight: 600, color: 'var(--text-3)' } }, t('col_supplier') + ':'),
-    selectEl(suppliers, { value: supplier, onChange: v => setUI({ sjSupplier: v, sjPoSel: {}, sjItemSel: {}, sjQty: {} }) }),
+    // Daftarnya di sini dirakit dari PO yang masih outstanding, jadi isinya
+    // NAMA apa adanya — bukan id pemasok.
+    pilihCari(suppliers, {
+      value: supplier,
+      onChange: v => setUI({ sjSupplier: v, sjPoSel: {}, sjItemSel: {}, sjQty: {} }),
+      minWidth: '260px',
+      cariPlaceholder: tr({ id: 'Cari pemasok…', en: 'Search supplier…', zh: '搜索供应商…' }),
+    }),
   ]);
 
   const preview = ui.sjLastId ? previewCard(st, ui.sjLastId) : null;
