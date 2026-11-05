@@ -1,5 +1,5 @@
 import { setState, getState, toast } from '../core/store.js';
-import { makeUser, usernameToEmail, allowedScreens } from './roles.js';
+import { makeUser, allowedScreens } from './roles.js';
 import { isConfigured, signIn, signOut, fetchMustChangePassword, currentSession } from '../core/supabase.js';
 // seed.js diimpor DINAMIS di hydrate() — 15 KB fixture demo yang tidak pernah
 // dipakai selama Supabase terhubung, dan itu berarti selalu, di produksi.
@@ -37,7 +37,11 @@ export async function login(username, password) {
 
   if (isConfigured()) {
     try {
-      await signIn(usernameToEmail(username), password);
+      // user.email, BUKAN usernameToEmail(username) lagi. Keduanya sama untuk
+      // sembilan dari sepuluh akun; yang kesepuluh (bcl -> bintang@mti.co.id)
+      // menulis emailnya sendiri di roles.js, dan merangkainya ulang di sini
+      // akan mengabaikannya tanpa suara.
+      await signIn(user.email, password);
     } catch (e) {
       console.warn(e);
       toast(t('login_bad'));

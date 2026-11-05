@@ -54,6 +54,58 @@ export const USERS = {
   // baris di sini plus satu baris di profiles — bukan satu peran baru dengan
   // policy RLS-nya sendiri.
   warehousemti: { name: 'warehousemti', tag: '仓库 Warehouse', init: 'WH', color: '#8C5A2B', lang: 'zh' },
+
+  // ----------------------------------------------------------------------
+  // PEMASOK. Lima akun, SATU peran, lewat alias yang sama persis seperti
+  // kevin -> wilbert: username miliknya sendiri, hak datang dari peran
+  // 'supplier'.
+  //
+  // KENAPA LIMA, BUKAN 46. Master memuat 46 pemasok, tapi yang mengerjakan
+  // LABEL cuma lima — 214 PO label seluruhnya menunjuk ke lima baris master
+  // itu. Pemasok gas, pelumas dan sparepart tidak pernah menerima design,
+  // jadi tidak ada yang bisa mereka buka di sini.
+  //
+  // IDENTITASNYA BUKAN DI SINI, MELAINKAN DI profiles.supplier_id. Entri di
+  // bawah cuma menentukan nama tampilan dan bahasa; yang memutuskan PO siapa
+  // yang terlihat adalah kolom supplier_id pada baris profiles-nya, dibaca
+  // server lewat my_supplier_id(). Akun yang kolom itunya kosong melihat NOL
+  // baris — gagal ke arah aman. Jadi menambahkan entri di sini TIDAK
+  // memberikan akses apa pun sampai baris profiles-nya ditautkan.
+  //
+  // Warnanya abu kebiruan untuk semuanya, sengaja seragam dan sengaja beda
+  // dari palet orang dalam: avatar adalah satu-satunya elemen yang tampak di
+  // setiap layar, dan akun dari LUAR perusahaan tidak boleh terlihat seperti
+  // akun operator.
+  //
+  // Menambah pemasok label berikutnya: satu baris di sini + satu baris
+  // profiles dengan supplier_id-nya. Tidak ada policy baru, tidak ada ALTER.
+  // name = singkatan yang dipakai Kyaru sehari-hari; tag = nama badan hukum
+  // lengkapnya. Kebalikan dari akun orang dalam, dan sengaja: yang membaca
+  // layar ini orang dari perusahaan itu sendiri, dan dia mengenali dirinya
+  // dari singkatannya — sementara nama lengkapnya tetap perlu terlihat karena
+  // dokumen yang dia terima memakai nama itu.
+  //
+  // KUNCINYA HARUS SAMA DENGAN BAGIAN DEPAN EMAILNYA. login() memanggil
+  // usernameToEmail(username), jadi kunci 'bintang' berarti bintang@mti.co.id
+  // dan tidak ada tempat lain yang bisa membetulkannya kalau meleset. Huruf
+  // besar aman — login() sudah meng-lowercase apa pun yang diketik.
+  bsn:      { name: 'BSN',       tag: 'PT BSN Technologies Indonesia', init: 'BS', color: '#4A6076', lang: 'id', role: 'supplier' },
+  wins:     { name: 'WINS',      tag: 'PT Wins Tunggal Perdana',       init: 'WN', color: '#4A6076', lang: 'id', role: 'supplier' },
+  // `email` DITULIS EKSPLISIT, dan ini satu-satunya entri yang memakainya.
+  //
+  // Sampai di sini username selalu SAMA dengan bagian depan emailnya, jadi
+  // usernameToEmail() cukup. Kyaru memilih username 'BCL' sementara kotak
+  // akunnya sudah terlanjur dibuat sebagai bintang@mti.co.id — dan tanpa
+  // jalan keluar, login 'bcl' akan mencari bcl@mti.co.id dan gagal dengan
+  // pesan 'username atau password salah'. Pesan yang menyesatkan: yang salah
+  // bukan passwordnya.
+  // Yang diubah PENGIKATANNYA, bukan akunnya: makeUser() memakai u.email
+  // kalau ada, dan login() memakai user.email, bukan merangkainya lagi dari
+  // username. Entri berikutnya yang usernamenya tidak sama dengan kotak
+  // akunnya cukup menulis satu baris email di sini.
+  bcl:      { name: 'BCL',       tag: 'CV Bintang Cahaya Label',       init: 'BC', color: '#4A6076', lang: 'id', role: 'supplier', email: 'bintang@mti.co.id' },
+  shengyou: { name: 'SHENG YOU', tag: 'PT Sheng You Corp · 标签供应商',  init: 'SY', color: '#4A6076', lang: 'zh', role: 'supplier' },
+  wanlian:  { name: 'WANLIAN',   tag: 'PT Wanlian Teknologi Tape · 标签供应商', init: 'WL', color: '#4A6076', lang: 'zh', role: 'supplier' },
   wangyaqian:   { name: 'wangyaqian',   tag: '仓库 Warehouse', init: 'WY', color: '#A8743A', lang: 'zh', role: 'warehousemti' },
 };
 
@@ -116,6 +168,17 @@ export const ACCESS = {
   // pekerjaannya, dan layar yang tidak pernah dipakai cuma menambah yang harus
   // dijelaskan ke orang berikutnya.
   warehousemti: ['dashboard', 'outstanding-po', 'complaints'],
+  // Pemasok: SATU layar, dan itu disengaja.
+  //
+  // Dashboard TIDAK diberikan. Isinya ringkasan seluruh perusahaan —
+  // nilai PO, antrean approval, aktivitas orang lain — dan tidak satu pun
+  // dari itu urusan pihak luar. Tanpa dashboard, layar pertamanya jadi
+  // 'po-pemasok', yang memang satu-satunya alasan dia punya akun.
+  //
+  // Daftar sependek ini juga yang membuat kebocoran sulit terjadi: layar
+  // yang tidak ada di sini tidak punya pintu, dan RLS menolaknya lagi di
+  // server kalau toh ada yang memaksa lewat hash URL.
+  supplier: ['po-pemasok'],
 };
 
 // Fine-grained capabilities (used to hide buttons + enforced by RLS).
@@ -231,6 +294,13 @@ export const CAPS = {
   // complaintWrite: membuat komplain. TIDAK termasuk menutupnya — yang melapor
   // tidak menutup laporannya sendiri, sama alasannya dengan prfReceive.
   warehousemti: grant('poReceive complaintWrite'),
+  // Pemasok: NOL. Bukan 'readOnly' seperti cenjc — readOnly itu penanda
+  // untuk orang DALAM yang mengamati, dan dia menyalakan guard yang
+  // menganggap pemegangnya tetap bagian dari alur kerja. Pemasok bukan.
+  // Daftar kosong berarti can() menjawab false untuk kapabilitas apa pun,
+  // termasuk yang belum ditulis hari ini — itu sifat yang dijelaskan di
+  // komentar grant() di atas, dan di sini sifat itu yang paling berharga.
+  supplier: grant(''),
 };
 
 // Which Reports modules a role may see.
@@ -253,6 +323,11 @@ export const REPORT_MODULES = {
   // of the account: one place to see where every document actually is.
   cenjc:      ['Label', 'PO', 'PPKEK', 'PRF', 'Payment'],
   warehousemti: [],   // tidak punya layar Reports sama sekali
+  // Pemasok tidak punya layar Reports. Ditulis eksplisit supaya pencarian
+  // global (core/globalSearch.js) menjawabnya dengan daftar kosong dan
+  // kotak pencariannya disembunyikan, bukan menampilkan kotak yang selalu
+  // menjawab 'tidak ada hasil'.
+  supplier: [],
 };
 export function allowedReportModules(role) { return REPORT_MODULES[role] || []; }
 
@@ -281,5 +356,8 @@ export function makeUser(username) {
   // secara kebetulan, dan kalau dibalik justru alias-nya yang tertimpa. Dua-duanya
   // benar hari ini dan salah pada suntingan berikutnya.
   const { role: peranAlias, ...sisa } = u;
-  return { username, email: usernameToEmail(username), ...sisa, role: peranAlias || username };
+  // email ikut dikeluarkan dari sebaran dengan alasan yang sama seperti role:
+  // supaya hasilnya tidak bergantung pada urutan properti di dalam USERS.
+  const { email: emailKhusus, ...sisa2 } = sisa;
+  return { username, ...sisa2, email: emailKhusus || usernameToEmail(username), role: peranAlias || username };
 }

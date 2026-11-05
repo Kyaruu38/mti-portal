@@ -46,6 +46,11 @@ const NAV = [
     { id: 'outstanding-po', t: 's_outstanding', ic: 'box' },
     { id: 'complaints', t: 's_complaints', ic: 'warn' },
   ] },
+  // Grup sendiri, dan isinya satu. Peran 'supplier' cuma memegang layar ini,
+  // jadi menunya memang cuma satu baris — tapi menaruhnya di grup PO akan
+  // membuatnya muncul berdampingan dengan menu orang dalam yang kebetulan
+  // juga memegang layar lain di grup itu.
+  { label: 'nav_pemasok', items: [{ id: 'po-pemasok', t: 's_po_pemasok', ic: 'clip' }] },
   { label: 'nav_compliance', items: [{ id: 'ppkek', t: 's_ppkek', ic: 'box' }] },
   { label: 'nav_finance', items: [
     { id: 'payment', t: 's_payment', ic: 'card' },

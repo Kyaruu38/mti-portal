@@ -57,6 +57,13 @@ const LAZY = {
   // persetujuan, dan menumpangkan layar kedua di dalamnya berarti setiap
   // perubahan di salah satunya harus dipikirkan untuk keduanya.
   'po-saya':        () => import('./screens/poSaya.js').then(m => m.poSayaScreen),
+  // PO Pemasok: satu-satunya layar peran 'supplier'. Modul terpisah dari
+  // poSaya.js walaupun bentuknya mirip — poSaya memberi Edit, Hapus dan
+  // Request Delete berdasarkan KEPENGARANGAN, dan tidak satu pun dari itu
+  // boleh ada di layar pihak luar. Menumpangkannya sebagai cabang berarti
+  // setiap perubahan di sana harus dipikirkan ulang untuk pemasok, dan yang
+  // terlewat tidak memunculkan error — cuma tombol yang tidak seharusnya ada.
+  'po-pemasok':     () => import('./screens/poPemasok.js').then(m => m.poPemasokScreen),
   // Kas Label: sisa PO label yang belum ditarik ke 采购申请. Modul terpisah
   // walaupun jendelanya dipinjam dari approval.js — layar ini dibuka orang
   // yang tidak punya Approval sama sekali.
