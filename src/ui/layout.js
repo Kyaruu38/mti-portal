@@ -332,6 +332,27 @@ function globalSearchBox() {
         },
       });
     }
+    // DESIGN: langsung ke kartunya, bukan ke layarnya.
+    //
+    // Perpustakaan design berhalaman 10 kartu dari 690. Mendaratkan orang di
+    // halaman 1 sesudah dia mengetik satu kode ERP bukan "membuka hasil",
+    // itu cuma memindahkan dia ke tempat dia harus mulai menggulir. libPreview
+    // membuka modal kartunya apa adanya — jalur yang sama dengan klik kartu di
+    // layar itu (lihat labelLibrary.js). libEdit/libConfirmDel ikut dinolkan
+    // supaya modalnya tidak terbuka dalam keadaan tersisa dari kartu lain.
+    else if (r.type === 'Design') setUI({ libPreview: r.ref.id, libEdit: false, libConfirmDel: null });
+    // LABEL STOCK tidak punya pilihan per baris — isinya tabel, bukan dokumen.
+    // Jadi yang disetel SARINGANNYA, dan orangnya mendarat di tab master dengan
+    // barisnya sudah tersaring sendirian. Disaring per ERP kalau ada, per spec
+    // kalau kartunya belum punya ERP. lsPage dikembalikan ke 1 dengan alasan
+    // yang ditulis di labelStock.js sendiri: menyaring 900 baris jadi 1
+    // sementara orangnya tertinggal di halaman 12 menampilkan halaman kosong,
+    // dan halaman kosong terbaca persis seperti "tidak ada hasil".
+    else if (r.type === 'Label Stock') {
+      const f = { ...(getState().ui.filters || {}) };
+      f['ls-master'] = r.ref.erp ? { erp: r.ref.erp } : { spec: r.ref.spec || '' };
+      setUI({ lsTab: 'master', lsPage: 1, filters: f });
+    }
     input.value = '';
     close();
   };

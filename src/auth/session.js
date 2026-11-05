@@ -294,7 +294,22 @@ async function hydrate(user, username, preferScreen, preferLang) {
   // rendering ANY other screen, regardless of st.screen.
   user.mustChangePassword = await fetchMustChangePassword(username);
 
-  const allowed = allowedScreens(username);
+  // PERANNYA, BUKAN NAMA PEMAKAINYA.
+  //
+  // Dulu baris ini berbunyi allowedScreens(username), dan itu benar selama
+  // username === role. Dua akun memakai ALIAS PERAN (kevin → wilbert,
+  // wangyaqian → warehousemti), dan untuk mereka ACCESS[username] tidak ada,
+  // jadi `allowed` kosong. Akibatnya bukan error, melainkan dua hal yang
+  // terbaca sebagai portal rusak untuk satu orang saja:
+  //   * preferScreen SELALU ditolak, jadi #/approval di URL diabaikan dan
+  //     layar tersimpan tidak pernah dipulihkan — kevin selalu mendarat di
+  //     Dashboard;
+  //   * refreshData() mengirim st.screen sebagai preferScreen, jadi menekan
+  //     tombol Refresh di layar mana pun MELEMPAR kevin balik ke Dashboard.
+  //     Inilah yang terlihat seperti "hasil pencarian tidak bisa dibuka".
+  // Hak aksesnya sendiri tidak pernah salah: router di main.js sudah memakai
+  // st.user.role sejak awal. Yang salah cuma pemilihan layar pendaratan.
+  const allowed = allowedScreens(user.role);
   const first = allowed[0] || 'dashboard';
   // A screen asked for by the URL only wins if this role is actually allowed
   // it — the hash is user-editable, so it is a request, never a grant.
