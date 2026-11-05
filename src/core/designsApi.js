@@ -17,10 +17,10 @@
 import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
 
 function fromRow(row) {
-  return { id: row.id, erp: row.erp, spec: row.spec, brand: row.brand, market: row.market, ver: row.ver, updated: row.updated, driveUrl: row.drive_url, thumb: row.thumb || '', status: row.status, riwayat: row.riwayat || [] };
+  return { id: row.id, erp: row.erp, spec: row.spec, brand: row.brand, market: row.market, ver: row.ver, updated: row.updated, driveUrl: row.drive_url, thumb: row.thumb || '', status: row.status, riwayat: row.riwayat || [], catatan: row.catatan || '' };
 }
 function toRow(d) {
-  return { erp: d.erp || null, spec: d.spec || null, brand: d.brand || null, market: d.market || null, ver: d.ver || null, updated: d.updated || null, drive_url: d.driveUrl || null, thumb: d.thumb || null, status: d.status || 'active', riwayat: d.riwayat || [] };
+  return { erp: d.erp || null, spec: d.spec || null, brand: d.brand || null, market: d.market || null, ver: d.ver || null, updated: d.updated || null, drive_url: d.driveUrl || null, thumb: d.thumb || null, status: d.status || 'active', riwayat: d.riwayat || [], catatan: d.catatan || null };
 }
 
 export async function fetchDesigns() {
@@ -55,6 +55,9 @@ export async function updateDesign(id, patch) {
   if ('brand' in patch) row.brand = patch.brand;
   if ('market' in patch) row.market = patch.market;
   if ('ver' in patch) row.ver = patch.ver;
+  // catatan: penanda impor massal (AMBIGU / BENTROK). Boleh dikosongkan dari
+  // layar begitu ERP-nya dibetulkan, supaya bingkai kuning/merahnya hilang.
+  if ('catatan' in patch) row.catatan = patch.catatan || null;
   if (!Object.keys(row).length) return;
   const { error } = await c.from('designs').update(row).eq('id', id);
   if (error) throw error;

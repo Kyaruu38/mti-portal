@@ -501,9 +501,67 @@ function gambarDesain(d, src) {
   return el;
 }
 
+// PENANDA KARTU — hasil impor massal dari folder design Drive.
+//
+// Dua keadaan yang tidak boleh diam-diam: desain yang namanya cocok ke LEBIH DARI
+// SATU kode ERP (mesin tidak boleh menebak), dan kode ERP yang ternyata sudah
+// dipakai kartu lain (dua kartu mengaku mewakili barang yang sama). Keduanya
+// bukan error — datanya sah, cuma butuh mata orang. Jadi kartunya tetap tampil,
+// tapi dibingkai supaya kelihatan dari jauh waktu menggulung ratusan kartu.
+//
+//   kuning  AMBIGU   — catatan dari impor, berisi daftar ERP kandidatnya
+//   merah   BENTROK  — ERP kembar; dihitung ULANG di sini dari daftar desain
+//                      yang sedang tampil, bukan dari catatan, supaya tetap
+//                      benar setelah seseorang membetulkan salah satunya.
+const WARNA_TANDA = { ambigu: '#e8a700', bentrok: '#d93025' };
+
+let _gandaCache = { ref: null, set: new Set() };
+function erpGanda() {
+  const list = getState().designs || [];
+  if (_gandaCache.ref === list) return _gandaCache.set;
+  const hitung = new Map();
+  list.forEach(x => {
+    const e = String(x.erp || '').trim();
+    if (e) hitung.set(e, (hitung.get(e) || 0) + 1);
+  });
+  const set = new Set();
+  hitung.forEach((n, e) => { if (n > 1) set.add(e); });
+  _gandaCache = { ref: list, set };
+  return set;
+}
+
+function penandaKartu(d) {
+  const erp = String(d.erp || '').trim();
+  if (erp && erpGanda().has(erp)) {
+    const lain = (getState().designs || [])
+      .filter(x => x.id !== d.id && String(x.erp || '').trim() === erp)
+      .map(x => x.spec || '—');
+    return {
+      jenis: 'bentrok',
+      warna: WARNA_TANDA.bentrok,
+      teks: tr({
+        id: `ERP ${erp} juga dipakai di: ${lain.join(' · ')}`,
+        en: `ERP ${erp} is also used by: ${lain.join(' · ')}`,
+        zh: `ERP ${erp} 也被这些使用：${lain.join(' · ')}`,
+      }),
+    };
+  }
+  const cat = String(d.catatan || '').trim();
+  if (/^BENTROK/i.test(cat)) return { jenis: 'bentrok', warna: WARNA_TANDA.bentrok, teks: cat };
+  if (/^AMBIGU/i.test(cat)) return { jenis: 'ambigu', warna: WARNA_TANDA.ambigu, teks: cat };
+  return null;
+}
+
 function card(d) {
   const img = designImage(d);
-  return h('div.lib-card', { style: { cursor: 'pointer' }, onClick: () => setUI({ libPreview: d.id }) }, [
+  const tanda = penandaKartu(d);
+  return h('div.lib-card', {
+    style: Object.assign(
+      { cursor: 'pointer' },
+      tanda ? { border: '2px solid ' + tanda.warna, boxShadow: '0 0 0 3px ' + tanda.warna + '22' } : null,
+    ),
+    onClick: () => setUI({ libPreview: d.id }),
+  }, [
     h('div.lib-thumb', h('div.lib-label' + (img ? '.ada-gambar' : ''), { style: img ? { background: 'none', border: 'none' } : {} }, img
       ? gambarDesain(d, img)
       : [h('span', { style: { width: '100%', height: '20px', background: d.color || '#1B3A6B' } }), h('span.mono', { style: { flex: 1, display: 'flex', alignItems: 'center', fontSize: '8.5px', color: 'var(--text-3)', writingMode: 'vertical-rl' } }, tr({
@@ -521,6 +579,9 @@ function card(d) {
       h('div.mla', { onClick: e => e.stopPropagation() }, driveLink(d.driveUrl)),
     ]),
     h('div', { style: { fontSize: '9.5px', color: 'var(--text-3)', marginTop: '5px' } }, `${d.ver} · ${updatedText(d.updated)}`),
+    tanda
+      ? h('div', { style: { marginTop: '6px', fontSize: '9.5px', lineHeight: 1.45, fontWeight: 600, color: tanda.warna } }, tanda.teks)
+      : null,
   ]);
 }
 // Lencana merek memakai warna mereknya sendiri (ui/brands.js).
