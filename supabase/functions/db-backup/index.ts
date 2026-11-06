@@ -82,35 +82,65 @@ serve(async (req) => {
 
   const mulai = Date.now();
 
-  // 1) Tarik isi database lewat RPC.
-  let snapshot: any;
+  const rpcHeaders = {
+    'content-type': 'application/json',
+    apikey: SB_SERVICE_KEY,
+    authorization: `Bearer ${SB_SERVICE_KEY}`,
+  };
+
+  // 1) HITUNG BARIS DULU - murah, dan dialah yang membuat langkah 2 boleh tidak
+  //    mem-parse apa pun. Sebelumnya jumlah baris dibaca dari objek yang sudah
+  //    terlanjur di-parse; itu persis yang harus dihentikan.
+  let perTabel: Record<string, number> = {};
+  let totalBaris = 0;
+  try {
+    const rc = await fetch(`${SB_URL}/rest/v1/rpc/backup_jumlah_baris`, {
+      method: 'POST', headers: rpcHeaders, body: JSON.stringify({}),
+    });
+    if (!rc.ok) {
+      const detail = await rc.text().catch(() => '');
+      return json({ error: `RPC backup_jumlah_baris gagal: HTTP ${rc.status} ${detail.slice(0, 300)}` }, 500);
+    }
+    perTabel = await rc.json();
+    totalBaris = Object.values(perTabel).reduce((a: number, n: any) => a + (Number(n) || 0), 0);
+  } catch (e) {
+    return json({ error: `RPC backup_jumlah_baris error: ${String(e)}` }, 500);
+  }
+
+  // Penjaga isi. Backup KOSONG tetap "berhasil" secara teknis, dan itu bentuk
+  // kegagalan yang paling berbahaya: filenya ada, ukurannya wajar-wajar saja,
+  // dan isinya tidak ada apa-apa. Baru ketahuan saat dibutuhkan. Sekarang
+  // penjaganya berjalan SEBELUM 22 MB ditarik, bukan sesudahnya.
+  if (totalBaris === 0) {
+    return json({ error: 'Database terbaca kosong - backup DIBATALKAN, file lama tidak ditimpa' }, 500);
+  }
+
+  // 2) TARIK SNAPSHOT SEBAGAI TEKS, JANGAN DI-PARSE.
+  //
+  //    Versi lama memanggil res.json() lalu JSON.stringify() hasilnya. Dua
+  //    representasi penuh hidup bersamaan - objek JS plus teksnya - jadi puncak
+  //    pemakaian memorinya sekitar dua kali ukuran payload, dan di 39 MB itu
+  //    yang membunuh fungsi ini. Teksnya memang sudah JSON sejak dari
+  //    PostgREST; mem-parse lalu menulis ulang tidak menghasilkan apa pun
+  //    selain salinan kedua.
+  let isi = '';
   try {
     const res = await fetch(`${SB_URL}/rest/v1/rpc/backup_snapshot`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        apikey: SB_SERVICE_KEY,
-        authorization: `Bearer ${SB_SERVICE_KEY}`,
-      },
-      body: JSON.stringify({}),
+      method: 'POST', headers: rpcHeaders, body: JSON.stringify({}),
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
       return json({ error: `RPC backup_snapshot gagal: HTTP ${res.status} ${detail.slice(0, 300)}` }, 500);
     }
-    snapshot = await res.json();
+    isi = await res.text();
   } catch (e) {
     return json({ error: `RPC backup_snapshot error: ${String(e)}` }, 500);
   }
 
-  // Penjaga isi. Snapshot yang KOSONG tetap "berhasil" secara teknis, dan
-  // itu bentuk kegagalan yang paling berbahaya: file backup ada, ukurannya
-  // wajar-wajar saja, dan isinya tidak ada apa-apa. Baru ketahuan saat
-  // dibutuhkan.
-  const totalBaris = Object.values(snapshot?.jumlah_baris || {})
-    .reduce((s: number, n: any) => s + (Number(n) || 0), 0);
-  if (!snapshot?.data || totalBaris === 0) {
-    return json({ error: 'Snapshot kosong — backup DIBATALKAN, file lama tidak ditimpa' }, 500);
+  // Penjaga BENTUK, bukan isi: tanpa parse kita tidak bisa memeriksa isinya,
+  // tapi tetap bisa menolak badan yang jelas bukan snapshot.
+  if (isi.length < 1000 || isi.trimStart()[0] !== '{' || !isi.includes('"data"')) {
+    return json({ error: `Snapshot tidak berbentuk snapshot (${isi.length} byte) - backup DIBATALKAN` }, 500);
   }
 
   // 2) Token Google.
@@ -138,7 +168,6 @@ serve(async (req) => {
   //    dalam seminggu. Kerusakan data biasanya baru ketahuan jauh lebih lama.
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
   const nama = `mti-backup-${stamp}.json`;
-  const isi = JSON.stringify(snapshot);
 
   try {
     const meta = { name: nama, parents: [FOLDER_ID], mimeType: 'application/json' };
@@ -166,9 +195,9 @@ serve(async (req) => {
       file: nama,
       id: uj.id,
       bytes: isi.length,
-      tabel: snapshot.jumlah_tabel,
+      tabel: Object.keys(perTabel).length,
       baris: totalBaris,
-      per_tabel: snapshot.jumlah_baris,
+      per_tabel: perTabel,
       durasi_ms: Date.now() - mulai,
     });
   } catch (e) {
