@@ -293,7 +293,17 @@ function globalSearchBox() {
     },
   });
 
-  const close = () => { clear(dropdown); dropdown.style.display = 'none'; };
+  // MOUSEDOWN DI DALAM DROPDOWN TIDAK BOLEH MENUTUPNYA.
+  //
+  // Penanda ini dibaca oleh onBlur milik input di bawah. Alasan lengkapnya
+  // ditulis di sana; singkatnya, blur mendarat lebih dulu daripada click.
+  let dariDalam = false;
+  dropdown.addEventListener('mousedown', () => { dariDalam = true; });
+
+  // Penandanya ikut dinolkan: navigateTo() memanggil close() dari mousedown
+  // yang blur-nya memang sengaja tidak pernah menyala, jadi tanpa ini
+  // penandanya tertinggal true dan menelan satu penutupan yang sah berikutnya.
+  const close = () => { dariDalam = false; clear(dropdown); dropdown.style.display = 'none'; };
 
   const navigateTo = (r) => {
     // Target screen comes from SEARCH_TYPES so visibility and destination can
@@ -375,7 +385,16 @@ function globalSearchBox() {
     // displays it — cania/visca report on POs but have no approval queue. Show
     // the hit, drop the button, instead of offering a dead end.
     canOpen((getState().user || {}).role, r.type)
-      ? btn(tr({ id: 'Buka', en: 'Open', zh: '打开' }), { sm: true, onClick: () => navigateTo(r) })
+      // MOUSEDOWN, BUKAN CLICK. Pola dan bug yang sama persis dengan
+      // pilihCari() di components.js: menekan tombol ini membuat input di
+      // atas kehilangan fokus, onBlur-nya menutup dropdown, dan tombolnya
+      // sudah dibuang dari DOM sebelum 'click' sempat mendarat. Yang terlihat
+      // orangnya: tombol Buka diklik dan TIDAK TERJADI APA-APA. Penundaan
+      // 150 ms di onBlur cuma memperkecil peluangnya, tidak menghapusnya —
+      // klik yang tombolnya ditahan sekejap saja sudah kalah lomba.
+      // preventDefault() menahan perpindahan fokusnya sekalian, jadi blur-nya
+      // tidak pernah menyala dan tidak ada lomba yang perlu dimenangkan.
+      ? btn(tr({ id: 'Buka', en: 'Open', zh: '打开' }), { sm: true, onMousedown: (e) => { e.preventDefault(); navigateTo(r); } })
       : h('span', { style: { fontSize: '10px', color: 'var(--text-3)', flexShrink: 0 } }, tr({
           id: 'lihat di Reports', en: 'view in Reports', zh: '在报表中查看',
         })),
@@ -400,9 +419,22 @@ function globalSearchBox() {
     style: { padding: '8px 12px 8px 32px', fontSize: '12.5px' },
     onInput: e => renderResults(e.target.value),
     onKeydown: e => { if (e.key === 'Escape') { e.target.value = ''; close(); e.target.blur(); } },
-    // Delay lets a click on "Buka"/"Drive ↗" (which fires blur first) land
-    // before the dropdown disappears out from under it.
-    onBlur: () => setTimeout(close, 150),
+    // Penundaan ini memberi waktu klik "Drive ↗" (yang menyalakan blur lebih
+    // dulu) mendarat sebelum dropdown-nya hilang. 150 ms TIDAK CUKUP sebagai
+    // satu-satunya penjaga: "Drive ↗" itu <a> biasa yang baru bekerja saat
+    // 'click', dan click baru menyala di mouseup — klik yang tombolnya ditahan
+    // sedikit lebih lama langsung kalah, dan hasilnya terbaca sebagai tautan
+    // yang kadang jalan kadang tidak.
+    //
+    // Jadi yang memutuskan bukan waktunya, melainkan DI MANA mousedown-nya
+    // jatuh: di dalam dropdown berarti orangnya sedang memakai dropdown itu,
+    // dan menutupnya di situ selalu salah berapa pun tundaannya. Fokusnya
+    // dikembalikan ke kotaknya supaya klik BERIKUTNYA di luar tetap punya
+    // blur untuk menutup dropdown-nya.
+    onBlur: () => setTimeout(() => {
+      if (dariDalam) { dariDalam = false; if (input.isConnected) input.focus(); return; }
+      close();
+    }, 150),
   });
 
   return h('div', { style: { flex: 1, maxWidth: '430px', marginLeft: 'auto', position: 'relative' } }, [

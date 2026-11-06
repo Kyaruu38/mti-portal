@@ -6,10 +6,14 @@ import { t, tr } from '../i18n/index.js';
 
 export function icon(name, size = 15, extra) { return svg(ICONS[name] || '', size, extra); }
 
-export function btn(label, { variant = '', iconName, onClick, disabled, sm } = {}) {
+export function btn(label, { variant = '', iconName, onClick, onMousedown, disabled, sm } = {}) {
   const cls = ['btn', variant === 'primary' ? 'btn-primary' : '', variant === 'navy' ? 'btn-navy' : '',
     variant === 'danger' ? 'btn-danger-o' : '', sm ? 'btn-sm' : ''].filter(Boolean).join(' ');
-  return h('button', { class: cls, onClick, disabled }, [
+  // onMousedown diteruskan untuk tombol yang hidup DI DALAM panel melayang:
+  // di sana 'click' sering tidak pernah mendarat karena panelnya sudah
+  // dibuang oleh blur/penutup-luar lebih dulu. h() mengabaikan prop yang
+  // undefined, jadi tombol biasa tidak berubah sama sekali.
+  return h('button', { class: cls, onClick, onMousedown, disabled }, [
     iconName ? icon(iconName, sm ? 12 : 13) : null,
     label,
   ]);
