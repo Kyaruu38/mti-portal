@@ -95,3 +95,58 @@ where t.erp = i.erp
 --   items 1.541 baris | spec 1.519 | brand 1.484 | market 1.243
 --                     | pattern 1.462 | load_speed 948
 --                     | ean 191 | sni 150 | npb 185 | size 186
+
+
+-- =============================================================================
+-- KOREKSI 6 Nov 2026 — LANGKAH 1 DI ATAS SEMPAT SALAH, DAN BEGINI CARANYA SALAH.
+--
+-- Payload dikirim dengan urutan medan:
+--   1 erp ~ 2 ean ~ 3 sni ~ 4 npb ~ 5 ply ~ 6 load ~ 7 tt_tl ~ 8 ms ~ 9 pattern ~ 10 size
+-- tapi alias di SQL-nya ditulis:
+--   ... 4 ply, 5 load_speed, 6 tt_tl, 7 ms, 8 pattern, 9 ukuran, 10 npb
+-- Mulai posisi 4 semuanya MUNDUR SATU. Akibatnya nomor NPB mendarat di kolom
+-- ply, nomor ply di load_speed, indeks beban di tt_tl, dan UKURAN BAN mendarat
+-- di kolom npb1.
+--
+-- `ean` dan `sni_no` ada di posisi 2 dan 3, jadi dua kolom itu SELALU benar —
+-- sebelum maupun sesudah koreksi.
+--
+-- KENAPA BARU KETAHUAN: tidak ada yang memeriksanya. Angka hasil backfill
+-- dilaporkan apa adanya ("size=186, pattern=1462") tanpa satu baris pun diadu
+-- ke berkas sumbernya. Yang menemukannya adalah pekerjaan BERIKUTNYA — waktu
+-- data ini dipanggil untuk membuat label, barisnya terbaca
+-- 'size=CR926, ply=1-132-003-25001077-5'. Kalau tidak ada pekerjaan itu, yang
+-- menemukannya adalah mesin cetak.
+--
+-- PELAJARANNYA, DAN INI YANG LEBIH PENTING DARI BUG-NYA:
+-- backfill yang hanya dilaporkan sebagai JUMLAH BARIS tidak terbukti benar.
+-- Satu baris harus dibaca ulang dan diadu ke sumbernya sebelum angka apa pun
+-- dilaporkan. 1.541 baris yang semuanya salah kolom menghasilkan laporan yang
+-- terbaca persis seperti 1.541 baris yang benar.
+--
+-- PERBAIKANNYA, dan kenapa perbaikan pertama ikut merusak:
+-- Rotasi balik dijalankan dengan `where ply is not null`. Predikat itu kelewat
+-- lebar: kolom ply juga diisi oleh panen v23.1, jadi 19 baris hasil panen yang
+-- SUDAH BENAR ikut terputar. Dua percobaan berikutnya menggesernya lagi karena
+-- keadaan awalnya sudah tidak bisa direkonstruksi.
+--
+-- Satu penyebab diam yang perlu diingat: SQL Editor Supabase MENAMPILKAN
+-- DIALOG KONFIRMASI untuk UPDATE. Menekan "Run" hanya MEMBUKA dialognya —
+-- statement-nya tidak jalan sampai "Run query" di dialog itu ditekan. Satu
+-- rotasi dianggap sudah jalan padahal belum, dan itu yang membuat tebakan
+-- berikutnya dibangun di atas keadaan yang salah.
+--
+-- KEADAAN AKHIR (diverifikasi, bukan diasumsikan):
+--   189 baris master EAN  -> benar, diadu per baris ke xlsx sumbernya
+--    19 baris hasil panen -> pattern & indeks beban DITURUNKAN ULANG dari spec
+--                            (19/19 pola cocok isi kurung siku spec;
+--                             11 dapat indeks beban, 8 dikosongkan jujur),
+--                            size/ply/tt_tl/ms/npb dikosongkan
+--     5 baris sisa        -> indeks beban dipindah dari ply ke load_speed
+--  1.337 baris lain       -> tidak pernah tersentuh (ply-nya NULL)
+--
+-- Pemeriksaan penutup di seluruh 1.543 baris: ply tidak wajar 0, npb tidak
+-- wajar 0, size tidak wajar 0, indeks beban tidak wajar 0, dan hanya 1 baris
+-- yang polanya tidak sama persis dengan spec — itu beda huruf besar-kecil
+-- ([AD733pro] lawan AD733PRO), bukan kerusakan.
+-- =============================================================================
