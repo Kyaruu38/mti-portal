@@ -135,14 +135,42 @@ function barisItem(it) {
   ]);
 }
 
-async function unduhExcel(po) {
+// Master label untuk satu ERP. st.items datang dari fetchItems(), dan untuk
+// akun pemasok RLS sudah memangkasnya ke ERP yang ada di PO miliknya sendiri
+// (items_read_supplier) — jadi yang tidak terkirim memang tidak ada di sini,
+// bukan disembunyikan oleh layar.
+function cariMaster(erp) {
+  const kode = String(erp || '').trim();
+  if (!kode) return null;
+  return (getState().items || []).find(i => String(i.erp || '').trim() === kode) || null;
+}
+
+// Perakitan barisnya dipisah dari pengunduhannya supaya BISA DIUJI.
+//
+// Berkas inilah yang dipakai pemasok untuk memeriksa teks apa saja yang harus
+// tercetak; kalau satu kolom bergeser, yang membacanya tidak punya cara tahu.
+// Menguji writeWorkbook() berarti menguji penulis berkasnya; yang perlu
+// dipastikan adalah ISI barisnya.
+export function barisExcelPemasok(po) {
   const aoa = [
     ['PO', po.no],
     ['Contract', po.contract || '-'],
     [tr({ id: 'Tanggal', en: 'Date', zh: '日期' }), fmtDate(po.createdAt)],
     [],
+    // SATU BARIS PER ITEM, SEMUA YANG TERCETAK DI LABEL ADA DI SITU.
+    //
+    // Berkas ini dipakai pemasok untuk memeriksa, bukan sekadar membaca
+    // jumlah: ukuran, pola, indeks beban, lapisan, TT/TL, M+S, dua baris NPB
+    // dan EAN adalah persis teks yang harus tercetak. Kalau satu pun berbeda
+    // dari artwork yang dia pegang, itu harus ketahuan SEBELUM mesin jalan.
+    // Kolom yang kosong ditulis kosong apa adanya — bukan diisi tebakan.
     ['ERP', tr({ id: 'Deskripsi', en: 'Description', zh: '描述' }), '中文', tr({ id: 'Jumlah', en: 'Quantity', zh: '数量' }),
-     tr({ id: 'Satuan', en: 'Unit', zh: '单位' }), 'Market', tr({ id: 'Versi design', en: 'Design version', zh: '设计版本' }),
+     tr({ id: 'Satuan', en: 'Unit', zh: '单位' }), 'Market',
+     tr({ id: 'Ukuran', en: 'Size', zh: '规格' }), tr({ id: 'Pola', en: 'Pattern', zh: '花纹' }),
+     tr({ id: 'Indeks beban', en: 'Load/Speed', zh: '速度级别' }), tr({ id: 'Lapisan', en: 'Ply', zh: '层级' }),
+     'TT/TL', 'M+S', tr({ id: 'Posisi M+S', en: 'M+S position', zh: '泥雪地牵引标识位置' }),
+     'EAN', 'BARCODE', 'NPB 1', 'NPB 3', 'SNI',
+     tr({ id: 'Versi design', en: 'Design version', zh: '设计版本' }),
      tr({ id: 'Berkas cetak', en: 'Print file', zh: '印刷文件' })],
   ];
   const tautan = [];
@@ -153,15 +181,29 @@ async function unduhExcel(po) {
       ? (d.driveUrl && !String(d.driveUrl).startsWith('drive-') ? 'Drive' : '-')
       : hasil.jenis === 'ganda' ? tr({ id: 'PERLU KONFIRMASI', en: 'NEEDS CONFIRMATION', zh: '需确认' })
       : tr({ id: 'belum ada', en: 'not available', zh: '暂无' });
+    const m = cariMaster(it.erp) || {};
     aoa.push([it.erp || '', it.d || '', it.cn || '', Number(it.qty) || 0, it.unit || '',
-              d ? (d.market || '') : '', d ? (d.ver || '') : '', ket]);
+              m.market || (d ? d.market : '') || '',
+              m.size || '', m.pattern || '', m.loadSpeed || '', m.ply || '',
+              m.ttTl || '', m.ms || '', m.snowPos || '',
+              m.ean || '', m.barcode || '', m.npb1 || '', m.npb3 || '', m.sniNo || '',
+              d ? (d.ver || '') : '', ket]);
     if (d && d.driveUrl && !String(d.driveUrl).startsWith('drive-')) {
-      // Baris data dimulai di baris 7 (1-indeks), kolom H.
-      tautan.push({ sheet: 'PO', cell: 'H' + (7 + i), url: d.driveUrl, text: 'Drive' });
+      // Baris data mulai di baris 7 (1-indeks); kolom berkas cetak sekarang T.
+      tautan.push({ sheet: 'PO', cell: 'T' + (7 + i), url: d.driveUrl, text: 'Drive' });
     }
   });
+  return { aoa, tautan };
+}
+
+async function unduhExcel(po) {
+  const { aoa, tautan } = barisExcelPemasok(po);
   await writeWorkbook(`${String(po.no).replace(/\//g, '-')}.xlsx`,
-    [{ name: 'PO', aoa, cols: [{ wch: 18 }, { wch: 52 }, { wch: 34 }, { wch: 10 }, { wch: 8 }, { wch: 10 }, { wch: 13 }, { wch: 14 }] }],
+    [{ name: 'PO', aoa, cols: [
+      { wch: 18 }, { wch: 46 }, { wch: 30 }, { wch: 10 }, { wch: 7 }, { wch: 9 },
+      { wch: 13 }, { wch: 11 }, { wch: 13 }, { wch: 8 }, { wch: 9 }, { wch: 6 }, { wch: 16 },
+      { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 24 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
+    ] }],
     tautan);
   toast({ id: `${po.no} diunduh`, en: `${po.no} downloaded`, zh: `${po.no} 已下载` });
 }

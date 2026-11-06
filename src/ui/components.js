@@ -385,8 +385,14 @@ export function pilihCari(options, { value, onChange, mono, placeholder, cariPla
     panel = null;
     document.removeEventListener('mousedown', luarKlik, true);
     window.removeEventListener('resize', tutup, true);
-    window.removeEventListener('scroll', tutup, true);
+    window.removeEventListener('scroll', gulirLuar, true);
   };
+  function gulirLuar(e) {
+    if (!panel) return;
+    const t = e.target;
+    if (t && t.nodeType === 1 && panel.contains(t)) return;
+    tutup();
+  }
   function luarKlik(e) {
     if (!panel) return;
     if (panel.contains(e.target) || tombol.contains(e.target)) return;
@@ -437,33 +443,62 @@ export function pilihCari(options, { value, onChange, mono, placeholder, cariPla
       },
     }, [kotak, daftar]);
 
+    // BARISNYA TIDAK DIBANGUN ULANG SAAT DISOROT — dan itu bukan penghematan,
+    // melainkan syarat supaya daftarnya bisa dipakai sama sekali.
+    //
+    // Versi pertama memanggil gambar() dari onMouseenter, dan gambar() diakhiri
+    // scrollIntoView(). Tiga baris yang masing-masing masuk akal, dan bersama-sama
+    // mematikan daftarnya:
+    //   mouse lewat satu baris -> seluruh daftar dibangun ulang
+    //                          -> scrollIntoView() menyalakan event 'scroll'
+    //                          -> penutup-karena-scroll di window menangkapnya
+    //                          -> panel tertutup sebelum sempat diklik.
+    // Menggulir daftarnya sendiri melakukan hal yang sama. Jadi yang terlihat:
+    // dropdown-nya tidak bisa diklik DAN tidak bisa digulir, padahal
+    // pencariannya jalan. Diuji lewat jsdom dan LOLOS, karena jsdom tidak
+    // menyalakan event scroll dari scrollIntoView dan ujinya menembak mousedown
+    // langsung tanpa melewati mouseenter — pengingat bahwa yang tidak dilewati
+    // kursor sungguhan tidak ikut teruji.
+    let barisEl = [];
+    const sorot = (i, gulir) => {
+      idx = i;
+      barisEl.forEach((el, k) => {
+        el.style.background = k === idx ? 'var(--surface2)' : 'transparent';
+      });
+      // Menggulir HANYA atas permintaan papan ketik. Dipanggil saat mouse
+      // bergerak, dia menggeser daftar di bawah kursor orangnya sendiri.
+      const el = barisEl[idx];
+      if (gulir && el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+    };
+
     const gambar = () => {
       while (daftar.firstChild) daftar.removeChild(daftar.firstChild);
+      barisEl = [];
       if (!tersaring.length) {
         daftar.appendChild(h('div', { style: { padding: '10px 8px', fontSize: '11.5px', color: 'var(--text-3)' } },
           tr({ id: 'Tidak ada yang cocok', en: 'No match', zh: '无匹配' })));
         return;
       }
       tersaring.forEach((o, i) => {
-        const aktif = i === idx;
-        daftar.appendChild(h('div' + (mono ? '.mono' : ''), {
+        const el = h('div' + (mono ? '.mono' : ''), {
           style: {
             padding: '7px 9px', borderRadius: '7px', cursor: 'pointer', fontSize: '12.5px',
-            background: aktif ? 'var(--surface2)' : 'transparent',
+            background: i === idx ? 'var(--surface2)' : 'transparent',
             color: o.value === nilai ? 'var(--accent)' : 'var(--text)',
             fontWeight: o.value === nilai ? 700 : 500,
           },
-          onMouseenter: () => { idx = i; gambar(); },
+          onMouseenter: () => sorot(i, false),
           // mousedown, BUKAN click: kotak ketiknya kehilangan fokus lebih dulu,
           // dan penutup-karena-klik-di-luar sempat jalan sebelum click mendarat.
           onMousedown: (e) => { e.preventDefault(); pilih(o); },
         }, [
           h('div', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, o.label),
           o.sub ? h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, o.sub) : null,
-        ]));
+        ]);
+        barisEl.push(el);
+        daftar.appendChild(el);
       });
-      const aktifEl = daftar.children[idx];
-      if (aktifEl && aktifEl.scrollIntoView) aktifEl.scrollIntoView({ block: 'nearest' });
+      sorot(Math.min(idx, tersaring.length - 1), true);
     };
 
     // DICOCOKKAN PER KATA, SEMUA KATA HARUS KENA.
@@ -497,8 +532,8 @@ export function pilihCari(options, { value, onChange, mono, placeholder, cariPla
     kotak.addEventListener('input', saring);
     kotak.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') { e.preventDefault(); tutup(); tombol.focus(); return; }
-      if (e.key === 'ArrowDown') { e.preventDefault(); idx = Math.min(idx + 1, tersaring.length - 1); gambar(); return; }
-      if (e.key === 'ArrowUp') { e.preventDefault(); idx = Math.max(idx - 1, 0); gambar(); return; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); sorot(Math.min(idx + 1, tersaring.length - 1), true); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); sorot(Math.max(idx - 1, 0), true); return; }
       if (e.key === 'Enter') { e.preventDefault(); if (tersaring[idx]) pilih(tersaring[idx]); }
     });
 
@@ -510,7 +545,12 @@ export function pilihCari(options, { value, onChange, mono, placeholder, cariPla
 
     document.addEventListener('mousedown', luarKlik, true);
     window.addEventListener('resize', tutup, true);
-    window.addEventListener('scroll', tutup, true);
+    // Gulir DI LUAR panel menutupnya — posisinya dihitung sekali dari rect
+    // tombolnya, jadi begitu halamannya bergeser, panelnya menggantung di
+    // tempat yang salah. Gulir DI DALAM panel justru hal yang paling wajar
+    // dilakukan orang terhadap daftar sepanjang ini, dan menutupnya di situ
+    // membuat daftarnya mustahil dipakai.
+    window.addEventListener('scroll', gulirLuar, true);
 
     // Panelnya tinggal di <body>, jadi dia TIDAK ikut terbuang waktu mount()
     // membangun ulang halaman. Kalau tombolnya hilang dan panelnya tidak,

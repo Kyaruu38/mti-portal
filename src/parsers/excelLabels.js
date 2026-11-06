@@ -15,6 +15,21 @@ import { parseNumber } from './numbers.js';
 
 // Header alias -> canonical key. Matched case-insensitively as substrings.
 const ALIASES = [
+  // SIZE dan 规格 DIDAFTARKAN DULUAN, dan polanya DIJANGKARKAN.
+  //
+  // Lembar di sini memuat DUA kolom yang sama-sama bernama 规格, dan artinya
+  // TERTUKAR antar berkas:
+  //    EAN master     SIZE = 'ID12.00R24-20PR(160/157F)[CB972E]CHAOYANG'
+  //                   规格 specification = '12.00R24'
+  //    11.2 加急标签   规格 specification = 'ID7.50-16-14PR[R8038]...'
+  //                   规格              = '7.50-16'
+  // Jadi nama lengkap dan dimensi bisa duduk di bawah judul mana pun. Judulnya
+  // tidak bisa dipercaya; yang memutuskan BENTUK ISINYA, di pisahSpecSize()
+  // di bawah. Yang dilakukan di sini cuma memastikan kolom keduanya TIDAK
+  // hilang: sebelum ini /规格/ menyerap keduanya ke 'spec', dan karena
+  // findHeaderRow() cuma menyimpan kolom PERTAMA per kunci, kolom dimensinya
+  // dibuang tanpa suara.
+  ['size', [/^size$/i, /^规格$/]],
   ['market', [/^market$/i, /市场/]],
   ['nameZh', [/chinese/i, /物料名称/, /物料名字/]],
   ['nameEn', [/english/i]],
@@ -27,6 +42,19 @@ const ALIASES = [
   ['pr', [/^pr$/i, /ply/i]],
   ['ms', [/m\s*\+\s*s/i]],
   ['snow', [/泥雪地/, /牵引标识/]],
+  ['pattern', [/^pattern$/i, /花纹/]],
+  // 速度级别 di lembar 加急 berisi '122/118J' — indeks beban + simbol
+  // kecepatan, isi yang sama dengan 负荷指数块 di EAN master. Satu kunci.
+  ['loadSpeed', [/速度级别/, /负荷指数/, /load\s*index/i, /速度/]],
+  ['plyBlock', [/层级块/]],
+  // Dua baris teks yang tercetak di label Brasil/Indonesia. Ditangkap apa
+  // adanya — '100:2019' dan '1-132-003-26001522-5' bukan angka yang boleh
+  // diurai, melainkan nomor sertifikat yang harus tercetak persis.
+  ['npb1', [/npb\s*第一行/i, /first\s*line\s*of\s*npb/i]],
+  ['npb3', [/npb\s*第三行/i, /third\s*line\s*of\s*npb/i]],
+  ['barcode', [/^barcode$/i]],
+  ['sni', [/^sni\s*no/i, /sni\s*no\./i]],
+  ['country', [/国家地区/, /^country$/i]],
   ['qty', [/^qty$/i, /数量/, /申请数量/]],
   ['rr', [/^rr$/i]],
   ['noise', [/噪音$/, /^噪音$/]],
@@ -57,13 +85,49 @@ export function findHeaderRow(rows, scan = 8) {
     const row = rows[i] || [];
     const map = {};
     let hits = 0;
+    const multi = {};
     row.forEach((cell, c) => {
       const key = matchHeader(cell);
-      if (key && map[key] == null) { map[key] = c; hits++; }
+      if (!key) return;
+      (multi[key] || (multi[key] = [])).push(c);
+      if (map[key] == null) { map[key] = c; hits++; }
     });
-    if (hits > best.hits) best = { idx: i, map, hits };
+    // `multi` DITAMBAHKAN, bentuk lama tidak diubah: labelSheetSet.js memakai
+    // findHeaderRow() untuk memutuskan lembar mana yang lembar order, dan
+    // mengubah bentuk kembaliannya berarti mengubah keputusan itu juga.
+    if (hits > best.hits) best = { idx: i, map, hits, multi };
   }
   return best;
+}
+
+// SIAPA NAMA LENGKAP, SIAPA DIMENSI — DIPUTUSKAN DARI ISINYA.
+//
+// Dipanggil sesudah header ketemu, atas semua kolom yang judulnya mengandung
+// 规格 / spec / SIZE. Nama lengkap di sini selalu panjang dan memuat kurung
+// kode pola ('ID295/80R22.5-18PR(152/149M)[AS898]TRAZANO TL'); dimensi selalu
+// pendek dan berhenti di ukuran ('295/80R22.5', '7.50-16').
+//
+// Kalau cuma ADA SATU kolom, dia tetap jadi `spec` seperti perilaku lama —
+// lembar lama tidak boleh berubah artinya karena fungsi ini lahir.
+export function pisahSpecSize(rows, headerIdx, map, multi) {
+  const kandidat = [...new Set([...(multi.spec || []), ...(multi.size || [])])];
+  if (kandidat.length < 2) return map;
+  const sample = rows.slice(headerIdx + 1, headerIdx + 25);
+  const skor = c => {
+    const v = sample.map(r => String((r || [])[c] ?? '').trim()).filter(Boolean);
+    if (!v.length) return { panjang: 0, dimensi: 0, n: 0 };
+    const panjang = v.filter(x => x.length > 18 || /[[\]]/.test(x)).length / v.length;
+    const dimensi = v.filter(x => x.length <= 18 && /^\d|^[A-Z]{0,2}\d/.test(x)).length / v.length;
+    return { panjang, dimensi, n: v.length };
+  };
+  const nilai = kandidat.map(c => ({ c, ...skor(c) })).filter(x => x.n > 0);
+  if (nilai.length < 2) return map;
+  const penuh = nilai.slice().sort((a, b) => b.panjang - a.panjang)[0];
+  const dim = nilai.filter(x => x.c !== penuh.c).sort((a, b) => b.dimensi - a.dimensi)[0];
+  const out = { ...map };
+  if (penuh && penuh.panjang > 0) out.spec = penuh.c;
+  if (dim && dim.dimensi > 0) out.size = dim.c;
+  return out;
 }
 
 // parseNumber, BUKAN Number(replace(/[,\s]/g)) — pola lama membuang koma dan
@@ -123,7 +187,8 @@ export function parseLabelSheet(rows, { brandMap, knownErps = new Set() } = {}) 
   if (header.idx < 0 || header.hits < 3) {
     return { ok: false, error: 'Header tidak terdeteksi (kolom market / ERP CODE / QTY tidak ditemukan).', warnings };
   }
-  const { map, shifted, unvalidated } = correctQty(rows, header.idx, header.map);
+  const mapAwal = pisahSpecSize(rows, header.idx, header.map, header.multi || {});
+  const { map, shifted, unvalidated } = correctQty(rows, header.idx, mapAwal);
   if (shifted) {
     warnings.push({
       type: 'shifted_pr',
@@ -180,6 +245,32 @@ export function parseLabelSheet(rows, { brandMap, knownErps = new Set() } = {}) 
       noise: String(get(row, map.noise)).trim(),
       nameEn: nameEn || parsed.english,
       nameZh,
+      // MEDAN SPESIFIKASI LABEL. Dibawa apa adanya dari lembar order, karena
+      // lembar order memang satu-satunya tempat angka-angka ini pernah
+      // dituliskan — dan sampai sekarang ikut terbuang tiap kali ordernya
+      // selesai. Dipanen ke master label lewat labelMasterApi.js.
+      // Cadangannya diurai dari NAMA BARANG, bukan ditebak: parseItemName()
+      // sudah memecah 'ID295/80R22.5-18PR(152/149M)[AS898]TRAZANO TL' jadi
+      // dimensi, PR, indeks beban, pola dan merek. Kalau kolomnya kosong di
+      // lembar, isinya tetap bisa didapat dari namanya sendiri.
+      // size TIDAK punya cadangan dari nama barang, dan itu disengaja.
+      // parseItemName() memang mengembalikan `spec`, tapi isinya potongan nama
+      // apa adanya — untuk 'ID295/80R22.5-18PR(150/147M)[ECOPLUS]XBRI无内'
+      // keluarannya 'ID295/80R22.5-18', yang BUKAN dimensi dan akan tercetak
+      // apa adanya di label kalau dipakai. Kolom kosong lebih jujur daripada
+      // dimensi yang salah bentuk: yang kosong kelihatan dan bisa dilengkapi,
+      // yang salah bentuk lolos sampai ke mesin cetak.
+      size: String(get(row, map.size)).trim(),
+      pattern: String(get(row, map.pattern)).trim() || parsed.pattern || '',
+      loadSpeed: String(get(row, map.loadSpeed)).trim() || parsed.loadIndex || '',
+      plyBlock: String(get(row, map.plyBlock)).trim(),
+      snow: String(get(row, map.snow)).trim(),
+      npb1: String(get(row, map.npb1)).trim(),
+      npb3: String(get(row, map.npb3)).trim(),
+      barcode: String(get(row, map.barcode)).trim(),
+      sni: String(get(row, map.sni)).trim(),
+      country: String(get(row, map.country)).trim(),
+      noiseClass: String(get(row, map.noiseClass)).trim(),
       hasTemplate: /✅|✔|有|yes|y/i.test(String(get(row, map.template)).trim()),
       // pickup date DIBAWA APA ADANYA, tidak diurai jadi tanggal.
       //

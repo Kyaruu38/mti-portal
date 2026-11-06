@@ -9,6 +9,7 @@ import { can, isReadOnly } from '../auth/roles.js';
 import { statusText } from '../core/statusText.js';
 import { insertLabelRequest, updateLabelRequest } from '../core/labelRequestsApi.js';
 import { insertPO, newLineId, duplicatePoNumber } from '../core/posApi.js';
+import { panenLabelMaster } from '../core/itemsApi.js';
 import { blockWrite } from '../core/guard.js';
 import { UUID_RE } from '../core/supabase.js';
 import { ringkasHarga, kunciHarga, tidakBisaDiingat, hargaBentrok, bacaKetikanHarga, rememberLabelPrices } from '../core/labelPricesApi.js';
@@ -1217,6 +1218,23 @@ async function genPO() {
   // sebenarnya sudah jadi — dan nomor PO kembar itu utang teknis yang sudah
   // pernah bikin Reports salah Rp 226 juta. Aturan kerja 5: fitur inti tidak
   // boleh jatuh karena fitur pinggiran.
+  // PANEN MASTER LABEL — di sini, dan dengan alasan yang sama persis seperti
+  // catatan harga di bawahnya: sesudah PO-nya aman, dan tidak pernah
+  // menjatuhkan alur kalau gagal.
+  //
+  // Lembar order inilah SATU-SATUNYA tempat angka label pernah dituliskan —
+  // ukuran, pola, indeks beban, TT/TL, EAN, dua baris NPB — dan selama ini
+  // semuanya ikut terbuang begitu ordernya selesai. Sekarang dipanen ke master
+  // label, dan ERP yang sama di order berikutnya tinggal melengkapi yang
+  // kosong. Nilai kosong TIDAK PERNAH menimpa yang sudah ada (lihat
+  // label_master_panen di basis data), jadi order ulang yang kolom speknya
+  // sengaja dibiarkan kosong tidak menghapus apa pun.
+  panenLabelMaster(selItems, po.no).then(h => {
+    if (h && (h.baru || h.medan_terisi || h.medan_berubah)) {
+      console.info('master label dipanen dari', po.no, h);
+    }
+  });
+
   const catatan = dipilih.map(({ r, harga }) => ({
     erp: r.erp, supplier: supplier.name, harga, poNo: po.no, oleh: st.user.username,
   }));
