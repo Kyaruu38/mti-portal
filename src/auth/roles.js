@@ -134,9 +134,9 @@ export const ACCESS = {
   // (pos_insert mensyaratkan is_label_staff()), jadi layarnya akan selalu
   // kosong. Menu yang selalu kosong adalah menu yang diklik sekali lalu
   // dianggap rusak.
-  wilbert: ['dashboard', 'approval', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports', 'log-hapus-po'],
-  cania:   ['dashboard', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
-  visca:   ['dashboard', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
+  wilbert: ['dashboard', 'approval', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-artwork', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports', 'log-hapus-po'],
+  cania:   ['dashboard', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-artwork', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
+  visca:   ['dashboard', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-artwork', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
   // 'finance' added 31 Jul 2026 so sekar can post the transfer proof. Finance
   // shares proofs into a group chat rather than entering them one by one, so
   // the person who actually transcribes them is sekar. She gets the SCREEN, not
@@ -160,7 +160,7 @@ export const ACCESS = {
   // is what forced the real gates to exist (sjWrite / ppkekWrite / poCreate /
   // designWrite / labelParse below), and those gates now protect every role,
   // not just this one.
-  cenjc:   ['dashboard', 'approval', 'label-request', 'label-library', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports', 'log-hapus-po'],
+  cenjc:   ['dashboard', 'approval', 'label-request', 'label-library', 'label-artwork', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports', 'log-hapus-po'],
   // Gudang: TIGA layar. Dashboard supaya mendarat di tempat yang masuk akal,
   // PO Outstanding untuk melihat apa yang belum datang DAN menandai yang sudah,
   // Complaints untuk melapor. Tidak ada Reports, tidak ada harga, tidak ada

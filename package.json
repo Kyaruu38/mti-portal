@@ -8,6 +8,15 @@
     "start": "npx --yes serve@14 -l 5173 .",
     "dev": "npx --yes serve@14 -l 5173 ."
   },
-  "keywords": ["mti", "purchasing", "supabase", "ppkek"],
-  "license": "UNLICENSED"
+  "keywords": [
+    "mti",
+    "purchasing",
+    "supabase",
+    "ppkek"
+  ],
+  "license": "UNLICENSED",
+  "dependencies": {
+    "jsdom": "^31.0.0",
+    "pdf-lib": "^1.17.1"
+  }
 }

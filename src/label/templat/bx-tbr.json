@@ -2,34 +2,182 @@
   "nama": "Label BX (ekspor Brasil) - TBR",
   "sumber": "diukur dari 4 artwork asli: CHAOYANG EZ573, WESTLAKE WSA2, WESTLAKE AT161, YARTU AD528",
   "catatan": "Seluruh blok KAKU. Dua WESTLAKE berbeda hanya oleh pergeseran serempak (+22,7 mm X, -3,6 mm Y); tidak satu pun medan bergeser sendiri. Jadi yang berubah antar berkas cuma TITIK ASAL blok di lembar A4.",
-  "halaman": { "lebar": 210, "tinggi": 297, "satuan": "mm" },
-  "asal": { "acuan": "baseline teks MADE IN INDONESIA", "catatan": "dX/dY di bawah relatif ke titik ini" },
+  "halaman": {
+    "lebar": 210,
+    "tinggi": 297,
+    "satuan": "mm"
+  },
+  "asal": {
+    "acuan": "baseline teks MADE IN INDONESIA",
+    "catatan": "dX/dY di bawah relatif ke titik ini"
+  },
   "medan": [
-    { "k": "lebar_label", "dY": -91.5, "dX": 9.3,  "ukuran": 4.2,  "font": "Arial",         "contoh": "79 mm" },
-    { "k": "pattern",     "dY": -56.0, "dX": -1.1, "ukuran": 14.6, "font": "Impact",        "contoh": "WSA2", "catat": "pada 3 dari 4 berkas kode polanya ikut logo merek (vektor ter-outline), bukan teks" },
-    { "k": "size",        "dY": -38.5, "dX": -7.1, "ukuran": 8.7,  "font": "Impact",        "contoh": "295/80R22.5" },
-    { "k": "load_speed",  "dY": -28.0, "dX": -1.3, "ukuran": 7.8,  "font": "Arial Bold",    "contoh": "154/149L", "ada_di": "4/4" },
-    { "k": "ply",         "dY": -18.0, "dX": 5.8,  "ukuran": 6.9,  "font": "Arial Bold",    "contoh": "18" },
-    { "k": "load_range",  "dY": -19.0, "dX": 31.7, "ukuran": 7.5,  "font": "Arial Bold",    "contoh": "J" },
-    { "k": "konstruksi",  "dY": -6.0,  "dX": -8.4, "ukuran": 4.2,  "font": "Arial",         "contoh": "ALL STEEL TUBELESS" },
-    { "k": "made_in",     "dY": 0.0,   "dX": 0.0,  "ukuran": 3.9,  "font": "Impact",        "contoh": "MADE IN INDONESIA", "ada_di": "4/4", "peran": "titik asal" },
-    { "k": "ean",         "dY": 15.0,  "dX": -2.3, "ukuran": 3.4,  "font": "OCR-B",         "contoh": "0 721688 031895" },
-    { "k": "callout_mm",  "dY": 36.0,  "dX": 64.4, "ukuran": 3.5,  "font": "Arial",         "contoh": "mm" },
-    { "k": "callout_452", "dY": 44.0,  "dX": 64.4, "ukuran": 2.4,  "font": "Arial",         "contoh": "452" },
-    { "k": "noise_db",    "dY": 106.5, "dX": 25.6, "ukuran": 7.0,  "font": "Helvetica Bold","contoh": "71" },
-    { "k": "customer",    "dY": 133.0, "dX": -64.4,"ukuran": 3.4,  "font": "MS Gothic",     "contoh": "CUSTOMER" },
-    { "k": "blok_setuju", "dY": 140.0, "dX": -80.7,"ukuran": 1.3,  "font": "Myriad Pro",    "contoh": "Disetujui untuk diproduksi / Nama / Tanggal / Tanda Tangan dan Stampel / Keterangan Tambahan" },
-    { "k": "ttd",         "dY": 162.0, "dX": -79.0,"ukuran": 2.3,  "font": "Neue Frutiger", "contoh": "Prepared  Chacked  Approved" },
-    { "k": "url_merek",   "dY": 165.5, "dX": 3.1,  "ukuran": 1.9,  "font": "Dokument Pro",  "contoh": "www.westlakepneus.com.br" }
+    {
+      "k": "lebar_label",
+      "dY": -91.5,
+      "dX": 9.3,
+      "ukuran": 4.2,
+      "font": "Arial",
+      "contoh": "79 mm"
+    },
+    {
+      "k": "pattern",
+      "dY": -56.0,
+      "dX": -1.1,
+      "ukuran": 14.6,
+      "font": "Impact",
+      "contoh": "WSA2",
+      "catat": "pada 3 dari 4 berkas kode polanya ikut logo merek (vektor ter-outline), bukan teks"
+    },
+    {
+      "k": "size",
+      "dY": -38.5,
+      "dX": -7.1,
+      "ukuran": 8.7,
+      "font": "Impact",
+      "contoh": "295/80R22.5"
+    },
+    {
+      "k": "load_speed",
+      "dY": -28.0,
+      "dX": -1.3,
+      "ukuran": 7.8,
+      "font": "Arial Bold",
+      "contoh": "154/149L",
+      "ada_di": "4/4"
+    },
+    {
+      "k": "ply",
+      "dY": -18.0,
+      "dX": 5.8,
+      "ukuran": 6.9,
+      "font": "Arial Bold",
+      "contoh": "18"
+    },
+    {
+      "k": "load_range",
+      "dY": -19.0,
+      "dX": 31.7,
+      "ukuran": 7.5,
+      "font": "Arial Bold",
+      "contoh": "J"
+    },
+    {
+      "k": "konstruksi",
+      "dY": -6.0,
+      "dX": -8.4,
+      "ukuran": 4.2,
+      "font": "Arial",
+      "contoh": "ALL STEEL TUBELESS"
+    },
+    {
+      "k": "made_in",
+      "dY": 0.0,
+      "dX": 0.0,
+      "ukuran": 3.9,
+      "font": "Impact",
+      "contoh": "MADE IN INDONESIA",
+      "ada_di": "4/4",
+      "peran": "titik asal"
+    },
+    {
+      "k": "ean",
+      "dY": 15.0,
+      "dX": -2.3,
+      "ukuran": 3.4,
+      "font": "OCR-B",
+      "contoh": "0 721688 031895"
+    },
+    {
+      "k": "callout_mm",
+      "dY": 36.0,
+      "dX": 64.4,
+      "ukuran": 3.5,
+      "font": "Arial",
+      "contoh": "mm"
+    },
+    {
+      "k": "callout_452",
+      "dY": 44.0,
+      "dX": 64.4,
+      "ukuran": 2.4,
+      "font": "Arial",
+      "contoh": "452"
+    },
+    {
+      "k": "noise_db",
+      "dY": 106.5,
+      "dX": 25.6,
+      "ukuran": 7.0,
+      "font": "Helvetica Bold",
+      "contoh": "71"
+    },
+    {
+      "k": "customer",
+      "dY": 133.0,
+      "dX": -64.4,
+      "ukuran": 3.4,
+      "font": "MS Gothic",
+      "contoh": "CUSTOMER"
+    },
+    {
+      "k": "blok_setuju",
+      "dY": 140.0,
+      "dX": -80.7,
+      "ukuran": 1.3,
+      "font": "Myriad Pro",
+      "contoh": "Disetujui untuk diproduksi / Nama / Tanggal / Tanda Tangan dan Stampel / Keterangan Tambahan"
+    },
+    {
+      "k": "ttd",
+      "dY": 162.0,
+      "dX": -79.0,
+      "ukuran": 2.3,
+      "font": "Neue Frutiger",
+      "contoh": "Prepared  Chacked  Approved"
+    },
+    {
+      "k": "url_merek",
+      "dY": 165.5,
+      "dX": 3.1,
+      "ukuran": 1.9,
+      "font": "Dokument Pro",
+      "contoh": "www.westlakepneus.com.br"
+    }
   ],
   "nilai_inmetro": {
     "catatan": "Huruf nilai duduk di anak tangga sesuai nilainya, 6 mm per tingkat. Diverifikasi di 4 berkas: WSA2 B/C, AT161 C/D, EZ573 C/E, AD528 E/E.",
     "dY_per_tingkat": 6.0,
     "dY_tingkat_A": 49.0,
-    "urutan": ["A","B","C","D","E"],
+    "urutan": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E"
+    ],
     "kolom": [
-      { "k": "rolling_resistance", "dX": 9.7,  "ukuran": 8.0, "font": "Helvetica Bold" },
-      { "k": "wet_grip",           "dX": 36.9, "ukuran": 8.0, "font": "Helvetica Bold" }
+      {
+        "k": "rolling_resistance",
+        "dX": 9.7,
+        "ukuran": 8.0,
+        "font": "Helvetica Bold"
+      },
+      {
+        "k": "wet_grip",
+        "dX": 36.9,
+        "ukuran": 8.0,
+        "font": "Helvetica Bold"
+      }
     ]
+  },
+  "asal_mutlak": {
+    "x": 89.24,
+    "y": 107.92,
+    "catatan": "DIUKUR dari d03 WESTLAKE AD528, bukan dihitung. Titik asal memang BERPINDAH antar berkas asli -- itu temuan pengukurannya -- jadi untuk membuat yang baru dipilih satu yang tetap. Dipasangkan dengan lembar 210x297; memakainya di lembar lain tanpa menggeser titik asal akan melempar blok keluar halaman."
+  },
+  "arah_putar": {
+    "arah": "naik",
+    "catatan": "DIUKUR, bukan dianggap seragam. SNI memutar teksnya TURUN (dir 0,1): titik awal baseline ada di ujung ATAS dan tulisannya memanjang ke bawah. Pasar lain memutar NAIK (dir 0,-1): titik awal di ujung BAWAH, memanjang ke atas. Perender yang menganggap keduanya sama akan menaruh setiap medan diputar di ujung yang salah, dan hasilnya terlihat seperti tata letak yang rusak, bukan seperti satu tanda yang terbalik."
   }
 }

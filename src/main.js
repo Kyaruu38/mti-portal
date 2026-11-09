@@ -48,6 +48,7 @@ const LAZY = {
   'label-request':  () => import('./screens/labelRequest.js').then(m => m.labelRequestScreen),
   'label-library':  () => import('./screens/labelLibrary.js').then(m => m.labelLibraryScreen),
   'label-stock':    () => import('./screens/labelStock.js').then(m => m.labelStockScreen),
+  'label-artwork':  () => import('./screens/labelArtwork.js').then(m => m.labelArtworkScreen),
   'surat-jalan':    () => import('./screens/suratJalan.js').then(m => m.suratJalanScreen),
   'po-converter':   () => import('./screens/poConverter.js').then(m => m.poConverterScreen),
   'outstanding-po': () => import('./screens/outstandingPo.js').then(m => m.outstandingPoScreen),

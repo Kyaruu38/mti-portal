@@ -206,5 +206,14 @@
   "belum_terjawab": {
     "sni_no": "TIDAK ADA di artwork. Yang tercetak cuma logo SNI dan kode LEMBAGA SERTIFIKASI (LSPr-036-IDN), bukan nomor SNI produknya. Jadi items.sni_no TIDAK bisa diisi dari artwork dan sengaja dibiarkan kosong.",
     "stok_lain": "0105045809738ID (TRAZANO EZ835) stoknya BEDA: lembar 297x180 mm, dan lapisan teksnya cuma 5 span sehingga tidak cukup untuk diukur jadi templat. Butuh 3-4 artwork dari stok itu."
+  },
+  "asal_mutlak": {
+    "x": 59.83,
+    "y": 184.94,
+    "catatan": "DIUKUR dari d36/d07/d08 (lembar 101x226), bukan dihitung. Titik asal memang BERPINDAH antar berkas asli -- itu temuan pengukurannya -- jadi untuk membuat yang baru dipilih satu yang tetap. Dipasangkan dengan lembar 101x226; memakainya di lembar lain tanpa menggeser titik asal akan melempar blok keluar halaman."
+  },
+  "arah_putar": {
+    "arah": "turun",
+    "catatan": "DIUKUR, bukan dianggap seragam. SNI memutar teksnya TURUN (dir 0,1): titik awal baseline ada di ujung ATAS dan tulisannya memanjang ke bawah. Pasar lain memutar NAIK (dir 0,-1): titik awal di ujung BAWAH, memanjang ke atas. Perender yang menganggap keduanya sama akan menaruh setiap medan diputar di ujung yang salah, dan hasilnya terlihat seperti tata letak yang rusak, bukan seperti satu tanda yang terbalik."
   }
 }

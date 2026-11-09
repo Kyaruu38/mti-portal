@@ -53,6 +53,7 @@ export const DICT = {
   s_approval: { id: 'Approval Queue', en: 'Approval Queue', zh: '审批队列' },
   s_label: { id: 'Label Request', en: 'Label Request', zh: '标签申请' },
   s_library: { id: 'Design Library', en: 'Design Library', zh: '设计库' },
+  s_artwork: { id: 'Artwork Otomatis', en: 'Automatic Artwork', zh: '自动生成图稿' },
   s_labelstock: { id: 'Stok Label', en: 'Label Stock', zh: '标签库存' },
   // Namanya menyebut dirinya sendiri. "Delivery Note" saja membuat orang
   // mengira ini dokumen yang menyertai barang keluar — dan sempat dipakai

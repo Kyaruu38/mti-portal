@@ -2,23 +2,118 @@
   "nama": "Label PT PCR - ban penumpang",
   "sumber": "3 artwork asli WESTLAKE FORAY RP218: 185/60R15, 215/55R16, 225/60R18",
   "catatan": "KAKU: sebar dY 0,00 mm. Baru SATU merek, jadi kekakuan lintas-merek BELUM terbukti -- berbeda dengan BX PCR (2 merek), PT ST (3 merek) dan BX TBR (4 merek). Perlu satu artwork merek lain sebelum dipakai tanpa diperiksa.",
-  "halaman": { "lebar": 257, "tinggi": 77, "satuan": "mm" },
-  "asal": { "acuan": "titik awal baseline 'Made in Indonesia' (huruf kecil, BERBEDA dari pasar lain yang kapital)" },
+  "halaman": {
+    "lebar": 257,
+    "tinggi": 77,
+    "satuan": "mm"
+  },
+  "asal": {
+    "acuan": "titik awal baseline 'Made in Indonesia' (huruf kecil, BERBEDA dari pasar lain yang kapital)"
+  },
   "medan": [
-    { "k": "made_in",     "dY": 0.00,   "dX": 0.00,  "ukuran": 2.80,  "font": "Impact",       "ada_di": "3/3", "peran": "titik asal", "contoh": "Made in Indonesia" },
-    { "k": "size",        "dY": -32.54, "dX": 98.77, "ukuran": 12.54, "font": "Impact",       "ada_di": "3/3", "sebar_dY": 0.00, "contoh": "185/60R15", "sumber": "items.size" },
-    { "k": "item_no",     "dY": -46.13, "dX": -0.16, "ukuran": 2.80,  "font": "Impact",       "ada_di": "3/3", "contoh": "ITEM NO.:43096" },
-    { "k": "ean",         "dY": 0.33,   "dX": 95.84, "ukuran": 2.81,  "font": "OCR-B",        "ada_di": "3/3", "sebar_dX": 0.00, "contoh": "0 721688 043096", "sumber": "items.ean" },
-    { "k": "pattern",     "dY": -28.30, "dX": 12.59, "ukuran": 13.23, "font": "Impact",       "ada_di": "3/3", "contoh": "FORAY RP218", "sumber": "items.pattern" },
-    { "k": "load_speed",  "dY": -19.70, "dX": 12.59, "ukuran": 5.37,  "font": "Impact",       "ada_di": "3/3", "contoh": "84H  Standard Load" },
-    { "k": "konstruksi",  "dY": 1.29,   "dX": 12.59, "ukuran": 4.23,  "font": "Impact",       "ada_di": "3/3", "tetap": "RADIAL TUBELESS" }
+    {
+      "k": "made_in",
+      "dY": 0.0,
+      "dX": 0.0,
+      "ukuran": 2.8,
+      "font": "Impact",
+      "ada_di": "3/3",
+      "peran": "titik asal",
+      "contoh": "Made in Indonesia"
+    },
+    {
+      "k": "size",
+      "dY": -32.54,
+      "dX": 98.77,
+      "ukuran": 12.54,
+      "font": "Impact",
+      "ada_di": "3/3",
+      "sebar_dY": 0.0,
+      "contoh": "185/60R15",
+      "sumber": "items.size"
+    },
+    {
+      "k": "item_no",
+      "dY": -46.13,
+      "dX": -0.16,
+      "ukuran": 2.8,
+      "font": "Impact",
+      "ada_di": "3/3",
+      "contoh": "ITEM NO.:43096"
+    },
+    {
+      "k": "ean",
+      "dY": 0.33,
+      "dX": 95.84,
+      "ukuran": 2.81,
+      "font": "OCR-B",
+      "ada_di": "3/3",
+      "sebar_dX": 0.0,
+      "contoh": "0 721688 043096",
+      "sumber": "items.ean"
+    },
+    {
+      "k": "pattern",
+      "dY": -28.3,
+      "dX": 12.59,
+      "ukuran": 13.23,
+      "font": "Impact",
+      "ada_di": "3/3",
+      "contoh": "FORAY RP218",
+      "sumber": "items.pattern"
+    },
+    {
+      "k": "load_speed",
+      "dY": -19.7,
+      "dX": 12.59,
+      "ukuran": 5.37,
+      "font": "Impact",
+      "ada_di": "3/3",
+      "contoh": "84H  Standard Load"
+    },
+    {
+      "k": "konstruksi",
+      "dY": 1.29,
+      "dX": 12.59,
+      "ukuran": 4.23,
+      "font": "Impact",
+      "ada_di": "3/3",
+      "tetap": "RADIAL TUBELESS"
+    }
   ],
   "utqg": {
     "catatan": "PT PCR membawa blok DOT QUALITY GRADES (UTQG Amerika) yang TIDAK ADA di pasar lain: TREADWEAR, TRACTION, TEMPERATURE. Nilainya ('500', 'AA', 'A') saat ini TIDAK PUNYA KOLOM di items -- harus ditambah sebelum keluarga ini bisa digenerate penuh.",
     "medan": [
-      { "k": "treadwear",   "dY": -22.49, "dX": 75.88, "ukuran": 1.44, "font": "Verdana Bold" },
-      { "k": "traction",    "dY": -20.48, "dX": 75.88, "ukuran": 1.44, "font": "Verdana Bold" },
-      { "k": "temperature", "dY": -18.48, "dX": 75.88, "ukuran": 1.44, "font": "Verdana Bold" }
+      {
+        "k": "treadwear",
+        "dY": -22.49,
+        "dX": 75.88,
+        "ukuran": 1.44,
+        "font": "Verdana Bold"
+      },
+      {
+        "k": "traction",
+        "dY": -20.48,
+        "dX": 75.88,
+        "ukuran": 1.44,
+        "font": "Verdana Bold"
+      },
+      {
+        "k": "temperature",
+        "dY": -18.48,
+        "dX": 75.88,
+        "ukuran": 1.44,
+        "font": "Verdana Bold"
+      }
     ]
+  },
+  "asal_mutlak": {
+    "x": 8.77,
+    "y": 69.96,
+    "catatan": "DIUKUR dari e12 WESTLAKE FORAY RP218, bukan dihitung. Titik asal memang BERPINDAH antar berkas asli -- itu temuan pengukurannya -- jadi untuk membuat yang baru dipilih satu yang tetap. Dipasangkan dengan lembar 257x77; memakainya di lembar lain tanpa menggeser titik asal akan melempar blok keluar halaman."
+  },
+  "arah_putar": {
+    "arah": "naik",
+    "catatan": "DIUKUR, bukan dianggap seragam. SNI memutar teksnya TURUN (dir 0,1): titik awal baseline ada di ujung ATAS dan tulisannya memanjang ke bawah. Pasar lain memutar NAIK (dir 0,-1): titik awal di ujung BAWAH, memanjang ke atas. Perender yang menganggap keduanya sama akan menaruh setiap medan diputar di ujung yang salah, dan hasilnya terlihat seperti tata letak yang rusak, bukan seperti satu tanda yang terbalik."
   }
 }
