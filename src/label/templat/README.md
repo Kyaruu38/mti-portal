@@ -20,13 +20,14 @@ yang terhitung dua kunci berarti satu di antaranya tidak menemukan templat.
 |---|---|---|---|---|
 | `bx-a4-tegak.json` | BX | — | A4 **tegak** 210×297 | 4 artwork: CHAOYANG EZ573, WESTLAKE WSA2, WESTLAKE AT161, YARTU AD528 |
 | `pt-261x111.json` | PT | 261×111 mm | A4 **mendatar** 297×210 | 4 artwork: WESTLAKE DA23, TRAZANO AZ691, YARTU AZ828, WESTLAKE AZ599 |
+| `sni-101x226.json` | SNI | 101×226 mm | **tegak 101×226** (label memenuhi lembarnya) | 3 artwork: GOODRIDE CR926 MAX, GOODRIDE EZ835, YARTU EZ345 |
 
 ## Yang belum ada
 
 - PT `300x130mm` (17 baris), `300x100mm` (12), `110x280mm` (8), `90x280mm` (3),
   `180x100mm` (2), `130x300mm` (1)
-- SNI — belum pernah diukur sama sekali, padahal datanya yang paling lengkap
-  (125 baris punya ean + sni_no + npb3 + size + ply + tt)
+- SNI stok lain: `0105045809738ID` (TRAZANO EZ835) memakai lembar **297×180 mm**,
+  bukan 101×226. Lapisan teksnya cuma 5 span, tidak cukup untuk diukur.
 - OEM — belum pernah diukur
 
 Tiap templat baru butuh **3–4 artwork asli** dari stok itu. Bukan satu: dari
@@ -41,6 +42,16 @@ Ukur tiap medan relatif ke titik asal di SETIAP berkas, lalu lihat SEBARANNYA.
 - BX: dua WESTLAKE cuma beda geser serempak (+22,7 mm X, −3,6 mm Y)
 - PT: dua WESTLAKE cuma beda titik asal (+4,54 mm X, +5,61 mm Y), dan seluruh
   offset relatifnya identik sampai 2 desimal
+- SNI: paling tegas. Dua GOODRIDE **titik asalnya sama persis** (59,83 / 184,94)
+  dan tiap medan cocok sampai 2 desimal; YARTU — merek ketiga — titik asalnya
+  beda 0,02 dan 0,06 mm
+
+### Jangkar yang baik adalah yang ISINYA TETAP
+
+SNI memakai `LSPr-036-IDN` (kode lembaga sertifikasi) sebagai titik asal justru
+karena teksnya tidak pernah berubah antar produk. Jangkar yang isinya
+berubah-ubah ikut bergeser saat tulisannya memanjang, dan itu masuk ke sebaran
+setiap medan lain sebagai derau.
 
 ## Teks diputar: ukur UJUNGNYA, bukan titik mulainya
 
@@ -76,3 +87,38 @@ Dua yang tidak ikut pola adalah IRONMAN `688028986409` dan `688028986287`:
 panjangnya 12, dan diperiksa keduanya **UPC-A yang sah** (UPC-A memang EAN-13
 dengan nol di depan). Bukan data rusak — tapi perender harus menangani 12 digit
 juga, bukan hanya 13.
+
+
+## Arah perataan diukur, tidak diasumsikan
+
+| templat | medan | sebar titik mulai | sebar titik ujung | kesimpulan |
+|---|---|---|---|---|
+| PT | `spec_spine` (putar) | 8,40 mm | **1,13 mm** | rata kanan |
+| SNI | `spec_atas` (datar) | 0,97 mm | **0,34 mm** | rata kanan |
+| SNI | `size`, `load_speed`, `pattern_besar` (putar) | **0,03–0,09 mm** | — | rata kiri |
+
+Di SNI tiga medan putar itu panjangnya jelas berbeda antar berkas namun titik
+mulainya identik, jadi rata-kiri bukan tebakan.
+
+## Satu medan yang TIDAK bisa dihitung dari data
+
+`pattern_besar` di templat SNI ukuran hurufnya 17,44 pada CR926 MAX dan EZ835,
+tapi 20,01 pada EZ345 — padahal EZ345 dan EZ835 sama-sama lima huruf. Jadi
+bukan auto-fit menurut panjang teks, melainkan disetel tangan per desain.
+
+Proof harus menandai medan ini **perlu-periksa**, bukan diam-diam memakai salah
+satu angka.
+
+## Artwork juga sumber data, bukan cuma sumber tata letak
+
+Nama berkas artwork memuat ERP, dan lapisan teks PDF-nya memuat nilai yang
+tercetak. Untuk empat artwork SNI, `items` sudah benar pada `load_speed` dan
+`pattern` — dan **kosong** pada `size`, `ply`, `tt_tl`, `ean`, `npb1`, `npb3`
+dan `label_size`, yang semuanya ada di artworknya.
+
+Dipanen lewat `label_master_panen` yang sama dengan `asal = 'ARTWORK-SNI-9NOV'`:
+22 medan terisi, **0 tertimpa**, lalu dibaca ulang dan diadu medan per medan ke
+artworknya — 21 dari 21 cocok.
+
+`sni_no` TIDAK diisi: yang tercetak di artwork hanya logo SNI dan kode lembaga
+sertifikasi, bukan nomor SNI produknya.
