@@ -31,7 +31,7 @@
 import { h, clear } from '../core/dom.js';
 import { getState, setUI, toast } from '../core/store.js';
 import { tr } from '../i18n/index.js';
-import { badge, btn, field, inputEl } from '../ui/components.js';
+import { badge, btn, field, searchInput } from '../ui/components.js';
 import { pilihTemplat } from '../label/templat.js';
 import { isiTemplat } from '../label/peta.js';
 
@@ -73,10 +73,23 @@ export function labelArtworkScreen() {
   const wrap = h('div.stack', { style: { gap: '14px' } });
 
   wrap.appendChild(h('div.card', { style: { padding: '14px' } }, [
+    // KOTAK INI HARUS searchInput, BUKAN inputEl, dan dua hal memaksanya.
+    //
+    // Pertama: onInput milik inputEl menyerahkan NILAInya, bukan event-nya
+    // (lihat tanda tangannya di components.js). Versi pertama layar ini
+    // membaca e.target.value, jadi tiap ketikan melempar TypeError, state-nya
+    // tidak pernah terisi, dan layarnya diam saja — kotaknya terlihat
+    // menerima ketikan karena itu DOM biasa, padahal tidak ada yang sampai.
+    //
+    // Kedua, dan ini yang sudah dicatat components.js sendiri: mount() tidak
+    // punya diffing, jadi `onInput: v => setUI(...)` mengganti <input> yang
+    // sedang diketik sebelum huruf KEDUA mendarat. searchInput menahan
+    // ketikannya lalu merebut kembali fokus dan posisi karetnya sesudah
+    // pohonnya dibangun ulang. Dia memang dibuat untuk persoalan ini.
     field(tr({ id: 'Kode ERP', en: 'ERP code', zh: 'ERP 编码' }),
-      inputEl({
-        value: erp, placeholder: '0105045809703ID',
-        onInput: e => setUI({ artworkErp: e.target.value.trim() }),
+      searchInput({
+        id: 'artwork-erp', value: erp, mono: true, placeholder: '0105045809703ID',
+        onChange: v => setUI({ artworkErp: String(v || '').trim() }),
       })),
     h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '6px' } }, tr({
       id: 'Ketik kode ERP yang ada di Master Data. Semua keluaran ditandai ARTWORK OTOMATIS.',
