@@ -1,0 +1,210 @@
+{
+  "nama": "Label SNI (pasar dalam negeri, bersertifikat) - TBR dan BIAS",
+  "sumber": "diukur dari 3 artwork asli berstok sama: GOODRIDE CR926 MAX 10.00R20, GOODRIDE EZ835 11.00R20, YARTU EZ345 12.00R20",
+  "catatan": "Blok KAKU, dan ini yang paling tegas dari ketiga pasar. GOODRIDE CR926 dan GOODRIDE EZ835 bukan cuma offset relatifnya sama -- TITIK ASALNYA PUN SAMA PERSIS (59.83, 184.94) dan tiap medan cocok sampai 2 desimal. YARTU, merek ketiga, titik asalnya (59.85, 184.88): beda 0.02 dan 0.06 mm. DIPERLUAS 9 Nov: SNI BIAS memakai templat yang SAMA. Diuji pada 6 artwork BIAS dari 3 merek (GOLDEN CROWN, CHAOYANG, YARTU) di EMPAT ukuran lembar berbeda (101x226, 126x253, 252x125, 225x100): offsetnya cocok dalam ~0,6 mm. Berkas 225x100 awalnya terlihat berbeda sampai ketahuan dY dan dX-nya TERTUKAR -- labelnya sama, cuma diekspor dalam keadaan diputar (dX -124,94 lawan dY -126,47 pada size; -134,47 lawan -134,61 pada spec_atas; -93,96 lawan -93,89 pada load_range). Satu-satunya yang berubah antara TBR dan BIAS adalah ISI medan konstruksi: 'ALL STEEL TUBE TYPE' lawan 'BIAS TIRE TUBE TYPE'.",
+  "halaman": {
+    "lebar": 101,
+    "tinggi": 226,
+    "satuan": "mm",
+    "catat": "TEGAK, dan labelnya MEMENUHI lembarnya -- tidak seperti BX/PT yang bloknya duduk di lembar A4 yang lebih besar"
+  },
+  "stok_label": {
+    "lebar": 101,
+    "tinggi": 226,
+    "satuan": "mm"
+  },
+  "asal": {
+    "acuan": "titik awal baseline teks 'LSPr-036-IDN' (diputar 90 derajat)",
+    "catatan": "dipilih sebagai asal justru karena ISINYA TETAP -- kode lembaga sertifikasi tidak berubah antar produk, jadi panjangnya tidak ikut bergeser seperti jangkar yang isinya berubah-ubah"
+  },
+  "catatan_putar": "Hampir seluruh isi label ini DIPUTAR 90 derajat. Semua medan putar di sini rata-KIRI (titik mulainya tetap, panjangnya yang tumbuh) -- diperiksa pada size, load_speed dan pattern_besar yang panjangnya jelas berbeda antar berkas namun titik mulainya identik.",
+  "medan": [
+    {
+      "k": "lembaga",
+      "dY": 0.0,
+      "dX": 0.0,
+      "ukuran": 4.05,
+      "font": "Arial",
+      "putar": true,
+      "ada_di": "3/3",
+      "tetap": "LSPr-036-IDN",
+      "peran": "titik asal"
+    },
+    {
+      "k": "npb1",
+      "dY": 10.45,
+      "dX": 4.83,
+      "ukuran": 4.05,
+      "font": "Arial",
+      "putar": true,
+      "ada_di": "3/3",
+      "sebar_dY": 0.52,
+      "contoh": "99:2019",
+      "sumber": "items.npb1"
+    },
+    {
+      "k": "npb3",
+      "dY": -16.33,
+      "dX": -4.68,
+      "ukuran": 4.05,
+      "font": "Arial",
+      "putar": true,
+      "ada_di": "3/3",
+      "sebar_dY": 0.22,
+      "contoh": "1-132-003-26000603-5",
+      "sumber": "items.npb3"
+    },
+    {
+      "k": "ean",
+      "dY_dari": -90.3,
+      "dY_sampai": -60.3,
+      "dX": -49.94,
+      "ukuran": 3.38,
+      "font": "Arial Bold",
+      "putar": true,
+      "ada_di": "3/3",
+      "sebar_dX": 0.15,
+      "contoh": "0 721688 043362",
+      "sumber": "items.ean",
+      "catat": "angka terbacanya dipecah jadi beberapa potongan di kolom yang diputar; PENGELOMPOKANNYA BEDA antar berkas (dua berkas memecah 5 digit terakhir, satu menyatukannya), jadi perender harus memakai pengelompokan baku EAN-13 (1 + 6 + 6), bukan meniru salah satu berkas"
+    },
+    {
+      "k": "load_range",
+      "dY": -110.4,
+      "dX": -31.21,
+      "ukuran": 8.53,
+      "font": "Impact",
+      "putar": true,
+      "ada_di": "3/3",
+      "sebar_dY": 1.33,
+      "contoh": "J"
+    },
+    {
+      "k": "label_load",
+      "dY": -120.46,
+      "dX": -31.13,
+      "ukuran": 3.11,
+      "font": "Koz Go Pr6N Bold",
+      "putar": true,
+      "ada_di": "1/3",
+      "tetap": "Load / Range",
+      "catat": "dua berkas lain teksnya ter-outline jadi vektor"
+    },
+    {
+      "k": "ply",
+      "dY": -132.37,
+      "dX": -31.18,
+      "ukuran": 7.69,
+      "font": "Impact",
+      "putar": true,
+      "ada_di": "3/3",
+      "sebar_dY": 1.09,
+      "contoh": "18",
+      "catat": "dicetak sebagai angka telanjang; items.ply menyimpannya sebagai '18PR'"
+    },
+    {
+      "k": "konstruksi",
+      "dY": -142.11,
+      "dX": -49.9,
+      "ukuran": 4.71,
+      "font": "Impact",
+      "putar": true,
+      "ada_di": "3/3",
+      "sebar_dY": 0.05,
+      "contoh": "ALL STEEL TUBE TYPE / BIAS TIRE TUBE TYPE",
+      "sumber": "items.tt_tl",
+      "catat": "satu-satunya medan yang membedakan TBR dari BIAS"
+    },
+    {
+      "k": "label_ply",
+      "dY": -142.21,
+      "dX": -31.13,
+      "ukuran": 3.11,
+      "font": "Koz Go Pr6N Bold",
+      "putar": true,
+      "ada_di": "1/3",
+      "tetap": "Ply / Rating"
+    },
+    {
+      "k": "load_speed",
+      "dY": -142.74,
+      "dX": -41.42,
+      "ukuran": 7.19,
+      "font": "Impact",
+      "putar": true,
+      "ada_di": "3/3",
+      "sebar_dY": 0.04,
+      "contoh": "152/149F",
+      "sumber": "items.load_speed"
+    },
+    {
+      "k": "size",
+      "dY": -142.7,
+      "dX": -22.14,
+      "ukuran": 12.66,
+      "font": "Impact",
+      "putar": true,
+      "ada_di": "3/3",
+      "sebar_dY": 0.03,
+      "contoh": "11.00R20",
+      "sumber": "items.size"
+    },
+    {
+      "k": "pattern_besar",
+      "dY": -143.31,
+      "dX": -3.63,
+      "ukuran": 17.44,
+      "ukuran_maks": 20.01,
+      "font": "Impact",
+      "putar": true,
+      "ada_di": "3/3",
+      "sebar_dY": 0.09,
+      "contoh": "CR926 MAX",
+      "sumber": "items.pattern",
+      "catat": "UKURAN HURUFNYA TIDAK TETAP: 17.44 pada CR926 MAX dan EZ835, 20.01 pada EZ345. Tidak murni mengikuti panjang teks (EZ345 dan EZ835 sama-sama 5 huruf), jadi ini disetel tangan per desain dan TIDAK BISA dihitung dari data. Proof harus menandai medan ini sebagai perlu-periksa."
+    },
+    {
+      "k": "pattern_atas",
+      "dY": -150.79,
+      "dX": -53.2,
+      "ukuran": 5.33,
+      "font": "Impact",
+      "ada_di": "3/3",
+      "sebar_dX": 0.0,
+      "contoh": "EZ835",
+      "sumber": "items.pattern"
+    },
+    {
+      "k": "spec_atas",
+      "dY": -150.73,
+      "dX_ujung": 33.47,
+      "rata": "kanan",
+      "ukuran": 5.33,
+      "font": "Impact",
+      "ada_di": "3/3",
+      "sebar_ujung": 0.34,
+      "contoh": "11.00R20-18PR",
+      "catat": "rata KANAN terbukti tepat: 10.00R20-18PR mulai di +1.12 panjang 32.24, 11.00R20-18PR mulai di +1.95 panjang 31.41 -- ujung keduanya 33.36 persis sama"
+    }
+  ],
+  "bukan_teks": {
+    "catatan": "Vektor di berkas aslinya; harus dari aset, bukan dari data.",
+    "daftar": [
+      "logo merek di kepala dan yang besar diputar di badan label",
+      "tanda SNI dan kode QR-nya",
+      "daftar PERHATIAN 7 butir berbahasa Indonesia (diputar)",
+      "batang barcode EAN-13",
+      "baris kaki 'BSN   PT MATAHARI TIRE INDONESIA, KENDAL, INDONESIA   www.zc-rubber.com'",
+      "warna merek"
+    ]
+  },
+  "tidak_ada_di_sni": [
+    "nilai INMETRO (rolling resistance / wet grip) -- khas BX",
+    "dB kebisingan dan kelas kebisingan -- khas BX",
+    "keterangan dimensi '261 mm' / '111 mm' di tepi lembar -- khas PT, karena di SNI labelnya memenuhi lembarnya"
+  ],
+  "belum_terjawab": {
+    "sni_no": "TIDAK ADA di artwork. Yang tercetak cuma logo SNI dan kode LEMBAGA SERTIFIKASI (LSPr-036-IDN), bukan nomor SNI produknya. Jadi items.sni_no TIDAK bisa diisi dari artwork dan sengaja dibiarkan kosong.",
+    "stok_lain": "0105045809738ID (TRAZANO EZ835) stoknya BEDA: lembar 297x180 mm, dan lapisan teksnya cuma 5 span sehingga tidak cukup untuk diukur jadi templat. Butuh 3-4 artwork dari stok itu."
+  }
+}

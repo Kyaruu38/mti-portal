@@ -24,21 +24,38 @@ satu — lihat `supabase/sql/items_label_size_satu_ejaan.sql`.
 
 ## Yang sudah diukur
 
-| berkas | pasar | konstruksi | label | sampel | sebar dY |
-|---|---|---|---|---|---|
-| `bx-tbr.json` | BX | TBR | 254×79 | 4 awal + **6 dari Drive, 4 merek** | **0,00 mm** |
-| `pt-tbr.json` | PT | TBR | 261×111 | 4 artwork, 3 merek | ≤0,5 mm |
-| `sni-tbr.json` | SNI | TBR | 220×95 | 3 awal + **5 dari Drive, 3 merek** | ≤1,1 mm |
+| berkas | pasar | konstruksi | label | sampel | merek | sebar dY |
+|---|---|---|---|---|---|---|
+| `bx-tbr.json` | BX | TBR | 254×79 | 10 | 4 | **0,00 mm** |
+| `bx-pcr.json` | BX | PCR | 254×79 | 6 | 2 | **0,00 mm** |
+| `pt-tbr.json` | PT | TBR | 261×111 | 4 | 3 | ≤0,5 mm |
+| `pt-st.json` | PT | ST | 251×71 | 3 | 3 | **0,00 mm** |
+| `pt-pcr.json` | PT | PCR | — | 3 | **1** | 0,00 mm |
+| `sni.json` | SNI | **TBR + BIAS** | 220×95 | 13 | 6 | ≤1,1 mm |
 
-Tiga templat ini menutup **20 dari 36 berkas sampel (56%)**.
+### SNI cukup SATU templat untuk dua konstruksi
+
+SNI BIAS ternyata memakai balok yang sama dengan SNI TBR. Diuji pada 6 artwork
+BIAS dari 3 merek di **empat** ukuran lembar (101×226, 126×253, 252×125,
+225×100) — cocok dalam ~0,6 mm. Yang 225×100 sempat terlihat berbeda sampai
+ketahuan dY dan dX-nya **tertukar**: labelnya sama, cuma diekspor dalam
+keadaan diputar.
+
+Satu-satunya yang membedakan TBR dari BIAS adalah ISI medan `konstruksi`:
+`ALL STEEL TUBE TYPE` lawan `BIAS TIRE TUBE TYPE`.
+
+### `pt-pcr.json` baru satu merek
+
+Kekakuan lintas-merek BELUM terbukti untuk keluarga ini, berbeda dengan yang
+lain. Perlu satu artwork merek lain sebelum dipakai tanpa diperiksa.
 
 ## Yang belum ada
 
 - PT `300x130mm` (17 baris), `300x100mm` (12), `110x280mm` (8), `90x280mm` (3),
   `180x100mm` (2), `130x300mm` (1)
-- **BX PCR** — label 254×79 sama dengan BX TBR tapi baloknya BEDA. Punya 2 sampel.
-- **PT ST** — label 220×80. Punya 1 sampel.
-- **SNI BIAS**, **OEM TBR**, **OEM ST**, **OEM BIAS**, **OEM OTR** — belum ada.
+Dari daftar lama, **BX PCR, PT ST dan SNI BIAS sudah selesai**; PT PCR ikut
+terukur sebagai bonus. Yang tersisa cuma **OEM** — dan OEM memang tidak lewat
+templat sama sekali, lihat `JALUR-SULIH.md`.
 
 ### 22% artwork tidak punya lapisan teks sama sekali
 

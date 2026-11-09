@@ -1,0 +1,21 @@
+{
+  "nama": "Label BX PCR (ekspor Brasil) - ban penumpang",
+  "sumber": "6 artwork asli, 2 merek: WESTLAKE Z-108 (175/70R13, 175/70R14, 185/70R14, 175/65R14, 185/65R14) dan TRAZANO T-118 (165/70R13)",
+  "catatan": "KAKU SEMPURNA: sebar dY 0,00 mm pada SELURUH medan di 6 berkas. Ini templat TERSENDIRI, bukan BX TBR: ukuran labelnya SAMA PERSIS (254x79) tapi baloknya berbeda -- size bergeser 4,2 mm, ply 8,3 mm, dan ukuran huruf made_in 4,85 lawan 4,2. Itulah bukti bahwa kunci templat adalah (pasar, konstruksi), bukan ukuran label.",
+  "halaman": { "lebar": 210, "tinggi": 297, "satuan": "mm", "catat": "A4 tegak, blok duduk di dalamnya" },
+  "stok_label": { "lebar": 254, "tinggi": 79, "satuan": "mm" },
+  "asal": { "acuan": "titik awal baseline 'MADE IN INDONESIA'", "catatan": "dY negatif = DI ATAS asal" },
+  "medan": [
+    { "k": "made_in",      "dY": 0.00,    "dX": 0.00,  "ukuran": 4.85,  "font": "Impact",               "ada_di": "6/6", "peran": "titik asal" },
+    { "k": "size",         "dY": -42.66,  "dX": -6.53, "ukuran": 12.35, "font": "Impact",               "ada_di": "6/6", "sebar_dY": 0.00, "contoh": "175/70R14", "sumber": "items.size" },
+    { "k": "pattern",      "dY": -28.56,  "dX": 8.53,  "ukuran": 9.63,  "font": "Impact",               "ada_di": "6/6", "contoh": "Z-108", "sumber": "items.pattern" },
+    { "k": "load_speed",   "dY": -20.00,  "dX": -8.60, "ukuran": 6.17,  "font": "Impact",               "ada_di": "6/6", "contoh": "84T Standard Load", "catat": "bentuknya '84T Standard Load', bukan '149/146L' seperti TBR" },
+    { "k": "ean",          "dY": 6.86,    "dX": 0.66,  "ukuran": 5.49,  "font": "Impact",               "ada_di": "6/6", "contoh": "0721688039709", "sumber": "items.ean" },
+    { "k": "ply",          "dY": 116.42,  "dX": 28.51, "ukuran": 7.97,  "font": "Helvetica Condensed",  "ada_di": "6/6", "sebar_dY": 0.00, "contoh": "73" },
+    { "k": "rolling_resistance", "dY": 89.17, "dX": 12.07, "ukuran": 8.47, "font": "Arial Bold",        "ada_di": "6/6", "contoh": "F", "sumber": "items.rr" },
+    { "k": "wet_grip",     "dY": 83.12,   "dX": 39.46, "ukuran": 8.07,  "font": "Arial Bold",           "ada_di": "6/6", "sebar_dY": 0.00, "contoh": "E", "sumber": "items.wet_grip" },
+    { "k": "lebar_label",  "dY": 56.17,   "dX": 67.35, "ukuran": 4.23,  "font": "Arial", "putar": true, "ada_di": "6/6", "tetap": "254 mm" },
+    { "k": "tinggi_label", "dY": -83.61,  "dX": 12.26, "ukuran": 4.23,  "font": "Arial",                "ada_di": "6/6", "tetap": "79 mm" }
+  ],
+  "catatan_inmetro": "BX PCR membawa nilai INMETRO sebagai HURUF LANGSUNG di posisi tetap (rolling_resistance dan wet_grip di atas), bukan sebagai huruf yang duduk di anak tangga seperti BX TBR. Jadi aturan 6 mm per tingkat milik bx-tbr.json TIDAK berlaku di sini."
+}

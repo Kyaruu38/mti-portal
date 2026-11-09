@@ -61,22 +61,48 @@ Diperkecil sampai muat kotaknya. Kalau sebuah medan tidak muat pada ukuran
 terkecil yang masih terbaca, itu **dilaporkan, bukan dipaksakan** — nilai
 yang terpotong di label lebih berbahaya daripada proof yang ditolak.
 
-## Tiga hal yang BELUM beres, dan harus dibaca sebelum dipakai
+## Salinan ganda: SUDAH otomatis — `tools/label/kembar.py`
 
-1. **Salinan ganda.** Percobaan pertama meninggalkan `STRONG GUARD H-MW`
-   yang basi di tulang punggung karena peta medannya cuma mencatat salinan
-   yang di panel. Di artwork ini TIGA dari empat nilai muncul **dua kali**.
-   Peta medan per keluarga harus mencatat SETIAP salinan; satu yang
-   terlewat berarti label tercetak dengan dua nilai yang saling bertentangan.
-   Ini ragam gagal yang paling berbahaya di jalur ini karena hasilnya
-   kelihatan benar sekilas.
+Percobaan pertama meninggalkan `STRONG GUARD H-MW` yang basi di tulang
+punggung karena peta medannya cuma mencatat salinan yang di panel. Di artwork
+itu TIGA dari empat nilai muncul **dua kali**. Ini ragam gagal paling
+berbahaya di jalur sulih: hasilnya kelihatan benar sekilas.
 
-2. **Barcode belum dibuat ulang.** Proof masih membawa batang barcode lama.
-   Angka dan batangnya harus digambar ulang dari `items.ean`.
+Teksnya tidak bisa dibaca, jadi salinan dicocokkan lewat **bentuknya**.
 
-3. **Huruf masih pendekatan.** Dipakai Helvetica-Bold, bukan huruf sempit
-   miring milik artworknya. Cukup untuk proof yang diperiksa manusia; TIDAK
-   cukup untuk cetak produksi.
+Jumlah simpul saja TIDAK CUKUP — diuji, dan dua teks berbeda bisa kebetulan
+punya jumlah simpul sama (di artwork ini sebuah baris peringatan dan tulisan
+merek yang diputar sama-sama 684 simpul). Jadi sesudah disaring lewat jumlah
+simpul, bentuknya diadu titik per titik setelah dinormalkan ke kotak satuan,
+**dicari lintas tiga ragam putaran**.
+
+Kesalahan percobaan kedua dicatat juga: kedua salinan sempat "diluruskan"
+dulu memakai tebakan arah yang sama, sehingga pasangan yang benar justru
+tidak pernah bertemu. Sesudah diadu lintas-putaran, jarak pasangan yang benar
+turun ke **0,0000–0,0009** sementara pasangan palsu tetap tertolak.
+
+Hasilnya pada artwork OEM uji: pola, ukuran dan nomor item ketemu dua-dua
+(panel + tulang punggung), pasangan palsu 684 ditolak.
+
+## Barcode: SUDAH dibuat ulang — `tools/label/barcode.py`
+
+EAN-13 dan UPC-A (UPC-A adalah EAN-13 dengan nol di depan, jadi lewat jalur
+yang sama). Mendukung barcode yang dicetak memanjang ke bawah.
+
+Diuji **bolak-balik**: pola 95 modul yang digambar DIBACA ULANG kembali jadi
+angka. Enam kode diuji, semuanya kembali utuh; kode dengan digit cek salah
+ditolak dengan pesan yang menyebut angka yang benar.
+
+Pemeriksa silang yang berdiri sendiri: untuk item 98377 keluarannya
+`688028983774`, **persis barcode yang tercetak di artwork aslinya** — padahal
+HERCULES memakai awalan GS1 sendiri (688028), bukan 0721688 milik MTI. Jadi
+aturan `awalan + nomor item 5 digit` berlaku lintas-perusahaan.
+
+## Yang MASIH belum beres
+
+**Huruf masih pendekatan.** Dipakai Helvetica-Bold, bukan huruf sempit miring
+milik artworknya. Cukup untuk proof yang diperiksa manusia; TIDAK cukup untuk
+cetak produksi. Ini satu-satunya lubang yang tersisa di jalur sulih.
 
 ## Pembagian kerja yang masuk akal
 

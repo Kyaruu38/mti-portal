@@ -1,0 +1,18 @@
+{
+  "nama": "Label PT ST - ban trailer (Special Trailer)",
+  "sumber": "3 artwork asli, 3 merek: WESTLAKE ST100 (ST205/75R15), ARISUN ST100 (ST205/75R14 dan ST205/75R15)",
+  "catatan": "KAKU: sebar dY 0,00 mm. Diuji lintas DUA ukuran lembar -- satu berkas di A4 tegak 210x297, dua berkas di lembar 77x257 -- dan offsetnya tetap sama. Sekali lagi membuktikan lembar cuma kanvas ekspor.",
+  "halaman": { "lebar": 77, "tinggi": 257, "satuan": "mm", "catat": "juga ditemukan di A4 tegak; yang menentukan bukan lembarnya" },
+  "stok_label": { "lebar": 251, "tinggi": 71, "satuan": "mm", "catat": "dari keterangan dimensi '251 mm' dan '71 mm' di berkas A4-nya" },
+  "asal": { "acuan": "titik awal baseline 'MADE IN INDONESIA'" },
+  "medan": [
+    { "k": "made_in",     "dY": 0.00,   "dX": 0.00,  "ukuran": 4.73,  "font": "Impact",  "ada_di": "3/3", "peran": "titik asal" },
+    { "k": "size",        "dY": -53.85, "dX": -9.69, "ukuran": 10.41, "font": "Impact",  "ada_di": "3/3", "contoh": "ST205/75R15", "sumber": "items.size" },
+    { "k": "pattern",     "dY": -44.09, "dX": 7.39,  "ukuran": 8.80,  "font": "Impact",  "ada_di": "3/3", "contoh": "ST100", "sumber": "items.pattern" },
+    { "k": "load_speed",  "dY": -33.58, "dX": 1.91,  "ukuran": 8.77,  "font": "Impact",  "ada_di": "3/3", "sebar_dY": 0.00, "contoh": "111/106M", "sumber": "items.load_speed" },
+    { "k": "load_range",  "dY": -26.44, "dX": -6.46, "ukuran": 6.30,  "font": "Impact",  "ada_di": "3/3", "contoh": "Load Range D/10PR", "catat": "satu medan gabungan: huruf jangkauan beban DAN ply, bukan dua medan terpisah seperti TBR" },
+    { "k": "item_no",     "dY": 10.40,  "dX": 9.03,  "ukuran": 8.21,  "font": "Impact",  "ada_di": "3/3", "contoh": "37712", "catat": "diturunkan dari items.ean: lima digit terakhir" },
+    { "k": "ean",         "dY": 29.76,  "dX": -2.84, "ukuran": 3.49,  "font": "OCR-B",   "ada_di": "2/3", "contoh": "0 721688 037712", "sumber": "items.ean", "catat": "dipecah tiga potongan: dX -2,84 / +1,53 / +20,17" }
+  ],
+  "tidak_ada_di_pt_st": ["nilai INMETRO", "kebisingan", "nomor SNI dan NPB"]
+}
