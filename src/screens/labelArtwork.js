@@ -123,7 +123,7 @@ export function labelArtworkScreen() {
     lapor.appendChild(h('div', { style: { color: 'var(--text-3)' } },
       tr({ id: 'Membaca artworknya…', en: 'Reading the artwork…', zh: '正在读取图稿…' })));
     try {
-      const [{ itemTeks }, sp, { sulih }] = await Promise.all([
+      const [{ itemTeks, renderThumb }, sp, { sulih }] = await Promise.all([
         import('../parsers/pdf.js'), import('../label/sumberPdf.js'), import('../label/sulih.js'),
       ]);
       const t = await muatTemplat(pilihan.berkas);
@@ -152,7 +152,7 @@ export function labelArtworkScreen() {
         // Posisinya benar belum berarti isinya sebanding -- lihat PENJAGA.
         const tolak = sp.bolehGanti(c.k, c.lama, nilai.nilai);
         if (tolak) { lewat.push(`${c.k} — ${tolak}`); continue; }
-        gantian.push({ ...c.kotak, nilai: nilai.nilai, putar: c.putar, arah: c.arah, tm: c.tm, catatan: c.k });
+        gantian.push({ ...c.kotak, nilai: nilai.nilai, putar: c.putar, arah: c.arah, tm: c.tm, catatan: c.k, lama: c.lama });
         // Salinan ganda dicari lewat TEKS LAMAnya: satu yang terlewat berarti
         // label membawa dua nilai yang bertentangan sambil terlihat benar.
         for (const sal of sp.cariSalinan(sumber, c.lama, c.kotak)) {
@@ -161,17 +161,100 @@ export function labelArtworkScreen() {
       }
 
       const r = await sulih(buf.slice(0), gantian, { erp, dari: `${berkas.name} · ${pilihan.berkas}` });
-      unduh(r.pdf, `ARTWORK-OTOMATIS-${erp}.pdf`);
 
+      // ---- STASIUN PERIKSA ----------------------------------------------
+      // Versi sebelumnya langsung mengunduh berkasnya dan selesai. Jadi
+      // pertanyaan "gw kalo mau check hasilnya gimana?" tidak punya jawaban
+      // di dalam portal: berkasnya sudah di folder Unduhan, artwork aslinya
+      // ada di Drive, dan membandingkannya berarti membuka dua jendela lalu
+      // mengingat-ingat. Tidak ada orang yang memeriksa 13 medan dengan cara
+      // itu; yang terjadi adalah berkasnya dipakai tanpa diperiksa.
+      //
+      // Sekarang hasilnya TIDAK langsung terunduh. Yang muncul: dua gambar
+      // berdampingan, daftar tiap nilai lama -> baru, dan tautan membuka
+      // kedua PDF di tab terpisah -- pembaca PDF bawaan browser jauh lebih
+      // baik untuk memeriksa daripada apa pun yang bisa dibuat di sini,
+      // karena bisa dizoom dan teksnya bisa dicari. Mengunduh jadi tombol
+      // yang ditekan SESUDAH diperiksa, bukan akibat samping.
       clear(lapor);
-      lapor.appendChild(h('div', { style: { fontWeight: 700, color: 'var(--ok, #2e9e5b)' } },
-        tr({ id: `Jadi — ${gantian.length} medan diganti, berkasnya terunduh`,
-             en: `Done — ${gantian.length} fields replaced, file downloaded`,
-             zh: `完成 — 已替换 ${gantian.length} 个字段，文件已下载` })));
-      lapor.appendChild(h('div', { style: { color: 'var(--warn, #e8a700)', marginTop: '4px' } },
+
+      const simpanBlob = [];
+      const tautanBlob = (bytes, nama) => {
+        const u = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+        simpanBlob.push(u);
+        return u;
+      };
+      // Blob URL-nya dilepas setelah 15 menit: tab yang sudah dibuka tetap
+      // hidup selama itu, dan tidak menahan dua PDF di memori selamanya.
+      setTimeout(() => simpanBlob.forEach(u => URL.revokeObjectURL(u)), 15 * 60 * 1000);
+
+      const perubahan = gantian.filter(g => !String(g.catatan).includes('salinan'));
+
+      // TAUTAN MEMBUKA BERKASNYA DIBUAT DI SINI, SEBELUM PRATINJAUNYA.
+      //
+      // Dulu tautannya ikut dibangun di dalam blok pratinjau. Di uji jsdom
+      // pratinjaunya menggantung -- tidak berhasil, tidak juga gagal -- dan
+      // yang tertinggal di layar cuma tulisan "menggambar pratinjau..." tanpa
+      // satu pun jalan membuka berkasnya. Cara memeriksa yang paling penting
+      // tidak boleh bergantung pada bagian yang paling mungkin gagal.
+      const hrefHasil = tautanBlob(r.pdf);
+      const hrefAsli = tautanBlob(buf.slice(0));
+
+      lapor.appendChild(h('div.row.gap8', { style: { alignItems: 'center', flexWrap: 'wrap', marginBottom: '8px' } }, [
+        h('span', { style: { fontWeight: 700, color: 'var(--ok, #2e9e5b)' } },
+          tr({ id: `${perubahan.length} medan diganti — periksa dulu`,
+               en: `${perubahan.length} fields replaced — check it first`,
+               zh: `已替换 ${perubahan.length} 个字段 — 请先核对` })),
+        h('a', { href: hrefHasil, target: '_blank', style: { fontSize: '11.5px', fontWeight: 700 } },
+          tr({ id: 'buka hasilnya ↗', en: 'open the result ↗', zh: '打开结果 ↗' })),
+        h('a', { href: hrefAsli, target: '_blank', style: { fontSize: '11.5px', color: 'var(--text-3)' } },
+          tr({ id: 'buka aslinya ↗', en: 'open the original ↗', zh: '打开原件 ↗' })),
+        h('span.mla', {}, btn(tr({ id: 'Unduh PDF', en: 'Download PDF', zh: '下载 PDF' }), {
+          variant: 'primary', sm: true,
+          onClick: () => { unduh(r.pdf, `ARTWORK-OTOMATIS-${erp}.pdf`); toast(tr({ id: 'Terunduh', en: 'Downloaded', zh: '已下载' })); },
+        })),
+      ]));
+
+      // DUA GAMBAR BERDAMPINGAN. Yang ditangkap mata dalam sedetik -- warna
+      // hilang, blok bergeser, tulisan menimpa tetangganya -- tidak ada di
+      // daftar medan mana pun. Setiap cacat yang pernah lolos di jalur ini
+      // ketahuan dari gambarnya, bukan dari angka.
+      const kolom = (judul, src, hrefPdf, catatan) => h('div', { style: { flex: '1 1 240px', minWidth: '200px' } }, [
+        h('div.row.gap8', { style: { alignItems: 'baseline', marginBottom: '4px' } }, [
+          h('span', { style: { fontSize: '11px', fontWeight: 700, color: 'var(--text-3)' } }, judul),
+          h('a', { href: hrefPdf, target: '_blank', style: { fontSize: '10.5px', marginLeft: 'auto' } },
+            tr({ id: 'buka di tab baru', en: 'open in new tab', zh: '在新标签页打开' })),
+        ]),
+        h('a', { href: hrefPdf, target: '_blank', style: { display: 'block' } },
+          h('img', { src, alt: judul, style: { width: '100%', display: 'block', background: '#fff', border: '1px solid var(--line)', borderRadius: '4px' } })),
+        catatan ? h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', marginTop: '3px' } }, catatan) : null,
+      ]);
+
+      const gambar = h('div.row.gap12', { style: { alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '10px' } },
+        h('div', { style: { fontSize: '11px', color: 'var(--text-3)' } },
+          tr({ id: 'menggambar pratinjau…', en: 'drawing preview…', zh: '正在绘制预览…' })));
+      lapor.appendChild(gambar);
+
+      if (perubahan.length) {
+        // TABEL LAMA -> BARU. Ini yang tidak bisa dilihat dari gambarnya:
+        // apakah nilai yang mendarat memang nilai yang dimaksud. Tiap baris
+        // bisa dicocokkan ke Master Data tanpa membuka berkasnya.
+        lapor.appendChild(h('div', { style: { fontSize: '11px', fontWeight: 700, color: 'var(--text-3)', marginBottom: '3px' } },
+          tr({ id: 'Yang diganti', en: 'What was replaced', zh: '替换内容' })));
+        lapor.appendChild(h('div', { style: { display: 'grid', gridTemplateColumns: 'auto 1fr auto 1fr', gap: '2px 8px', alignItems: 'baseline', marginBottom: '10px' } },
+          perubahan.map(g => [
+            h('span', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, g.catatan),
+            h('span.mono', { style: { fontSize: '11px', textDecoration: 'line-through', opacity: 0.65 } }, String(g.lama == null ? '' : g.lama)),
+            h('span', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, '→'),
+            h('span.mono', { style: { fontSize: '11px', fontWeight: 700 } }, String(g.nilai)),
+          ])));
+      }
+
+      lapor.appendChild(h('div', { style: { color: 'var(--warn, #e8a700)' } },
         tr({ id: 'Barcode masih yang lama — belum digambar ulang. Periksa sebelum dipakai.',
              en: 'The barcode is still the old one — not yet regenerated. Check before use.',
              zh: '条码仍是旧的 — 尚未重新生成。使用前请检查。' })));
+
       const semua = lewat.concat((r.gagal || []).map(g => `${g.catatan} — ${g.sebab}`));
       if (semua.length) {
         lapor.appendChild(h('details', { style: { marginTop: '6px' } }, [
@@ -179,6 +262,36 @@ export function labelArtworkScreen() {
             tr({ id: `${semua.length} medan tidak diganti`, en: `${semua.length} fields not replaced`, zh: `${semua.length} 个字段未替换` })),
           h('ul', { style: { margin: '4px 0 0', paddingLeft: '16px', color: 'var(--danger)' } },
             semua.map(x => h('li', { style: { fontSize: '11px' } }, x))),
+        ]));
+      }
+
+      // Pratinjaunya digambar BELAKANGAN dan kegagalannya tidak mematikan
+      // apa pun: merender dua halaman PDF makan waktu, dan daftar medan di
+      // atas sudah bisa dibaca sementara gambarnya belum jadi.
+      try {
+        // DIBERI BATAS WAKTU. Perender PDF yang menggantung bukan hal
+        // mustahil, dan "menggambar pratinjau..." yang tidak pernah berubah
+        // adalah layar yang berbohong tentang keadaannya sendiri.
+        const batas = new Promise((_, tolak) => setTimeout(
+          () => tolak(new Error(tr({ id: 'kelamaan', en: 'timed out', zh: '超时' }))), 25000));
+        const [imgAsli, imgBaru] = await Promise.race([
+          Promise.all([renderThumb(buf.slice(0), 420), renderThumb(r.pdf.slice().buffer, 420)]),
+          batas,
+        ]);
+        clear(gambar);
+        gambar.appendChild(kolom(tr({ id: 'SEBELUM — artwork aslinya', en: 'BEFORE — the original artwork', zh: '之前 — 原始图稿' }),
+          imgAsli, hrefAsli, berkas.name));
+        gambar.appendChild(kolom(tr({ id: 'SESUDAH — hasil otomatis', en: 'AFTER — automatic result', zh: '之后 — 自动结果' }),
+          imgBaru, hrefHasil, tr({ id: 'bertanda ARTWORK OTOMATIS di pita bawah',
+                                           en: 'marked ARTWORK OTOMATIS on the bottom band',
+                                           zh: '底部条带标有 ARTWORK OTOMATIS' })));
+      } catch (e2) {
+        clear(gambar);
+        gambar.appendChild(h('div', { style: { fontSize: '11px', color: 'var(--text-3)' } }, [
+          tr({ id: 'Pratinjau gagal digambar (' + String(e2.message || e2) + ') — buka berkasnya langsung: ',
+               en: 'Preview could not be drawn (' + String(e2.message || e2) + ') — open the files directly: ',
+               zh: '预览无法绘制（' + String(e2.message || e2) + '）— 请直接打开文件：' }),
+          h('a', { href: hrefHasil, target: '_blank' }, tr({ id: 'hasilnya', en: 'the result', zh: '结果' })),
         ]));
       }
     } catch (e) {
