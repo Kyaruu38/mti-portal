@@ -14,6 +14,28 @@ async function lib() {
   return pdfjsLib;
 }
 
+// ITEM TEKS MENTAH halaman pertama, LENGKAP dengan matriksnya.
+//
+// extractPdf() di bawah membuang transform, width dan height karena yang
+// dibutuhkannya cuma baris teks. Jalur sulih artwork butuh ketiganya: matriks
+// untuk tahu teksnya diputar atau tidak, dan ukuran untuk tahu kotak mana
+// yang harus ditimpa. Kotak yang dikira-kira dari ukuran huruf akan
+// kependekan pada tulisan yang panjang, dan meninggalkan potongan huruf lama
+// di tepinya — sisa yang terlihat seperti cetakan kotor, bukan seperti salah.
+export async function itemTeks(fileOrBuffer) {
+  const L = await lib();
+  const data = fileOrBuffer instanceof ArrayBuffer ? fileOrBuffer : await fileOrBuffer.arrayBuffer();
+  const doc = await L.getDocument({
+    data,
+    cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/cmaps/',
+    cMapPacked: true,
+  }).promise;
+  const page = await doc.getPage(1);
+  const vp = page.getViewport({ scale: 1 });
+  const content = await page.getTextContent();
+  return { items: content.items || [], lebarPt: vp.width, tinggiPt: vp.height, halaman: doc.numPages };
+}
+
 // Returns { pages: [{ lines: [{ str, x, y }] }], text, isScanned }.
 export async function extractPdf(fileOrBuffer) {
   const L = await lib();

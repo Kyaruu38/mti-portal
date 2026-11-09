@@ -112,8 +112,21 @@ export function labelArtworkScreen() {
 
   // ---- jalur templat ----
   const kartuTemplat = h('div.card', { style: { padding: '14px' } });
-  kartuTemplat.appendChild(h('div', { style: { fontWeight: 700, marginBottom: '8px' } },
-    tr({ id: 'Rakit dari templat', en: 'Build from template', zh: '从模板生成' })));
+  kartuTemplat.appendChild(h('div', { style: { fontWeight: 700, marginBottom: '2px' } },
+    tr({ id: 'Periksa data lewat templat', en: 'Check data against template', zh: '按模板核对数据' })));
+  // LABEL JUJUR. Tombol ini sempat bernama "Buat proof", dan orang yang
+  // menekannya mendapat halaman berisi teks hitam-putih tanpa logo, tanpa
+  // warna, tanpa tanda SNI — lalu bertanya kenapa. Pertanyaannya wajar:
+  // namanya menjanjikan artwork. Yang dihasilkan jalur ini cuma TEKS di
+  // koordinat terukur, karena logo, blok warna, tanda SNI, QR dan blok
+  // peringatan adalah VEKTOR di artworknya dan tidak ada di data mana pun.
+  // Jadi gunanya memeriksa penempatan dan kelengkapan data, bukan mencetak.
+  kartuTemplat.appendChild(h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginBottom: '10px' } },
+    tr({
+      id: 'Keluarannya TEKS SAJA — tanpa logo, warna, tanda SNI atau QR, karena semua itu vektor di artworknya dan tidak ada di data. Untuk artwork utuh pakai jalur sulih di bawah.',
+      en: 'The output is TEXT ONLY — no logo, colour, SNI mark or QR, because those are vectors in the artwork and exist in no data. For complete artwork use the substitution path below.',
+      zh: '输出仅为文字 — 没有标志、颜色、SNI 标记或二维码，因为这些都是图稿中的矢量，不存在于任何数据中。完整图稿请使用下方的替换路径。',
+    })));
 
   if (!pilihan.ok) {
     // Ditolak, dan SEBABNYA disebut. OEM ditolak bukan karena templatnya
@@ -156,13 +169,13 @@ export function labelArtworkScreen() {
     }).catch(e => { clear(status); status.appendChild(h('div', { style: { color: 'var(--danger)' } }, String(e.message || e))); });
 
     kartuTemplat.appendChild(h('div', { style: { marginTop: '10px' } },
-      btn(tr({ id: 'Buat proof', en: 'Build proof', zh: '生成校样' }), {
+      btn(tr({ id: 'Buat lembar periksa', en: 'Build check sheet', zh: '生成核对表' }), {
         variant: 'primary',
         onClick: async () => {
           try {
             const [t, { render }] = await Promise.all([muatTemplat(pilihan.berkas), import('../label/render.js')]);
             const r = await render(t, baris, { erp, dari: pilihan.berkas });
-            unduh(r.pdf, `ARTWORK-OTOMATIS-${erp}-templat.pdf`);
+            unduh(r.pdf, `PERIKSA-DATA-${erp}.pdf`);
             toast(r.bolong.length
               ? tr({ id: `Proof dibuat, ${r.bolong.length} medan bolong ditandai merah`,
                      en: `Proof built, ${r.bolong.length} missing fields marked red`,
@@ -184,12 +197,88 @@ export function labelArtworkScreen() {
     zh: '从电脑中打开图稿 PDF。Drive 阻止网页获取 PDF 字节，因此无法自动拉取文件。',
   })));
   const masukan = h('input', { type: 'file', accept: 'application/pdf', style: { fontSize: '12px' } });
+  const lapor = h('div', { style: { fontSize: '11.5px', marginTop: '10px' } });
+  masukan.addEventListener('change', async () => {
+    const berkas = masukan.files && masukan.files[0];
+    if (!berkas) return;
+    clear(lapor);
+    lapor.appendChild(h('div', { style: { color: 'var(--text-3)' } },
+      tr({ id: 'Membaca artworknya…', en: 'Reading the artwork…', zh: '正在读取图稿…' })));
+    try {
+      if (!pilihan.ok) throw new Error(pilihan.sebab);
+      const [{ itemTeks }, sp, { isiMedan }, { sulih }] = await Promise.all([
+        import('../parsers/pdf.js'), import('../label/sumberPdf.js'),
+        import('../label/peta.js'), import('../label/sulih.js'),
+      ]);
+      const t = await muatTemplat(pilihan.berkas);
+      const buf = await berkas.arrayBuffer();
+      const { items, tinggiPt } = await itemTeks(buf.slice(0));
+      const sumber = sp.keMedanSumber(items, tinggiPt);
+      if (!sumber.length) {
+        // Artwork yang hurufnya sudah jadi kurva tidak punya lapisan teks
+        // sama sekali. Jalur ini TIDAK BISA menebak letaknya dari situ, dan
+        // menebak berarti menimpa bagian yang salah.
+        throw new Error(tr({
+          id: 'Berkas ini tidak punya lapisan teks — hurufnya sudah jadi kurva. Jalur sulih butuh berkas yang teksnya masih teks.',
+          en: 'This file has no text layer — its letters are outlined curves. The substitution path needs a file whose text is still text.',
+          zh: '该文件没有文字层 — 其字符已转为曲线。替换路径需要文字仍为文字的文件。',
+        }));
+      }
+      const j = sp.cariJangkar(sumber, pilihan.berkas);
+      if (!j.ok) throw new Error(j.sebab);
+      const cocok = sp.cocokkanMedan(t, sumber, j);
+
+      const gantian = [];
+      const lewat = [];
+      for (const c of cocok) {
+        if (!c.ketemu) { lewat.push(`${c.k} — tidak ketemu di artworknya`); continue; }
+        const med = t.medan.find(m => m.k === c.k);
+        const nilai = isiMedan(med, baris);
+        if (!nilai.nilai) { lewat.push(`${c.k} — ${nilai.sebab || 'data kosong'}`); continue; }
+        if (nilai.nilai === c.lama) continue;   // sudah sama, tidak perlu disentuh
+        gantian.push({ ...c.kotak, nilai: nilai.nilai, putar: c.putar, catatan: c.k });
+        // SALINAN GANDA: nilai yang sama sering tercetak dua kali. Dicari
+        // lewat TEKS LAMAnya, bukan ditebak — satu yang terlewat berarti
+        // label membawa dua nilai yang bertentangan dan terlihat benar.
+        for (const sal of sp.cariSalinan(sumber, c.lama, c.kotak)) {
+          gantian.push({ ...sal.kotak, nilai: nilai.nilai, putar: sal.putar, catatan: c.k + ' (salinan)' });
+        }
+      }
+
+      const eanBaru = isiMedan({ k: 'ean' }, baris).nilai;
+      const r = await sulih(buf.slice(0), gantian, {
+        erp, dari: `${berkas.name} · ${pilihan.berkas}`,
+        // Barcode belum digambar ulang di jalur ini: letak batangnya harus
+        // diukur dari berkasnya dulu, dan menggambar di tempat yang ditebak
+        // akan menutupi barcode lama dengan yang baru tapi salah posisi.
+      });
+      unduh(r.pdf, `ARTWORK-OTOMATIS-${erp}.pdf`);
+
+      clear(lapor);
+      lapor.appendChild(h('div', { style: { color: 'var(--ok, #2e9e5b)' } },
+        tr({ id: `${gantian.length} medan disulih, artwork diunduh`,
+             en: `${gantian.length} fields substituted, artwork downloaded`,
+             zh: `已替换 ${gantian.length} 个字段，图稿已下载` })));
+      if (eanBaru) {
+        lapor.appendChild(h('div', { style: { color: 'var(--warn, #e8a700)', marginTop: '4px' } },
+          tr({ id: 'Barcode BELUM digambar ulang — masih barcode lama. Periksa sebelum dipakai.',
+               en: 'The barcode was NOT regenerated — it is still the old one. Check before use.',
+               zh: '条码尚未重新生成 — 仍是旧条码。使用前请检查。' })));
+      }
+      const semuaLewat = lewat.concat(r.gagal.map(g => `${g.catatan} — ${g.sebab}`));
+      if (semuaLewat.length) {
+        lapor.appendChild(h('div', { style: { marginTop: '6px', color: 'var(--danger)' } },
+          tr({ id: 'Tidak tersulih:', en: 'Not substituted:', zh: '未替换：' })));
+        lapor.appendChild(h('ul', { style: { margin: '2px 0 0', paddingLeft: '16px', color: 'var(--danger)' } },
+          semuaLewat.map(x => h('li', { style: { fontSize: '11px' } }, x))));
+      }
+    } catch (e) {
+      clear(lapor);
+      lapor.appendChild(h('div', { style: { color: 'var(--danger)' } }, String(e.message || e)));
+    }
+  });
   kartuSulih.appendChild(masukan);
-  kartuSulih.appendChild(h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '8px' } }, tr({
-    id: 'Peta medan per keluarga belum ada di layar ini — sulih masih dijalankan lewat alat di tools/label.',
-    en: 'Per-family field maps are not in this screen yet — substitution still runs through tools/label.',
-    zh: '本界面尚无按系列的字段映射 — 替换仍通过 tools/label 运行。',
-  })));
+  kartuSulih.appendChild(lapor);
   wrap.appendChild(kartuSulih);
 
   return wrap;
