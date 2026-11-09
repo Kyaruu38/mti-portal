@@ -1,0 +1,57 @@
+{
+  "nama": "Label PT (pasar PT / non-sertifikasi) - TBR",
+  "sumber": "diukur dari 4 artwork asli: WESTLAKE DA23 11R24.5, TRAZANO AZ691 325/95R24, YARTU AZ828 325/95R24, WESTLAKE AZ599 215/75R17.5",
+  "catatan": "Blok KAKU, dan lebih kaku daripada BX. Dua berkas WESTLAKE cuma beda titik asal (+4.54 mm X, +5.61 mm Y); SELURUH offset relatifnya identik sampai 2 desimal. Dua medan yang sebar dY-nya besar (spec_spine 8.40, item_no_spine 2.99) dua-duanya TEKS DIPUTAR 90 derajat: yang berubah panjang tulisannya, bukan posisi medannya -- dX keduanya sebarnya 0.07 dan 0.20 mm. Dibuktikan lagi oleh TRAZANO dan YARTU yang spec-nya SAMA PERSIS ('325/95R24-22PR') dan jatuh dalam 0.49 mm.",
+  "halaman": { "lebar": 297, "tinggi": 210, "satuan": "mm", "catat": "A4 MENDATAR -- kebalikan dari BX yang tegak" },
+  "stok_label": { "lebar": 261, "tinggi": 111, "satuan": "mm", "catat": "identik di 4/4 berkas; ini yang masuk items.label_size" },
+  "asal": { "acuan": "titik awal baseline teks 'Made In Indonesia' (diputar 90 derajat)", "catatan": "dX/dY di bawah relatif ke titik ini; dY negatif = DI ATAS asal" },
+
+  "aturan_teks_putar": "Untuk medan diputar yang panjangnya ikut isi, yang stabil adalah UJUNGNYA, bukan titik mulainya -- dipilih dengan diukur, bukan diasumsikan. spec_spine: sebar titik mulai 8.40 mm, sebar titik ujung 1.13 mm. Jadi dirender rata-kanan sepanjang sumbunya, berakhir di dY -97.47.",
+
+  "medan": [
+    { "k": "made_in",       "dY": 0.00,    "dX": 0.00,   "ukuran": 4.32,  "font": "Impact",      "putar": true,  "ada_di": "4/4", "peran": "titik asal", "contoh": "Made In Indonesia", "catat": "YARTU menulis 'MADE IN INDONESIA' kapital ukuran 4.23; sisanya 'Made In Indonesia' 4.35" },
+    { "k": "spec_spine",    "dY_ujung": -97.47, "dX": 34.09, "ukuran": 5.30, "font": "Impact",   "putar": true,  "rata": "kanan", "sebar_ujung": 1.13, "ada_di": "4/4", "contoh": "325/95R24-22PR" },
+    { "k": "item_no_spine", "dY": -69.26,  "dX": 0.05,   "ukuran": 4.24,  "font": "Impact",      "putar": true,  "ada_di": "4/4", "sebar_dY": 2.99, "contoh": "ITEM NO.: 34223", "catat": "nomor internal, bukan nilai bersertifikat -- sebar 3 mm tidak kritis" },
+    { "k": "size",          "dY": -36.40,  "dX": 43.59,  "ukuran": 14.38, "font": "Impact",      "ada_di": "4/4", "sebar_dY": 0.49, "contoh": "325/95R24" },
+    { "k": "load_speed",    "dY": -9.68,   "dX": 43.41,  "ukuran": 8.21,  "font": "Impact",      "ada_di": "4/4", "sebar_dY": 0.15, "contoh": "162/160K" },
+    { "k": "ply",           "dY": -21.47,  "dX": 54.70,  "ukuran": 8.74,  "font": "Impact",      "ada_di": "4/4", "sebar_dY": 0.21, "contoh": "22" },
+    { "k": "load_range",    "dY": -21.38,  "dX": 77.80,  "ukuran": 9.65,  "font": "Impact",      "ada_di": "2/4", "contoh": "M", "catat": "2 berkas lain nilainya ter-outline jadi vektor" },
+    { "k": "konstruksi",    "dY": -0.13,   "dX": 44.15,  "ukuran": 5.32,  "font": "Impact",      "ada_di": "3/4", "sebar_dY": 0.03, "contoh": "ALL STEEL TUBELESS" },
+    { "k": "ms",            "dY": -9.57,   "dX": 79.85,  "ukuran": 8.27,  "font": "Impact",      "ada_di": "1/4", "contoh": "M+S", "catat": "opsional, cuma muncul kalau bannya bertanda M+S" },
+    { "k": "label_ply",     "dY": -25.64,  "dX": 43.99,  "ukuran": 3.52,  "font": "Impact",      "ada_di": "2/4", "tetap": "Ply / Rating", "catat": "dua baris: 'Ply' di -25.64, 'Rating' di -21.38" },
+    { "k": "label_load",    "dY": -25.64,  "dX": 68.60,  "ukuran": 3.52,  "font": "Impact",      "ada_di": "2/4", "tetap": "Load / Range" },
+    { "k": "tinggi_label",  "dY": -40.08,  "dX": -13.01, "ukuran": 4.23,  "font": "Arial",       "putar": true,  "ada_di": "3/4", "contoh": "111 mm" },
+    { "k": "lebar_label",   "dY": -113.62, "dX": 115.73, "ukuran": 4.23,  "font": "Arial",       "ada_di": "4/4", "sebar_dY": 1.54, "contoh": "261 mm" },
+    { "k": "item_no",       "dY": -16.63,  "dX": 229.02, "ukuran": 5.16,  "font": "Arial",       "ada_di": "4/4", "sebar_dX": 3.81, "rata": "kanan", "contoh": "33202", "catat": "sebar dX 3.81 mm karena dirender rata KANAN terhadap barcode di bawahnya" },
+    { "k": "ean",           "dY": 0.05,    "dX": 206.62, "ukuran": 3.40,  "font": "OCR-B",       "ada_di": "1/4", "contoh": "0 721688 033202", "catat": "3 berkas lain angkanya ter-outline; batangnya SELALU vektor" },
+    { "k": "url_merek",     "dY": -33.29,  "dX": 251.08, "ukuran": 2.11,  "font": "Verdana Bold","putar": true,  "ada_di": "2/4", "contoh": "www.zc-rubber.com", "catat": "cuma di dua berkas WESTLAKE" },
+    { "k": "revisi",        "dY": 12.71,   "dX": 0.22,   "ukuran": 3.21,  "font": "Arial",       "ada_di": "4/4", "contoh": "R.7" }
+  ],
+
+  "lapisan_persetujuan": {
+    "catatan": "Cuma ada di 1 dari 4 berkas (TRAZANO). Ini lapisan PROOF untuk diperiksa manusia, bukan bagian labelnya. Bentuknya sama persis dengan BX.",
+    "medan": [
+      { "k": "customer",    "dY": 38.11, "dX": 185.65, "ukuran": 3.12, "font": "MS Gothic" },
+      { "k": "ttd",         "dY": 37.46, "dX": 218.22, "ukuran": 2.08, "font": "Neue Frutiger", "contoh": "Prepared  Chacked  Approved" },
+      { "k": "blok_setuju", "dY": 42.59, "dX": 170.56, "ukuran": 1.23, "font": "Myriad Pro", "contoh": "Disetujui untuk diproduksi / Nama / Tanggal / Tanda Tangan dan Stampel / Keterangan Tambahan" }
+    ]
+  },
+
+  "bukan_teks": {
+    "catatan": "Ini VEKTOR di berkas aslinya, bukan teks -- tidak bisa dirender dari data dan harus diambil dari aset merek. Proof boleh memakai pendekatan font; cetak produksi TIDAK.",
+    "daftar": [
+      "logo merek di kepala panel dan di tulang punggung kiri (ter-outline)",
+      "KODE POLA, mis. DA23 / AZ828 -- muncul DUA kali: besar di panel dan diputar di tulang punggung",
+      "foto ban",
+      "ikon posisi gandar",
+      "batang barcode EAN-13",
+      "warna merek: WESTLAKE hijau tua + oranye, YARTU hitam + abu, TRAZANO beda lagi"
+    ]
+  },
+
+  "tidak_ada_di_pt": [
+    "nilai INMETRO (rolling resistance / wet grip) -- itu khas BX",
+    "dB kebisingan dan kelas kebisingan",
+    "nomor SNI dan dua baris NPB -- itu khas SNI"
+  ]
+}
