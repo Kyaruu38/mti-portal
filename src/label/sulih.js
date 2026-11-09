@@ -146,13 +146,34 @@ export async function sulih(sumber, gantian, opsi = {}) {
   }
 
   if (tandai) {
+    // TANDANYA DITARUH DI LUAR GARIS POTONG, BUKAN DI ATAS ISI LABELNYA.
+    //
+    // Versi sebelumnya menulisnya di y=8pt, dan di artwork SNI itu persis
+    // baris kaki pabrikannya: "BSN PT MATAHARI TIRE INDONESIA, KENDAL..."
+    // tertimpa tulisan ungu. Ketahuan waktu hasilnya DILIHAT, bukan dari uji.
+    // Menimpa keterangan pabrikan di dokumen yang menyangkut sertifikasi
+    // bukan cacat tata letak, itu menghilangkan keterangan yang wajib ada.
+    //
+    // Jadi halamannya DITAMBAH 13pt di bawah -- di luar bidang label -- dan
+    // tandanya ditulis di situ. Tidak ada isi lama yang bergeser: titik asal
+    // PDF ada di kiri-bawah, dan yang diubah batas bawahnya jadi negatif,
+    // sehingga semua koordinat yang sudah ada tetap sama persis.
+    const W = pg.getWidth(), Hh = pg.getHeight();
+    const PITA = 13;
+    pg.setMediaBox(0, -PITA, W, Hh + PITA);
+    // CropBox ikut diperlebar: kalau berkasnya punya CropBox sendiri dan
+    // dibiarkan, pitanya terpotong dan tandanya LENYAP -- tanda yang hilang
+    // lebih berbahaya daripada tanda yang menumpuk.
+    try { pg.setCropBox(0, -PITA, W, Hh + PITA); } catch { /* tidak semua berkas punya */ }
+    pg.drawRectangle({ x: 0, y: -PITA, width: W, height: PITA, color: rgb(1, 1, 1) });
+
     let t = 'ARTWORK OTOMATIS - DIBUAT MESIN, BELUM DIPERIKSA MANUSIA';
     if (dari) t += '  |  dari: ' + dari;
     let uk = 8.5, w = hebo.widthOfTextAtSize(t, uk);
-    const maks = pg.getWidth() - 8;
+    const maks = W - 8;
     while (w > maks && uk > 2.5) { uk -= 0.25; w = hebo.widthOfTextAtSize(t, uk); }
     if (w > maks) { t = 'ARTWORK OTOMATIS'; w = hebo.widthOfTextAtSize(t, uk); }
-    pg.drawText(t, { x: (pg.getWidth() - w) / 2, y: 8, size: uk, font: hebo, color: rgb(0.48, 0.25, 0.89) });
+    pg.drawText(t, { x: (W - w) / 2, y: -PITA + 4, size: uk, font: hebo, color: rgb(0.48, 0.25, 0.89) });
     doc.setTitle('ARTWORK OTOMATIS' + (erp ? ' - ' + erp : ''));
     doc.setSubject('Artwork dibuat mesin, BUKAN artwork asli. Belum diperiksa manusia dan belum boleh dipakai mencetak.');
     doc.setKeywords(['artwork-otomatis', 'bukan-artwork-asli', 'belum-diperiksa',

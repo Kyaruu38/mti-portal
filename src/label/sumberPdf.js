@@ -160,3 +160,39 @@ export function cariSalinan(medanSumber, teksLama, kecuali) {
     .filter(s => !kecuali || Math.hypot(s.kotak.x0 - kecuali.x0, s.kotak.y0 - kecuali.y0) > 0.5)
     .map(s => ({ lama: s.teks, putar: s.diputar, arah: s.arah, tm: s.tm, kotak: { ...s.kotak } }));
 }
+
+/**
+ * PENJAGA BENTUK: menolak penggantian yang posisinya benar tapi ISInya tidak
+ * sebanding.
+ *
+ * Ditemukan di back test dengan MELIHAT hasilnya, bukan dari uji. Di artwork
+ * SNI GOODRIDE, slot `konstruksi` mencetak "ALL STEEL TUBE TYPE". Kolom
+ * items.tt_tl yang dipetakan ke situ berasal dari kolom 'ttl' di excel label,
+ * dan isinya cuma "TT" atau "TL". Pencocokan posisinya benar -- memang slot
+ * itu -- jadi jalur sulih dengan senang hati membuang frasanya dan menulis
+ * "TL" dua huruf di tengah panel yang lebarnya untuk 19 huruf.
+ *
+ * Hasilnya bukan label yang salah data, tapi label yang KEHILANGAN keterangan
+ * konstruksinya, dan itu tidak kelihatan sebagai kesalahan: tidak ada yang
+ * kosong, tidak ada yang merah, cuma tulisan yang hilang.
+ *
+ * Mengarang padanannya ("TT" -> "ALL STEEL TUBE TYPE") ditolak: "ALL STEEL"
+ * cuma benar untuk TBR all-steel, dan label bias dengan frasa itu adalah
+ * klaim konstruksi yang keliru. Jadi medannya DILEWATI dan DILAPORKAN, biar
+ * orangnya yang memutuskan.
+ */
+export const PENJAGA = {
+  konstruksi: (lama, baru) => {
+    const l = String(lama || '').trim(), b = String(baru || '').trim();
+    if (/^(TT|TL)$/i.test(b) && /[A-Za-z]\s+[A-Za-z]/.test(l)) {
+      return `artworknya menulis "${l}", data cuma kode "${b}" \u2014 dilewati supaya frasanya tidak hilang`;
+    }
+    return '';
+  },
+};
+
+/** '' artinya boleh diganti; selain itu sebab kenapa dilewati. */
+export function bolehGanti(k, lama, baru) {
+  const p = PENJAGA[k];
+  return p ? p(lama, baru) : '';
+}
