@@ -203,6 +203,28 @@ function correctQty(rows, headerIdx, map) {
 // Syarat 'mm' DISENGAJA ketat. Dimensi ban memakai '/', 'R' dan '-'
 // ('295/80R22.5', '10.00-20', '7.50-16'), tidak pernah 'x..mm'. Tanpa
 // syarat itu ukuran ban pertanian seperti '6.00x16' ikut terbuang.
+// KODE PASAR, BUKAN PREFIKS PENUH NAMA BARANG.
+//
+// Sebagian lembar order mengisi kolom 'market' dengan prefiks penuh nama
+// barang -- '(ID-WL-TBR-PT)' -- bukan kode pasarnya. Karena kolom lembar
+// lebih dipercaya daripada hasil urai nama, nilai itu masuk apa adanya:
+// 702 dari 1.560 baris items.market akhirnya menyimpan prefiks penuh, dan
+// jumlah ejaan market membengkak jadi 87 untuk enam kode yang sebenarnya.
+//
+// Itu bukan soal rapi-rapian: generator artwork MEMILIH TEMPLATE lewat
+// market, jadi '(ID-WL-TBR-PT)' berarti tidak ada template yang cocok.
+//
+// Kode pasarnya adalah segmen terakhir prefiks -- aturan yang sudah dipakai
+// parseItemName() sejak awal. Dilipat di sini supaya kedua jalur (kolom
+// lembar dan hasil urai nama) menghasilkan bentuk yang sama.
+function kodePasar(v) {
+  const s = String(v || '').trim();
+  const m = s.match(/^\(\s*ID-.*?-([A-Za-z]+)\s*\)$/);
+  if (m) return m[1].toUpperCase();
+  if (/^[\u2014\u2013-]+$/.test(s)) return '';   // '-' / '--' / em-dash sebagai pasar bukan nilai
+  return s;
+}
+
 const POLA_STOK_LABEL = /^\d+(?:[.,]\d+)?\s*[x×*]\s*\d+(?:[.,]\d+)?\s*mm$/i;
 
 // Main entry. rows = array-of-arrays (SheetJS header:1). knownErps = Set of ERP codes.
@@ -251,7 +273,7 @@ export function parseLabelSheet(rows, { brandMap, knownErps = new Set() } = {}) 
     const nameZh = String(get(row, map.nameZh)).trim();
     const parsed = parseItemName(nameEn || nameZh, brandMap);
 
-    const market = String(get(row, map.market)).trim() || parsed.market;
+    const market = kodePasar(get(row, map.market)) || kodePasar(parsed.market);
     const brand = String(get(row, map.brand)).trim();
     // Dipisah SEBELUM dipakai, bukan sesudah: begitu '254X79mm' ikut masuk
     // ke `size`, aturan "kosong tidak pernah menimpa" di label_master_panen
