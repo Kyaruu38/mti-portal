@@ -57,6 +57,14 @@ const ALIASES = [
   ['country', [/国家地区/, /^country$/i]],
   ['qty', [/^qty$/i, /数量/, /申请数量/]],
   ['rr', [/^rr$/i]],
+  // W1.24t = CENGKERAMAN BASAH (wet grip), diukur pada beban 1.24 ton.
+  // Hurufnya A..E dan tercetak di label INMETRO/BX persis di sebelah RR.
+  //
+  // Sampai sekarang kolom ini DIBUANG: tidak ada aliasnya, jadi
+  // findHeaderRow() tidak pernah melihatnya. Padahal lembar order adalah
+  // satu-satunya tempat huruf itu pernah dituliskan — sama persis dengan
+  // nasib rr/噪音 sebelum label_master.sql ada.
+  ['wetGrip', [/^w\s*1[.,]?24\s*t$/i, /湿滑/, /湿地/, /wet\s*grip/i]],
   ['noise', [/噪音$/, /^噪音$/]],
   ['noiseClass', [/噪音等级/]],
   ['pickup', [/pickup/i, /需求日期/]],
@@ -172,13 +180,30 @@ function correctQty(rows, headerIdx, map) {
     const shift = bestCol - map.qty;
     const newMap = { ...map };
     // Shift every column at/after QTY's original position (right of TT/TL region).
-    for (const k of ['pr', 'ms', 'snow', 'qty', 'rr', 'noise', 'noiseClass', 'pickup']) {
+    for (const k of ['pr', 'ms', 'snow', 'qty', 'rr', 'wetGrip', 'noise', 'noiseClass', 'pickup']) {
       if (newMap[k] != null) newMap[k] += shift;
     }
     return { map: newMap, shifted: true, shift };
   }
   return { map, shifted: false };
 }
+
+// UKURAN STOK LABEL, BUKAN DIMENSI BAN.
+//
+// Di lembar 'DETAIL NEW ITEM' milik BX, judul kolomnya juga 'SIZE' — tapi
+// isinya '254X79mm', yaitu ukuran KERTAS labelnya; dimensi bannya cuma ada
+// di dalam nama barang. Lembar SNI bulanan memakai judul yang sama persis
+// untuk '10.00-20', dimensi ban yang sebenarnya. Judulnya identik, yang
+// membedakan cuma BENTUK ISINYA, jadi tidak bisa dipisah lewat alias.
+//
+// Kalau tidak dipisah, '254X79mm' masuk ke items.size lalu tercetak sebagai
+// dimensi ban — kelas kesalahan yang sudah pernah terjadi di backfill dan
+// dicatat di supabase/sql/items_backfill_label.sql.
+//
+// Syarat 'mm' DISENGAJA ketat. Dimensi ban memakai '/', 'R' dan '-'
+// ('295/80R22.5', '10.00-20', '7.50-16'), tidak pernah 'x..mm'. Tanpa
+// syarat itu ukuran ban pertanian seperti '6.00x16' ikut terbuang.
+const POLA_STOK_LABEL = /^\d+(?:[.,]\d+)?\s*[x×*]\s*\d+(?:[.,]\d+)?\s*mm$/i;
 
 // Main entry. rows = array-of-arrays (SheetJS header:1). knownErps = Set of ERP codes.
 export function parseLabelSheet(rows, { brandMap, knownErps = new Set() } = {}) {
@@ -228,6 +253,12 @@ export function parseLabelSheet(rows, { brandMap, knownErps = new Set() } = {}) 
 
     const market = String(get(row, map.market)).trim() || parsed.market;
     const brand = String(get(row, map.brand)).trim();
+    // Dipisah SEBELUM dipakai, bukan sesudah: begitu '254X79mm' ikut masuk
+    // ke `size`, aturan "kosong tidak pernah menimpa" di label_master_panen
+    // justru melindunginya dari diperbaiki.
+    const sizeMentah = String(get(row, map.size)).trim();
+    const sizeStokLabel = POLA_STOK_LABEL.test(sizeMentah);
+
     const isNew = section === 'newitems' || (erp && !knownErps.has(erp)) || !erp;
 
     items.push({
@@ -242,6 +273,7 @@ export function parseLabelSheet(rows, { brandMap, knownErps = new Set() } = {}) 
       qty,
       unit: '张', // default unit for labels
       rr: String(get(row, map.rr)).trim(),
+      wetGrip: String(get(row, map.wetGrip)).trim(),
       noise: String(get(row, map.noise)).trim(),
       nameEn: nameEn || parsed.english,
       nameZh,
@@ -260,7 +292,8 @@ export function parseLabelSheet(rows, { brandMap, knownErps = new Set() } = {}) 
       // apa adanya di label kalau dipakai. Kolom kosong lebih jujur daripada
       // dimensi yang salah bentuk: yang kosong kelihatan dan bisa dilengkapi,
       // yang salah bentuk lolos sampai ke mesin cetak.
-      size: String(get(row, map.size)).trim(),
+      size: sizeStokLabel ? '' : sizeMentah,
+      labelSize: sizeStokLabel ? sizeMentah : '',
       pattern: String(get(row, map.pattern)).trim() || parsed.pattern || '',
       loadSpeed: String(get(row, map.loadSpeed)).trim() || parsed.loadIndex || '',
       plyBlock: String(get(row, map.plyBlock)).trim(),

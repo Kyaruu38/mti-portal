@@ -16,6 +16,12 @@ function fromRow(row) {
     ply: row.ply || '', ttTl: row.tt_tl || '', snowPos: row.snow_pos || '',
     npb1: row.npb1 || '', npb3: row.npb3 || '', barcode: row.barcode || '',
     sniNo: row.sni_no || '', country: row.country || '', noiseClass: row.noise_class || '',
+    // wet_grip (W1.24t) BARU: huruf A..E yang tercetak di label INMETRO/BX
+    // persis di sebelah RR. Sampai 9 Nov 2026 kolomnya tidak ada dan
+    // aliasnya juga tidak ada di parser, jadi satu-satunya tempat huruf itu
+    // pernah dituliskan — lembar order — ikut terbuang tiap order selesai.
+    // label_size BUKAN dimensi ban: isinya ukuran KERTAS ('254X79mm').
+    wetGrip: row.wet_grip || '', plyBlock: row.ply_block || '', labelSize: row.label_size || '',
     punyaTemplate: row.punya_template === true,
     riwayat: row.riwayat || [], terakhirDari: row.terakhir_dari || '',
   };
