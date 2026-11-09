@@ -17,6 +17,7 @@
   "license": "UNLICENSED",
   "dependencies": {
     "jsdom": "^31.0.0",
-    "pdf-lib": "^1.17.1"
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.7.76"
   }
 }

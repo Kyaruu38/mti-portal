@@ -236,12 +236,12 @@ export function labelArtworkScreen() {
         const nilai = isiMedan(med, baris);
         if (!nilai.nilai) { lewat.push(`${c.k} — ${nilai.sebab || 'data kosong'}`); continue; }
         if (nilai.nilai === c.lama) continue;   // sudah sama, tidak perlu disentuh
-        gantian.push({ ...c.kotak, nilai: nilai.nilai, putar: c.putar, catatan: c.k });
+        gantian.push({ ...c.kotak, nilai: nilai.nilai, putar: c.putar, arah: c.arah, catatan: c.k });
         // SALINAN GANDA: nilai yang sama sering tercetak dua kali. Dicari
         // lewat TEKS LAMAnya, bukan ditebak — satu yang terlewat berarti
         // label membawa dua nilai yang bertentangan dan terlihat benar.
         for (const sal of sp.cariSalinan(sumber, c.lama, c.kotak)) {
-          gantian.push({ ...sal.kotak, nilai: nilai.nilai, putar: sal.putar, catatan: c.k + ' (salinan)' });
+          gantian.push({ ...sal.kotak, nilai: nilai.nilai, putar: sal.putar, arah: sal.arah, catatan: c.k + ' (salinan)' });
         }
       }
 

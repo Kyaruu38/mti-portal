@@ -37,17 +37,49 @@ export function keMedanSumber(items, tinggiHalamanPt) {
     const teks = String(it.str == null ? '' : it.str).trim();
     if (!teks) continue;
     const tr = it.transform || [1, 0, 0, 1, 0, 0];
-    const x = tr[4], yAtas = tinggiHalamanPt - tr[5];
-    // Teks diputar terbaca dari matriksnya: b dan c yang tidak nol.
-    const diputar = Math.abs(tr[1]) > 0.5 || Math.abs(tr[2]) > 0.5;
-    const w = it.width || 0, hgt = it.height || 0;
+    const b = tr[1];
+    const x = tr[4] * MM;
+    const yAtas = (tinggiHalamanPt - tr[5]) * MM;   // dari ATAS, sama dengan satuan templat
+    const panjang = (it.width || 0) * MM;            // sepanjang arah baca
+    const tebal = (it.height || 0) * MM;             // tinggi hurufnya
+
+    // ARAH DIUKUR DARI MATRIKSNYA, TIDAK DIANGGAP SERAGAM.
+    //
+    // Diukur pada artwork SNI asli: teks diputar di situ punya a=0, b<0, c>0.
+    // Arah bacanya adalah vektor (a,b) di ruang PDF yang sumbu Y-nya NAIK,
+    // jadi b<0 berarti tulisannya berjalan TURUN di halaman, titik awalnya di
+    // ujung ATAS, dan badan hurufnya melebar ke +x. Pasar lain memutar ke arah
+    // sebaliknya (b>0): titik awal di ujung BAWAH, badan huruf ke -x.
+    //
+    // Versi pertama berkas ini menghitung kotaknya seolah semua teks putar
+    // berjalan ke atas, jadi kotak penimpanya mendarat di SISI YANG SALAH --
+    // nilai lamanya tidak tertutup sama sekali, dan nilai barunya ditulis
+    // terbalik di tempat lain. Ujinya lolos karena datanya pun disusun dengan
+    // asumsi yang sama salahnya; yang membongkarnya berkas asli dan gambarnya.
+    let arah, kotak;
+    if (Math.abs(b) > 0.01) {
+      if (b < 0) {
+        arah = 'turun';
+        kotak = { x0: x, y0: yAtas, x1: x + tebal, y1: yAtas + panjang };
+      } else {
+        arah = 'naik';
+        kotak = { x0: x - tebal, y0: yAtas - panjang, x1: x, y1: yAtas };
+      }
+    } else {
+      arah = 'datar';
+      kotak = { x0: x, y0: yAtas - tebal, x1: x + panjang, y1: yAtas };
+    }
     out.push({
-      teks,
-      x: x * MM, y: yAtas * MM,
-      lebar: (diputar ? hgt : w) * MM,
-      tinggi: (diputar ? w : hgt) * MM,
-      panjang: w * MM,
-      diputar,
+      // Matriks MENTAH (dalam poin) ikut dibawa: itu kunci yang dipakai
+      // membuang teks lamanya dari content stream. Tanpa ini, penghapusan
+      // harus menebak lewat teksnya, dan itu salah sasaran begitu nilai yang
+      // sama muncul dua kali dengan arti berbeda.
+      tm: [tr[0], tr[1], tr[2], tr[3], tr[4], tr[5]],
+      teks, x, y: yAtas, panjang, tebal, arah,
+      diputar: arah !== 'datar',
+      lebar: kotak.x1 - kotak.x0,
+      tinggi: kotak.y1 - kotak.y0,
+      kotak,
     });
   }
   return out;
@@ -78,9 +110,24 @@ export function cocokkanMedan(templat, medanSumber, jangkar, toleransiMm = 6) {
     const dx = (rataKanan && !m.putar && m.dX_ujung != null) ? m.dX_ujung : (m.dX || 0);
     const dy = (rataKanan && m.putar && m.dY_ujung != null) ? m.dY_ujung : (m.dY || 0);
     const hx = jangkar.x + dx, hy = jangkar.y + dy;
+    // MEDAN RATA-KANAN DIBANDINGKAN KE UJUNGNYA, bukan ke pangkalnya.
+    //
+    // Templat menyimpan dX_ujung/dY_ujung untuk medan rata-kanan: itu letak
+    // UJUNG tulisannya. Tapi item di berkas sumber dilaporkan dari PANGKALnya.
+    // Membandingkan ujung-harapan dengan pangkal-item membuat jaraknya meleset
+    // sepanjang tulisannya sendiri -- untuk baris spesifikasi di kepala label
+    // itu ~32 mm, jauh di luar toleransi 6 mm, jadi medannya dilaporkan tidak
+    // ketemu dan nilai lamanya tetap tercetak. Back test menemukannya sebagai
+    // '10.00R20-18PR' yang tidak pernah berubah.
     let terbaik = null, jarakTerbaik = Infinity;
     for (const s of medanSumber) {
-      const d = Math.hypot(s.x - hx, s.y - hy);
+      let sx = s.x, sy = s.y;
+      if (rataKanan) {
+        if (m.putar && s.arah === 'turun') sy = s.kotak.y1;
+        else if (m.putar && s.arah === 'naik') sy = s.kotak.y0;
+        else if (!m.putar) sx = s.kotak.x1;
+      }
+      const d = Math.hypot(sx - hx, sy - hy);
       if (d < jarakTerbaik) { jarakTerbaik = d; terbaik = s; }
     }
     if (!terbaik || jarakTerbaik > toleransiMm) {
@@ -89,11 +136,8 @@ export function cocokkanMedan(templat, medanSumber, jangkar, toleransiMm = 6) {
     }
     hasil.push({
       k: m.k, ketemu: true, jarak: Number(jarakTerbaik.toFixed(2)),
-      lama: terbaik.teks, putar: terbaik.diputar,
-      kotak: {
-        x0: terbaik.x, y0: terbaik.y - terbaik.tinggi,
-        x1: terbaik.x + terbaik.lebar, y1: terbaik.y,
-      },
+      lama: terbaik.teks, putar: terbaik.diputar, arah: terbaik.arah,
+      tm: terbaik.tm, kotak: { ...terbaik.kotak },
     });
   }
   return hasil;
@@ -113,9 +157,6 @@ export function cariSalinan(medanSumber, teksLama, kecuali) {
   if (!t) return [];
   return (medanSumber || [])
     .filter(s => s.teks === t)
-    .filter(s => !kecuali || Math.hypot(s.x - kecuali.x0, s.y - kecuali.y1) > 0.5)
-    .map(s => ({
-      lama: s.teks, putar: s.diputar,
-      kotak: { x0: s.x, y0: s.y - s.tinggi, x1: s.x + s.lebar, y1: s.y },
-    }));
+    .filter(s => !kecuali || Math.hypot(s.kotak.x0 - kecuali.x0, s.kotak.y0 - kecuali.y0) > 0.5)
+    .map(s => ({ lama: s.teks, putar: s.diputar, arah: s.arah, tm: s.tm, kotak: { ...s.kotak } }));
 }
