@@ -4,31 +4,50 @@ Satu templat = satu **tata letak** yang sudah DIUKUR dari artwork asli, bukan
 ditebak. Isinya titik asal, lalu daftar medan dengan jarak `dX`/`dY` dari titik
 asal itu, ukuran huruf dan fontnya.
 
-## Templat dipilih lewat pasangan (pasar, ukuran stok label)
+## Templat dipilih lewat pasangan (pasar, KONSTRUKSI)
 
-Bukan lewat pasar saja. Satu pasar memakai lebih dari satu ukuran stok, dan
-ukuran stok yang berbeda adalah tata letak yang berbeda — bukan versi lebih
-besar dari tata letak yang sama. PT saja punya tujuh ukuran stok.
+Bukan lewat ukuran lembar, dan bukan lewat ukuran label. Diuji pada 36 artwork
+dari Drive (lihat `SURVEI-DRIVE.md`):
 
-Karena itu `items.label_size` harus satu ejaan (lihat
-`supabase/sql/items_label_size_satu_ejaan.sql`): `261X111mm` dan `261x111mm`
-yang terhitung dua kunci berarti satu di antaranya tidak menemukan templat.
+- **Ukuran lembar bukan kunci.** 36 berkas memakai 15 ukuran lembar berbeda,
+  tapi lembar itu cuma kanvas ekspor. SNI di lembar 101×226 dan di lembar
+  252×125 ternyata SATU templat: tiap medan cocok dalam ~0,4 mm.
+- **Ukuran label juga bukan kunci.** BX TBR dan BX PCR labelnya sama persis
+  (254×79) tapi balok medannya berbeda — `size` bergeser 4,2 mm, `ply`
+  8,3 mm, dan ukuran huruf `made_in` 4,2 lawan 4,9.
+
+Konstruksi yang muncul: **TBR, PCR, BIAS, OTR, ST**.
+
+`items.label_size` tetap berguna sebagai pemeriksa silang (artwork mencetak
+sendiri ukuran labelnya sebagai keterangan dimensi), dan ejaannya tetap harus
+satu — lihat `supabase/sql/items_label_size_satu_ejaan.sql`.
 
 ## Yang sudah diukur
 
-| berkas | pasar | stok | lembar | sumber |
-|---|---|---|---|---|
-| `bx-a4-tegak.json` | BX | — | A4 **tegak** 210×297 | 4 artwork: CHAOYANG EZ573, WESTLAKE WSA2, WESTLAKE AT161, YARTU AD528 |
-| `pt-261x111.json` | PT | 261×111 mm | A4 **mendatar** 297×210 | 4 artwork: WESTLAKE DA23, TRAZANO AZ691, YARTU AZ828, WESTLAKE AZ599 |
-| `sni-101x226.json` | SNI | 101×226 mm | **tegak 101×226** (label memenuhi lembarnya) | 3 artwork: GOODRIDE CR926 MAX, GOODRIDE EZ835, YARTU EZ345 |
+| berkas | pasar | konstruksi | label | sampel | sebar dY |
+|---|---|---|---|---|---|
+| `bx-tbr.json` | BX | TBR | 254×79 | 4 awal + **6 dari Drive, 4 merek** | **0,00 mm** |
+| `pt-tbr.json` | PT | TBR | 261×111 | 4 artwork, 3 merek | ≤0,5 mm |
+| `sni-tbr.json` | SNI | TBR | 220×95 | 3 awal + **5 dari Drive, 3 merek** | ≤1,1 mm |
+
+Tiga templat ini menutup **20 dari 36 berkas sampel (56%)**.
 
 ## Yang belum ada
 
 - PT `300x130mm` (17 baris), `300x100mm` (12), `110x280mm` (8), `90x280mm` (3),
   `180x100mm` (2), `130x300mm` (1)
-- SNI stok lain: `0105045809738ID` (TRAZANO EZ835) memakai lembar **297×180 mm**,
-  bukan 101×226. Lapisan teksnya cuma 5 span, tidak cukup untuk diukur.
-- OEM — belum pernah diukur
+- **BX PCR** — label 254×79 sama dengan BX TBR tapi baloknya BEDA. Punya 2 sampel.
+- **PT ST** — label 220×80. Punya 1 sampel.
+- **SNI BIAS**, **OEM TBR**, **OEM ST**, **OEM BIAS**, **OEM OTR** — belum ada.
+
+### 22% artwork tidak punya lapisan teks sama sekali
+
+8 dari 36 berkas sampel tidak bisa diukur lewat teks: hurufnya sudah
+ter-outline jadi kurva (satu berkas punya 2.310 jalur vektor, nol blok teks),
+atau seluruh artworknya diratakan jadi satu gambar raster. Yang paling
+terdampak OEM — tiga OEM TBR dan tiga OEM ST di sampel semuanya begitu.
+
+Untuk keluarga itu pengukuran lewat teks tidak mungkin; butuh jalur gambar.
 
 Tiap templat baru butuh **3–4 artwork asli** dari stok itu. Bukan satu: dari
 satu berkas tidak ada cara membedakan medan yang memang kaku dari medan yang
