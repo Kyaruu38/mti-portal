@@ -112,8 +112,11 @@ export function labelArtworkScreen() {
 
   // ---- jalur templat ----
   const kartuTemplat = h('div.card', { style: { padding: '14px' } });
-  kartuTemplat.appendChild(h('div', { style: { fontWeight: 700, marginBottom: '2px' } },
-    tr({ id: 'Periksa data lewat templat', en: 'Check data against template', zh: '按模板核对数据' })));
+  kartuTemplat.appendChild(h('div.row.gap8', { style: { alignItems: 'center', marginBottom: '2px' } }, [
+    h('div', { style: { fontWeight: 700, color: 'var(--text-2, var(--text-3))' } },
+      tr({ id: 'Periksa data lewat templat', en: 'Check data against template', zh: '按模板核对数据' })),
+    badge(tr({ id: 'bukan artwork', en: 'not artwork', zh: '非图稿' }), 'gray'),
+  ]));
   // LABEL JUJUR. Tombol ini sempat bernama "Buat proof", dan orang yang
   // menekannya mendapat halaman berisi teks hitam-putih tanpa logo, tanpa
   // warna, tanpa tanda SNI — lalu bertanya kenapa. Pertanyaannya wajar:
@@ -185,12 +188,20 @@ export function labelArtworkScreen() {
         },
       })));
   }
-  wrap.appendChild(kartuTemplat);
 
   // ---- jalur sulih ----
   const kartuSulih = h('div.card', { style: { padding: '14px' } });
-  kartuSulih.appendChild(h('div', { style: { fontWeight: 700, marginBottom: '4px' } },
-    tr({ id: 'Sulih artwork yang sudah ada', en: 'Substitute into existing artwork', zh: '在现有图稿上替换' })));
+  kartuSulih.appendChild(h('div.row.gap8', { style: { alignItems: 'center', marginBottom: '4px' } }, [
+    h('div', { style: { fontWeight: 700, fontSize: '13.5px' } },
+      tr({ id: 'Buat artwork', en: 'Build artwork', zh: '生成图稿' })),
+    badge(tr({ id: 'ini yang menghasilkan artwork', en: 'this one produces artwork', zh: '此项产出图稿' }), 'green'),
+  ]));
+  kartuSulih.appendChild(h('div', { style: { fontSize: '11.5px', color: 'var(--text-2, var(--text-3))', marginBottom: '6px' } },
+    tr({
+      id: 'Datanya diganti DI ATAS artwork aslinya, jadi logo, warna, tanda SNI, QR dan blok peringatan tetap utuh — karena semua itu tidak disentuh.',
+      en: 'The data is replaced INSIDE the original artwork, so the logo, colours, SNI mark, QR and warning block stay intact — because none of them is touched.',
+      zh: '数据是在原始图稿内部被替换的，因此标志、颜色、SNI 标记、二维码与警告栏保持完整 — 因为它们都未被触碰。',
+    })));
   kartuSulih.appendChild(h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginBottom: '10px' } }, tr({
     id: 'Buka berkas PDF artworknya dari komputer. Drive memblokir pengambilan byte PDF dari halaman web, jadi berkasnya tidak bisa ditarik sendiri.',
     en: 'Open the artwork PDF from your computer. Drive blocks fetching PDF bytes from a web page, so the file cannot be pulled automatically.',
@@ -279,7 +290,17 @@ export function labelArtworkScreen() {
   });
   kartuSulih.appendChild(masukan);
   kartuSulih.appendChild(lapor);
+  // URUTANNYA SENGAJA: ARTWORK DULU, LEMBAR PERIKSA BELAKANGAN.
+  //
+  // Versi sebelumnya menaruh lembar periksa di atas, dan tombolnya yang
+  // paling mudah dipencet. Orangnya menekan itu dua kali berturut-turut,
+  // mendapat halaman teks hitam-putih, dan bertanya kenapa artworknya tidak
+  // ada warna. Pertanyaannya wajar: yang dia cari ada di kartu bawah yang
+  // tidak menonjol. Yang paling sering dibutuhkan harus paling mudah
+  // ditemukan, dan ini bukan soal selera tata letak melainkan soal orang
+  // yang mendapat berkas yang salah.
   wrap.appendChild(kartuSulih);
+  wrap.appendChild(kartuTemplat);
 
   return wrap;
 }

@@ -147,8 +147,14 @@ export async function render(templat, baris, opsi = {}) {
 
   if (tandaiOtomatis) {
     const f = await ambilHuruf('Arial Bold');
-    let baris2 = 'ARTWORK OTOMATIS - DIBUAT MESIN, BELUM DIPERIKSA MANUSIA';
-    if (dari) baris2 += '  |  dari: ' + dari;
+    // KELUARAN JALUR INI BUKAN ARTWORK, dan tandanya tidak boleh bilang
+    // begitu. Sebelumnya ia bertanda 'ARTWORK OTOMATIS', sehingga sebuah
+    // lembar teks hitam-putih tanpa logo terlihat seperti artwork yang
+    // gagal dibuat -- padahal ia memang bukan artwork dan tidak pernah
+    // berniat jadi artwork. Berkas yang lepas dari portal harus bisa
+    // menjelaskan dirinya sendiri.
+    let baris2 = 'LEMBAR PERIKSA DATA - BUKAN ARTWORK, TIDAK UNTUK DICETAK';
+    if (dari) baris2 += '  |  templat: ' + dari;
     // Dipaskan ke lebar lembar: templat terkecil cuma 77 mm, dan tanda air
     // yang terpotong di tepi justru menghilangkan kata yang paling penting.
     let uk2 = 8.5, w = f.widthOfTextAtSize(baris2, uk2);
@@ -156,9 +162,9 @@ export async function render(templat, baris, opsi = {}) {
     while (w > maks && uk2 > 2.5) { uk2 -= 0.25; w = f.widthOfTextAtSize(baris2, uk2); }
     if (w > maks) { baris2 = 'ARTWORK OTOMATIS'; w = f.widthOfTextAtSize(baris2, uk2); }
     pg.drawText(baris2, { x: (hal.lebar * MM - w) / 2, y: 8, size: uk2, font: f, color: rgb(0.48, 0.25, 0.89) });
-    doc.setTitle('ARTWORK OTOMATIS' + (erp ? ' - ' + erp : ''));
-    doc.setSubject('Artwork dibuat mesin, BUKAN artwork asli. Belum diperiksa manusia dan belum boleh dipakai mencetak.');
-    doc.setKeywords(['artwork-otomatis', 'bukan-artwork-asli', 'belum-diperiksa',
+    doc.setTitle('LEMBAR PERIKSA DATA' + (erp ? ' - ' + erp : ''));
+    doc.setSubject('Lembar periksa data, BUKAN artwork. Isinya hanya teks di koordinat terukur; logo, warna, tanda SNI dan QR tidak ada karena semuanya vektor di artwork aslinya. Tidak untuk dicetak sebagai label.');
+    doc.setKeywords(['lembar-periksa-data', 'bukan-artwork', 'tidak-untuk-dicetak',
       dari ? 'dari=' + dari : '', erp ? 'erp=' + erp : ''].filter(Boolean));
     doc.setAuthor('MTI Purchasing Portal (otomatis)');
     doc.setProducer('src/label/render.js');
