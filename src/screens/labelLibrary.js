@@ -157,6 +157,19 @@ function previewModal(st, d) {
         row(tr({ id: 'Brand', en: 'Brand', zh: '品牌' }), d.brand),
         row(tr({ id: 'Market', en: 'Market', zh: '市场' }), d.market),
         row(tr({ id: 'Versi', en: 'Version', zh: '版本' }), `${d.ver} · ${updatedText(d.updated)}`),
+        // ARTWORK OTOMATIS HARUS KELIHATAN OTOMATIS.
+        // Lencananya merah dan menyebut sumbernya, bukan sekadar 'auto':
+        // yang perlu diketahui orang yang mau mencetak bukan bahwa ini
+        // digenerate, melainkan DARI APA dia digenerate.
+        d.asalArtwork === 'otomatis'
+          ? h('div', { style: { marginTop: '8px' } }, [
+              badge(tr({ id: 'ARTWORK OTOMATIS', en: 'AUTOMATIC ARTWORK', zh: '自动生成图稿' }), 'red', { iconName: 'alert-triangle' }),
+              d.dibuatDari
+                ? h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', marginTop: '4px' } },
+                    tr({ id: 'dari ', en: 'from ', zh: '来自 ' }) + d.dibuatDari)
+                : null,
+            ])
+          : null,
         h('div', { style: { marginTop: '10px' } }, driveLink(d.driveUrl)),
       ]),
     ]),
@@ -513,7 +526,7 @@ function gambarDesain(d, src) {
 //   merah   BENTROK  — ERP kembar; dihitung ULANG di sini dari daftar desain
 //                      yang sedang tampil, bukan dari catatan, supaya tetap
 //                      benar setelah seseorang membetulkan salah satunya.
-const WARNA_TANDA = { ambigu: '#e8a700', bentrok: '#d93025' };
+const WARNA_TANDA = { ambigu: '#e8a700', bentrok: '#d93025', otomatis: '#7b3fe4' };
 
 let _gandaCache = { ref: null, set: new Set() };
 function erpGanda() {
@@ -531,6 +544,29 @@ function erpGanda() {
 }
 
 function penandaKartu(d) {
+  // ARTWORK OTOMATIS DIPERIKSA DULUAN, SEBELUM ERP ganda dan catatan.
+  //
+  // Alasannya bukan selera: dari semua hal yang bisa salah pada sebuah kartu,
+  // satu-satunya yang membuatnya TIDAK BOLEH DICETAK apa pun keadaan lainnya
+  // adalah bahwa artworknya buatan mesin dan belum diperiksa manusia. Kartu
+  // yang sekaligus bentrok ERP dan otomatis tetap harus menampilkan yang
+  // otomatis; bentroknya bisa dibaca sesudah dibuka.
+  //
+  // Warnanya ungu, sengaja BUKAN merah: merah sudah berarti 'bentrok ERP' di
+  // layar ini, dan dua sebab berbeda dengan warna sama membuat orang berhenti
+  // membedakannya.
+  if (d.asalArtwork === 'otomatis') {
+    const dari = String(d.dibuatDari || '').trim();
+    return {
+      jenis: 'otomatis',
+      warna: WARNA_TANDA.otomatis,
+      teks: tr({
+        id: 'ARTWORK OTOMATIS — dibuat mesin, belum diperiksa manusia' + (dari ? ` · dari ${dari}` : ''),
+        en: 'AUTOMATIC ARTWORK — machine-made, not yet checked by a human' + (dari ? ` · from ${dari}` : ''),
+        zh: '自动生成图稿 — 由机器制作，尚未经人工检查' + (dari ? ` · 来自 ${dari}` : ''),
+      }),
+    };
+  }
   const erp = String(d.erp || '').trim();
   if (erp && erpGanda().has(erp)) {
     const lain = (getState().designs || [])

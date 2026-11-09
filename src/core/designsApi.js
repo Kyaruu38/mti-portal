@@ -16,11 +16,30 @@
 // pulls into the per-item design box (screens/suratJalan.js).
 import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
 
-function fromRow(row) {
-  return { id: row.id, erp: row.erp, spec: row.spec, brand: row.brand, market: row.market, ver: row.ver, updated: row.updated, driveUrl: row.drive_url, thumb: row.thumb || '', status: row.status, riwayat: row.riwayat || [], catatan: row.catatan || '' };
+// Diekspor SEMATA untuk diuji. Dua pemetaan ini yang memutuskan apakah sebuah
+// artwork ditandai buatan mesin atau tidak, dan aturan itu harus bisa diuji
+// tanpa menyalakan basis data -- salinan aturan di dalam berkas uji cuma
+// membuktikan bahwa salinannya benar.
+export function fromRow(row) {
+  // ASAL-USUL ARTWORK, TERPISAH DARI DAUR HIDUPNYA.
+  //
+  // status memegang daur hidup (draft/active). Asal-usul TIDAK boleh menumpang
+  // di situ: artwork hasil generate yang naik jadi 'active' akan kehilangan
+  // penandanya, dan artwork otomatis yang tidak lagi terlihat otomatis persis
+  // keadaan yang harus dicegah. Baris lama semuanya buatan manusia, jadi
+  // bawaannya 'asli' dan tidak ada yang berubah artinya.
+  return { id: row.id, erp: row.erp, spec: row.spec, brand: row.brand, market: row.market, ver: row.ver, updated: row.updated, driveUrl: row.drive_url, thumb: row.thumb || '', status: row.status, riwayat: row.riwayat || [], catatan: row.catatan || '',
+    asalArtwork: row.asal_artwork || 'asli', dibuatDari: row.dibuat_dari || '', dibuatPada: row.dibuat_pada || null };
 }
-function toRow(d) {
-  return { erp: d.erp || null, spec: d.spec || null, brand: d.brand || null, market: d.market || null, ver: d.ver || null, updated: d.updated || null, drive_url: d.driveUrl || null, thumb: d.thumb || null, status: d.status || 'active', riwayat: d.riwayat || [], catatan: d.catatan || null };
+export function toRow(d) {
+  return { erp: d.erp || null, spec: d.spec || null, brand: d.brand || null, market: d.market || null, ver: d.ver || null, updated: d.updated || null, drive_url: d.driveUrl || null, thumb: d.thumb || null, status: d.status || 'active', riwayat: d.riwayat || [], catatan: d.catatan || null,
+    // Dikirim apa adanya. Yang TIDAK dilakukan: menurunkan nilainya kalau kosong.
+    // Baris tanpa nilai akan memakai bawaan basis data ('asli'), dan menebak
+    // 'otomatis' di sini berarti menandai artwork buatan manusia sebagai hasil
+    // mesin -- kesalahan yang arahnya justru berbahaya.
+    asal_artwork: d.asalArtwork || undefined,
+    dibuat_dari: d.dibuatDari || null,
+    dibuat_pada: d.dibuatPada || null };
 }
 
 export async function fetchDesigns() {

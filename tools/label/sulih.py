@@ -25,7 +25,17 @@ def _pas(pg, rect, teks, font, warna, rotate, maks):
         uk -= 0.5
     return None
 
-def sulih(sumber, tujuan, gantian, tandai=True):
+# PENANDA "ARTWORK OTOMATIS" DITULIS DI EMPAT TEMPAT, bukan satu.
+#
+# Berkasnya bisa lepas dari basis datanya -- diunduh, dikirim lewat chat,
+# disimpan ulang -- dan begitu lepas, kolom designs.asal_artwork tidak ikut.
+# Yang tertinggal cuma berkasnya sendiri, dan di titik itu tidak ada apa pun
+# yang membedakannya dari artwork asli kecuali apa yang tertulis DI DALAMNYA.
+#
+# Jadi: (1) tanda air yang terlihat, (2) metadata PDF, (3) kata kunci PDF,
+# dan (4) kolom di basis data (diurus pemanggilnya). Tiga yang pertama ikut
+# ke mana pun berkasnya pergi.
+def sulih(sumber, tujuan, gantian, tandai=True, dari=None, erp=None):
     d = pymupdf.open(sumber); pg = d[0]
     lapor = []
     for g in gantian:
@@ -41,9 +51,20 @@ def sulih(sumber, tujuan, gantian, tandai=True):
                       'ukuran_pt': uk, 'muat': uk is not None})
     if tandai:
         w, h = pg.rect.width, pg.rect.height
-        pg.insert_textbox(pymupdf.Rect(0, h-24, w, h-6),
-                          'PROOF - DIBUAT OTOMATIS, PERIKSA SEBELUM CETAK',
-                          fontname='hebo', fontsize=9, color=(0.85, 0.1, 0.1), align=1)
+        baris = 'ARTWORK OTOMATIS - DIBUAT MESIN, BELUM DIPERIKSA MANUSIA'
+        if dari: baris += '  |  dari: ' + str(dari)
+        pg.insert_textbox(pymupdf.Rect(0, h-26, w, h-6), baris,
+                          fontname='hebo', fontsize=8.5, color=(0.48, 0.25, 0.89), align=1)
+        d.set_metadata({
+            'title':    'ARTWORK OTOMATIS' + (' - ' + str(erp) if erp else ''),
+            'subject':  'Artwork dibuat mesin, BUKAN artwork asli. Belum diperiksa manusia '
+                        'dan belum boleh dipakai mencetak.',
+            'keywords': 'artwork-otomatis; bukan-artwork-asli; belum-diperiksa'
+                        + ('; dari=' + str(dari) if dari else '')
+                        + ('; erp=' + str(erp) if erp else ''),
+            'author':   'MTI Purchasing Portal (otomatis)',
+            'creator':  'tools/label/sulih.py',
+        })
     d.save(tujuan)
     return lapor
 
