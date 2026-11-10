@@ -24,6 +24,7 @@ import { tr } from '../i18n/index.js';
 import { badge, btn, field, searchInput, driveLink } from '../ui/components.js';
 import { pilihTemplat } from '../label/templat.js';
 import { isiTemplat, isiMedan } from '../label/peta.js';
+import * as dasar from '../label/dasar.js';
 
 const muatTemplat = (berkas) =>
   fetch(new URL('../label/templat/' + berkas, import.meta.url)).then(r => r.json());
@@ -108,26 +109,24 @@ export function labelArtworkScreen() {
     return wrap;
   }
 
-  // LANGKAH SATU-SATUNYA: pilih berkasnya.
-  kartu.appendChild(h('div', { style: { fontSize: '12px', marginBottom: '6px' } },
-    tr({ id: 'Pilih berkas artwork aslinya — datanya diganti di dalamnya, logo dan warnanya tidak disentuh.',
-         en: 'Pick the original artwork file — the data is replaced inside it; logo and colours are untouched.',
-         zh: '选择原始图稿文件 — 数据在其内部被替换，标志与颜色不受影响。' })));
+  // ARTWORK DASAR: dipilih SEKALI per merek+keluarga, sesudah itu tidak
+  // ditanyakan lagi. Inilah yang membuat layar ini benar-benar "ketik ERP ->
+  // artwork keluar" dan bukan "pilih berkas lagi, lagi, dan lagi".
+  const kunciDasar = dasar.kunciDasar(pilihan.kunci, it.brand);
 
+  const barisDasar = h('div', { style: { fontSize: '12px', marginBottom: '6px' } });
   const masukan = h('input', { type: 'file', accept: 'application/pdf', style: { fontSize: '12px' } });
   const lapor = h('div', { style: { fontSize: '11.5px', marginTop: '10px' } });
-  masukan.addEventListener('change', async () => {
-    const berkas = masukan.files && masukan.files[0];
-    if (!berkas) return;
+
+  async function jalankan(buf, namaBerkas, { simpanDasar = false } = {}) {
     clear(lapor);
     lapor.appendChild(h('div', { style: { color: 'var(--text-3)' } },
-      tr({ id: 'Membaca artworknya…', en: 'Reading the artwork…', zh: '正在读取图稿…' })));
+      tr({ id: 'Membuat artworknya…', en: 'Building the artwork…', zh: '正在生成图稿…' })));
     try {
       const [{ itemTeks, renderThumb }, sp, { sulih }] = await Promise.all([
         import('../parsers/pdf.js'), import('../label/sumberPdf.js'), import('../label/sulih.js'),
       ]);
       const t = await muatTemplat(pilihan.berkas);
-      const buf = await berkas.arrayBuffer();
       const { items, tinggiPt } = await itemTeks(buf.slice(0));
       const sumber = sp.keMedanSumber(items, tinggiPt);
       if (!sumber.length) {
@@ -160,7 +159,16 @@ export function labelArtworkScreen() {
         }
       }
 
-      const r = await sulih(buf.slice(0), gantian, { erp, dari: `${berkas.name} · ${pilihan.berkas}` });
+      const r = await sulih(buf.slice(0), gantian, { erp, dari: `${namaBerkas} · ${pilihan.berkas}` });
+
+      // ARTWORK DASARNYA BARU DISIMPAN SESUDAH BERHASIL DIPAKAI, bukan saat
+      // dipilih. Berkas yang hurufnya sudah jadi kurva, atau yang jangkarnya
+      // tidak ketemu, akan gagal di langkah-langkah di atas -- menyimpannya
+      // sebagai dasar berarti tiap ERP berikutnya di merek ini gagal otomatis
+      // tanpa ada yang pernah menekan apa pun.
+      if (simpanDasar && kunciDasar) {
+        try { await dasar.simpan(pilihan.kunci, it.brand, { bytes: buf, nama: namaBerkas, erpAsal: erp }); } catch { /* cache gagal bukan alasan membatalkan artworknya */ }
+      }
 
       // ---- STASIUN PERIKSA ----------------------------------------------
       // Versi sebelumnya langsung mengunduh berkasnya dan selesai. Jadi
@@ -280,7 +288,7 @@ export function labelArtworkScreen() {
         ]);
         clear(gambar);
         gambar.appendChild(kolom(tr({ id: 'SEBELUM — artwork aslinya', en: 'BEFORE — the original artwork', zh: '之前 — 原始图稿' }),
-          imgAsli, hrefAsli, berkas.name));
+          imgAsli, hrefAsli, namaBerkas));
         gambar.appendChild(kolom(tr({ id: 'SESUDAH — hasil otomatis', en: 'AFTER — automatic result', zh: '之后 — 自动结果' }),
           imgBaru, hrefHasil, tr({ id: 'bertanda ARTWORK OTOMATIS di pita bawah',
                                            en: 'marked ARTWORK OTOMATIS on the bottom band',
@@ -297,10 +305,74 @@ export function labelArtworkScreen() {
     } catch (e) {
       clear(lapor);
       lapor.appendChild(h('div', { style: { color: 'var(--danger)' } }, String(e.message || e)));
+      if (simpanDasar) return;
+      // Artwork dasar yang tersimpan ternyata tidak bisa dipakai: jalan
+      // keluarnya ditawarkan di tempat, bukan disuruh cari sendiri.
+      lapor.appendChild(h('div', { style: { marginTop: '6px' } },
+        h('a', { href: '#', style: { fontSize: '11.5px' }, onClick: async (ev) => { ev.preventDefault(); await gantiDasar(); } },
+          tr({ id: 'pilih artwork dasar yang lain', en: 'pick a different base artwork', zh: '选择其他基础图稿' }))));
     }
+  }
+
+  async function gantiDasar() {
+    if (kunciDasar) { try { await dasar.hapus(pilihan.kunci, it.brand); } catch { /* memang belum ada */ } }
+    clear(lapor);
+    clear(barisDasar);
+    barisDasar.appendChild(h('span', {},
+      tr({ id: `Pilih artwork ${it.brand || ''} ${pilihan.kunci} sekali — sesudah ini tidak ditanya lagi.`,
+           en: `Pick a ${it.brand || ''} ${pilihan.kunci} artwork once — you will not be asked again.`,
+           zh: `选择一份 ${it.brand || ''} ${pilihan.kunci} 图稿即可 — 之后不会再询问。` })));
+    masukan.value = '';
+    masukan.style.display = '';
+  }
+
+  masukan.addEventListener('change', async () => {
+    const berkas = masukan.files && masukan.files[0];
+    if (!berkas) return;
+    await jalankan(await berkas.arrayBuffer(), berkas.name, { simpanDasar: true });
   });
+
+  kartu.appendChild(barisDasar);
   kartu.appendChild(masukan);
   kartu.appendChild(lapor);
+
+  // ---- JALANNYA LAYAR INI ------------------------------------------------
+  // Ada artwork dasar untuk merek+keluarga ini -> artworknya LANGSUNG dibuat,
+  // tanpa satu klik pun. Belum ada -> minta sekali, dan katakan dengan jelas
+  // bahwa ini sekali saja.
+  (async () => {
+    const d = kunciDasar ? await dasar.cari(pilihan.kunci, it.brand) : null;
+    clear(barisDasar);
+    if (!kunciDasar) {
+      barisDasar.appendChild(h('span', { style: { color: 'var(--warn, #e8a700)' } },
+        tr({ id: 'Item ini tidak punya merek di Master Data, jadi artwork dasarnya tidak bisa diingat — artwork dasar harus per merek, kalau tidak logo merek lain yang ikut tercetak.',
+             en: 'This item has no brand in Master Data, so its base artwork cannot be remembered — base artwork must be per brand, otherwise another brand\u2019s logo gets printed.',
+             zh: '该物料在主数据中没有品牌，因此无法记住其基础图稿 — 基础图稿必须按品牌区分，否则会印上其他品牌的标志。' })));
+      masukan.style.display = '';
+      return;
+    }
+    if (!d) {
+      barisDasar.appendChild(h('span', {},
+        tr({ id: `Artwork dasar ${it.brand} ${pilihan.kunci} belum ada. Pilih sekali — ERP ${it.brand} ${pilihan.kunci} berikutnya langsung jadi tanpa ditanya.`,
+             en: `No base artwork for ${it.brand} ${pilihan.kunci} yet. Pick one once — the next ${it.brand} ${pilihan.kunci} ERP builds straight away.`,
+             zh: `尚无 ${it.brand} ${pilihan.kunci} 的基础图稿。选择一次即可 — 下一个 ${it.brand} ${pilihan.kunci} 的 ERP 将直接生成。` })));
+      masukan.style.display = '';
+      return;
+    }
+    masukan.style.display = 'none';
+    barisDasar.appendChild(h('span.row.gap8', { style: { alignItems: 'baseline', flexWrap: 'wrap' } }, [
+      h('span', { style: { color: 'var(--text-3)', fontSize: '11px' } },
+        tr({ id: 'artwork dasar:', en: 'base artwork:', zh: '基础图稿：' })),
+      h('span.mono', { style: { fontSize: '11px' } }, d.nama || kunciDasar),
+      h('a', { href: '#', style: { fontSize: '11px' }, onClick: (ev) => { ev.preventDefault(); gantiDasar(); } },
+        tr({ id: 'ganti', en: 'change', zh: '更换' })),
+    ]));
+    await jalankan(d.bytes.slice(0), d.nama || kunciDasar, { simpanDasar: false });
+  })().catch(e => {
+    clear(barisDasar);
+    barisDasar.appendChild(h('span', { style: { color: 'var(--danger)' } }, String(e.message || e)));
+    masukan.style.display = '';
+  });
 
   // KAKI: kelengkapan data, dan lembar periksa sebagai TAUTAN kecil.
   // Ini yang tidak dibutuhkan 90% waktu, jadi tidak boleh sebesar tombol
