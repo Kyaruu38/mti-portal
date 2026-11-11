@@ -1,7 +1,8 @@
 import { h, pickFiles } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { badge, btn, icon, driveLink, inputEl, modal, field, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring, tanyaTeks } from '../ui/components.js';
+import { badge, btn, icon, driveLink, inputEl, searchInput, modal, field, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring, tanyaTeks } from '../ui/components.js';
+import { cariDesain } from '../core/cariDesain.js';
 import { uploadToDrive } from '../core/drive.js';
 import { insertDesign, updateDesign, deleteDesign, replaceArtwork } from '../core/designsApi.js';
 import { linkOutbox } from '../core/driveOutbox.js';
@@ -40,18 +41,48 @@ export function labelLibraryScreen() {
   const st = getState(); const ui = st.ui;
   const medan = MEDAN_LIB(st.designs);
   const nilai = nilaiFilter('lib');
-  const designs = saring(st.designs, medan, nilai);
+  const disaring = saring(st.designs, medan, nilai);
+  // KOTAK CARI DIJALANKAN SESUDAH CORONG, bukan sebagai gantinya. Keduanya
+  // menjawab pertanyaan yang berbeda: corong untuk "semua GOODRIDE pasar SNI",
+  // kotak cari untuk "yang 295 itu apa ya kodenya". Dipasang berurutan, orang
+  // bisa menyaring dulu lalu mencari di dalam hasilnya.
+  const kueri = st.ui.libCari || '';
+  const designs = cariDesain(disaring, kueri);
 
-  const toolbar = h('div.row.gap8.wrap', [
+  const kotakCari = searchInput({
+    id: 'lib-cari', value: kueri,
+    placeholder: tr({
+      id: 'Cari apa saja — 295/75R22.5, ironman 295, i28d, kode ERP…',
+      en: 'Search anything — 295/75R22.5, ironman 295, i28d, ERP code…',
+      zh: '搜索任意内容 — 295/75R22.5、ironman 295、i28d、ERP 编码…',
+    }),
+    onChange: v => setUI({ libCari: String(v || ''), libPage: 1 }),
+  });
+  kotakCari.style.width = '100%';
+
+  const toolbar = h('div.stack', { style: { gap: '8px' } }, [
+    h('div.row.gap8', { style: { alignItems: 'center' } }, [
+      h('div', { style: { flex: '1 1 320px', minWidth: '180px', maxWidth: '560px', position: 'relative' } }, [
+        kotakCari,
+        kueri
+          ? h('span', {
+              title: tr({ id: 'Kosongkan pencarian', en: 'Clear search', zh: '清除搜索' }),
+              style: { position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+                       cursor: 'pointer', fontSize: '13px', lineHeight: 1, color: 'var(--text-3)' },
+              onClick: () => setUI({ libCari: '', libPage: 1 }),
+            }, '\u00d7')
+          : null,
+      ]),
+      tombolFilter({ id: 'lib', medan, judul: t('s_library'), kunciHalaman: 'libPage' }),
+    // designWrite, not screen presence. This file had no capability check at
+    // all: every role that could open the library could also add to it.
+      can(st.user.role, 'designWrite')
+        ? btn(t('lib_upload'), { variant: 'primary', iconName: 'upload', onClick: () => uploadDesign() })
+        : badge(tr({ id: 'Read-only', en: 'Read-only', zh: '只读' }), 'gray', { iconName: 'eye' }),
+    ]),
     hitunganSaring(designs.length, st.designs.length, {
       id: `desain`, en: `design${st.designs.length === 1 ? '' : 's'}`, zh: `个设计`,
     }),
-    tombolFilter({ id: 'lib', medan, judul: t('s_library'), kunciHalaman: 'libPage' }),
-    // designWrite, not screen presence. This file had no capability check at
-    // all: every role that could open the library could also add to it.
-    can(st.user.role, 'designWrite')
-      ? h('div.mla', btn(t('lib_upload'), { variant: 'primary', iconName: 'upload', onClick: () => uploadDesign() }))
-      : h('div.mla', badge(tr({ id: 'Read-only', en: 'Read-only', zh: '只读' }), 'gray', { iconName: 'eye' })),
   ]);
 
   // SEPULUH YANG TERAKHIR MASUK, sisanya lewat penyaring.
@@ -73,7 +104,7 @@ export function labelLibraryScreen() {
   hal.size = size;
   const grid = designs.length
     ? h('div.lib-grid', hal.items.map(d => card(d)))
-    : kisiKosong(jumlahFilterAktif(nilai) > 0);
+    : kisiKosong(jumlahFilterAktif(nilai) > 0, kueri);
   const kaki = h('div.card', { style: { padding: '0' } },
     pager(hal, { onPage: n => setUI({ libPage: n }), onSize: n => setUI({ libSize: n, libPage: 1 }) }));
   const open = ui.libPreview ? st.designs.find(d => d.id === ui.libPreview) : null;
@@ -96,25 +127,55 @@ export function labelLibraryScreen() {
 // melonggarkan pencariannya. Ditulis ulang di sini karena yang di components
 // itu sebuah <tr>: sah di dalam <table>, tapi di dalam .lib-grid dia bukan apa-
 // apa dan tidak akan tampil sama sekali.
-function kisiKosong(adaFilter) {
+function kisiKosong(adaFilter, kueri) {
   const bersihkan = () => {
     const f = { ...(getState().ui.filters || {}) };
     delete f.lib;
     setUI({ filters: f, libPage: 1 });
   };
+  // KOSONG KARENA APA — ITU YANG PERLU DIJAWAB. Kisi yang mendadak kosong
+  // tanpa keterangan terbaca sebagai portal rusak, dan tiga sebabnya berbeda
+  // jalan keluarnya: belum ada design sama sekali, tersaring corong, atau
+  // ketikannya tidak ketemu.
+  const kata = String(kueri || '').trim().split(/\s+/).filter(Boolean);
+  // Kalau yang diketik beberapa kata, biasanya yang menggugurkan cuma SATU.
+  // Menyebut kata mana yang masih punya hasil jauh lebih menolong daripada
+  // "tidak ditemukan" — orangnya tinggal membuang kata itu.
+  const masihAda = kata.length > 1
+    ? kata.filter(k => cariDesain(getState().designs || [], k).length)
+    : [];
   return h('div.card', { style: { padding: '38px 16px', textAlign: 'center', color: 'var(--text-3)' } },
     h('div.stack', { style: { gap: '9px', alignItems: 'center' } }, [
-      h('div', { style: { fontSize: '12.5px' } }, adaFilter
+      h('div', { style: { fontSize: '12.5px' } }, kueri
         ? tr({
-            id: 'Tidak ada desain yang cocok dengan saringannya',
-            en: 'No design matches the filter',
-            zh: '没有符合筛选条件的设计',
+            id: `Tidak ada desain yang cocok dengan "${kueri}"`,
+            en: `No design matches "${kueri}"`,
+            zh: `没有与 “${kueri}” 匹配的设计`,
           })
-        : tr({ id: 'Belum ada desain', en: 'No designs yet', zh: '暂无设计' })),
-      adaFilter
-        ? h('button.btn.btn-sm', { onClick: bersihkan },
-            tr({ id: 'Bersihkan saringan', en: 'Clear filter', zh: '清除筛选' }))
+        : adaFilter
+          ? tr({
+              id: 'Tidak ada desain yang cocok dengan saringannya',
+              en: 'No design matches the filter',
+              zh: '没有符合筛选条件的设计',
+            })
+          : tr({ id: 'Belum ada desain', en: 'No designs yet', zh: '暂无设计' })),
+      kueri && masihAda.length && masihAda.length < kata.length
+        ? h('div', { style: { fontSize: '11px' } }, tr({
+            id: `Semua kata harus cocok. Yang masih ada hasilnya: ${masihAda.join(', ')}`,
+            en: `Every word must match. These still have results: ${masihAda.join(', ')}`,
+            zh: `每个词都必须匹配。仍有结果的是：${masihAda.join('、')}`,
+          }))
         : null,
+      h('div.row.gap8', { style: { justifyContent: 'center' } }, [
+        kueri
+          ? h('button.btn.btn-sm', { onClick: () => setUI({ libCari: '', libPage: 1 }) },
+              tr({ id: 'Kosongkan pencarian', en: 'Clear search', zh: '清除搜索' }))
+          : null,
+        adaFilter
+          ? h('button.btn.btn-sm', { onClick: bersihkan },
+              tr({ id: 'Bersihkan saringan', en: 'Clear filter', zh: '清除筛选' }))
+          : null,
+      ]),
     ]));
 }
 
