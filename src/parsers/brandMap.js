@@ -19,6 +19,12 @@ export const DEFAULT_BRAND_MAP = [
   // SATU pun baris GOODLUCK di ketiga berkas itu.
   { zh: '好运', canonical: 'GOODRIDE' },
   { zh: '天力', canonical: 'TIANLI' },
+  // 拜森 = BISON, DAN EJAAN INGGRISNYA TIDAK DIAMBIL DARI KODE ERP-nya.
+  //
+  // Baris Sona menulis kode (ID-BISEN-TBR-BX) tapi mereknya BISON. Kode ERP
+  // itu label internal, bukan sumber ejaan nama merek -- memanen ejaan dari
+  // situ akan memasukkan 'BISEN' ke master dan merek itu tidak ada.
+  { zh: '拜森', canonical: 'BISON' },
   { zh: '欧耐特', canonical: 'ORNATE' },
   { zh: '前进', canonical: 'ADVANCE' },
 ];
