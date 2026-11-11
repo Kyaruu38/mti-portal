@@ -50,6 +50,24 @@ function toRow(po) {
     // The column has a CHECK constraint, so an unexpected value is rejected by
     // Postgres rather than silently stored.
     priority: po.priority || 'Normal',
+    // supplier_id SENGAJA TIDAK DITULIS DI SINI, dan itu bukan kelalaian
+    // yang menunggu ditambal.
+    //
+    // Sampai 11 Nov 2026 kolom itu memang tidak pernah diisi oleh jalur mana
+    // pun, dan akibatnya baru kelihatan dari layar pemasok: 26 dari 36 PO
+    // November supplier_id-nya NULL, dan policy pos_read_supplier mencocokkan
+    // lewat supplier_id — jadi setiap PO baru tidak kelihatan oleh pemasoknya,
+    // tanpa satu pun pesan kesalahan. Bulan-bulan sebelumnya nol NULL bukan
+    // karena jalurnya benar, melainkan karena pos_supplier_id.sql mengisinya
+    // SEKALI pada 5 Nov.
+    //
+    // Yang mengisinya sekarang TRIGGER pos_isi_supplier_id_trg di basis data
+    // (supabase/sql/pos_supplier_id_trigger.sql), dan itu disengaja: tambalan
+    // di sini cuma menutup satu jalur, sementara impor, perbaikan massal, dan
+    // layar berikutnya yang menulis ke tabel pos akan mengulang kesalahan yang
+    // sama. Menambahkan tebakan nama di sini juga berarti dua aturan
+    // pencocokan yang suatu hari berbeda pendapat — dan bedanya terbaca
+    // sebagai pemasok yang melihat PO milik pesaingnya.
   };
 }
 
