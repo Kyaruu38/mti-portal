@@ -970,3 +970,49 @@ export function hitunganSaring(tampil, total, kata) {
     style: { fontSize: '11px', color: tampil === total ? 'var(--text-3)' : 'var(--accent)' },
   }, teks);
 }
+
+// ---------------------------------------------------------------------------
+// GAMBAR YANG TAHU CARA GAGAL.
+//
+// <img> yang src-nya tidak bisa dimuat TIDAK diam: peramban menggambar ikon
+// rusak beserta teks alt-nya. Di layar pemasok, yang terbaca orangnya bukan
+// "gambarnya tidak ada" melainkan "portalnya rusak" — dan yang membacanya
+// begitu akan memuat ulang halaman, bukan menelepon MTI.
+//
+// Portal ini punya 240 design yang thumb-nya URL Drive, bukan gambar yang
+// disimpan sendiri. URL semacam itu bisa gagal kapan saja tanpa ada yang
+// mengubah apa pun: Drive membatasi lajunya, mengalihkan ke halaman izin, dan
+// jalur thumbnail-nya memang sudah lama dipersempit Google. Jadi gagal muat
+// bukan kemungkinan jauh, melainkan keadaan yang sudah terjadi hari ini.
+//
+// Pembungkusnya <span>, bukan <img> langsung, karena <img> tidak bisa memuat
+// teks: waktu gagal, elemennya harus DIGANTI, dan yang mengganti perlu induk
+// yang tetap ada. Ini juga yang membuatnya aman disimpan di cache elemen
+// labelLibrary — yang tersimpan pembungkusnya, jadi kartu yang gambarnya
+// gagal tidak kembali jadi ikon rusak di render berikutnya.
+export function gambarAman({ src, alt, style, pesan, onKlik } = {}) {
+  const bungkus = h('span', {
+    style: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', maxWidth: '100%' },
+  });
+  const teksGagal = () => h('span', {
+    style: { fontSize: '11px', color: 'var(--text-3)', textAlign: 'center', padding: '6px', lineHeight: 1.4 },
+  }, pesan || tr({
+    id: 'Gambar tidak bisa dimuat', en: 'Image could not load', zh: '图片无法加载',
+  }));
+  if (!src) { bungkus.appendChild(teksGagal()); return bungkus; }
+  const img = h('img', {
+    src, alt: alt || '', decoding: 'async', loading: 'lazy',
+    style: style || {},
+    onClick: onKlik || null,
+  });
+  // Dipasang sebagai properti, bukan lewat h(): nama atributnya 'onerror' dan
+  // h() meng-lowercase pengurai namanya sendiri — dipasang begini tidak ada
+  // yang bisa salah eja.
+  img.onerror = () => {
+    if (!bungkus.isConnected && !bungkus.firstChild) return;
+    while (bungkus.firstChild) bungkus.removeChild(bungkus.firstChild);
+    bungkus.appendChild(teksGagal());
+  };
+  bungkus.appendChild(img);
+  return bungkus;
+}

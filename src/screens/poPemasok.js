@@ -32,7 +32,7 @@
 // ---------------------------------------------------------------------------
 import { h } from '../core/dom.js';
 import { getState, setUI, toast } from '../core/store.js';
-import { card, badge, btn, pager, pageSlice, PAGE_DEFAULT } from '../ui/components.js';
+import { card, badge, btn, pager, pageSlice, PAGE_DEFAULT, gambarAman } from '../ui/components.js';
 import { num, fmtDate } from '../core/format.js';
 import { tr } from '../i18n/index.js';
 import { writeWorkbook } from '../core/xlsx.js';
@@ -60,14 +60,20 @@ function kotakArtwork(hasil) {
   if (hasil.jenis === 'ada') {
     const d = hasil.d;
     return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } }, [
-      bingkai(d.thumb
-        ? h('img', {
-            src: d.thumb, alt: d.spec || d.erp,
-            style: { maxWidth: '100%', maxHeight: '190px', objectFit: 'contain', borderRadius: '4px' },
-          })
-        : h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
-            id: 'Gambar belum tersedia', en: 'No preview available', zh: '暂无预览',
-          }))),
+      bingkai(gambarAman({
+        src: d.thumb,
+        alt: d.spec || d.erp,
+        style: { maxWidth: '100%', maxHeight: '190px', objectFit: 'contain', borderRadius: '4px' },
+        // Pesannya menyebut jalan keluarnya. Pemasok yang membaca "gambar
+        // tidak bisa dimuat" tanpa kalimat kedua akan mengira portalnya rusak
+        // dan memuat ulang halaman; yang dia butuhkan ada di tautan berkas
+        // cetak tepat di bawah kotak ini.
+        pesan: tr({
+          id: 'Gambar tidak bisa dimuat — pakai tautan berkas cetak di bawah.',
+          en: 'Image could not load — use the print file link below.',
+          zh: '图片无法加载 — 请使用下方的印刷文件链接。',
+        }),
+      })),
       h('div', { style: { fontSize: '10.5px', color: 'var(--text-3)', lineHeight: 1.5 } }, [
         d.market ? h('span', [badge(d.market, 'gray'), ' '] ) : null,
         d.ver ? h('span', tr({ id: `Versi ${d.ver}`, en: `Version ${d.ver}`, zh: `版本 ${d.ver}` })) : null,

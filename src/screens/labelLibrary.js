@@ -1,7 +1,7 @@
 import { h, pickFiles } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { badge, btn, icon, driveLink, inputEl, searchInput, modal, field, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring, tanyaTeks } from '../ui/components.js';
+import { badge, btn, icon, driveLink, inputEl, searchInput, gambarAman, modal, field, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring, tanyaTeks } from '../ui/components.js';
 import { cariDesain } from '../core/cariDesain.js';
 import { uploadToDrive } from '../core/drive.js';
 import { insertDesign, updateDesign, deleteDesign, replaceArtwork } from '../core/designsApi.js';
@@ -565,7 +565,10 @@ function gambarDesain(d, src) {
   const kunci = `${d.id}|${src}`;
   let el = GAMBAR.get(kunci);
   if (!el) {
-    el = h('img', { src, alt: d.erp, decoding: 'async', loading: 'lazy' });
+    // Yang disimpan PEMBUNGKUSnya, bukan <img>-nya. Kalau yang disimpan
+    // <img> dan gambarnya gagal dimuat, kartu itu akan kembali jadi ikon
+    // rusak di setiap render berikutnya — cache-nya mengawetkan kegagalannya.
+    el = gambarAman({ src, alt: d.erp });
     // Batas kasar supaya simpanannya tidak tumbuh selamanya di sesi yang membuka
     // ratusan desain. Map menjaga urutan masuk, jadi yang paling lama dibuang
     // duluan.
