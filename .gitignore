@@ -114,3 +114,4 @@ verify.mjs
 run.mjs
 Claude outputs/
 *.patch
+uji-*

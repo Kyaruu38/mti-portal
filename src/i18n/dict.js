@@ -55,6 +55,7 @@ export const DICT = {
   s_library: { id: 'Design Library', en: 'Design Library', zh: '设计库' },
   s_artwork: { id: 'Artwork Otomatis', en: 'Automatic Artwork', zh: '自动生成图稿' },
   s_labelstock: { id: 'Stok Label', en: 'Label Stock', zh: '标签库存' },
+  s_urgensi: { id: 'Urgensi Label', en: 'Label Urgency', zh: '标签紧急度' },
   // Namanya menyebut dirinya sendiri. "Delivery Note" saja membuat orang
   // mengira ini dokumen yang menyertai barang keluar — dan sempat dipakai
   // begitu. Ini lembar internal gudang MTI untuk memeriksa label yang datang.

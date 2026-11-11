@@ -134,9 +134,9 @@ export const ACCESS = {
   // (pos_insert mensyaratkan is_label_staff()), jadi layarnya akan selalu
   // kosong. Menu yang selalu kosong adalah menu yang diklik sekali lalu
   // dianggap rusak.
-  wilbert: ['dashboard', 'approval', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-artwork', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports', 'log-hapus-po'],
-  cania:   ['dashboard', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-artwork', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
-  visca:   ['dashboard', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-artwork', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
+  wilbert: ['dashboard', 'approval', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-artwork', 'label-stock', 'urgensi-label', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports', 'log-hapus-po'],
+  cania:   ['dashboard', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-artwork', 'label-stock', 'urgensi-label', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
+  visca:   ['dashboard', 'po-saya', 'kas-label', 'label-request', 'label-library', 'label-artwork', 'label-stock', 'urgensi-label', 'surat-jalan', 'po-converter', 'outstanding-po', 'payment', 'prf', 'master-data', 'reports'],
   // 'finance' added 31 Jul 2026 so sekar can post the transfer proof. Finance
   // shares proofs into a group chat rather than entering them one by one, so
   // the person who actually transcribes them is sekar. She gets the SCREEN, not
@@ -160,7 +160,7 @@ export const ACCESS = {
   // is what forced the real gates to exist (sjWrite / ppkekWrite / poCreate /
   // designWrite / labelParse below), and those gates now protect every role,
   // not just this one.
-  cenjc:   ['dashboard', 'approval', 'label-request', 'label-library', 'label-artwork', 'label-stock', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports', 'log-hapus-po'],
+  cenjc:   ['dashboard', 'approval', 'label-request', 'label-library', 'label-artwork', 'label-stock', 'urgensi-label', 'surat-jalan', 'po-converter', 'outstanding-po', 'ppkek', 'payment', 'prf', 'finance', 'master-data', 'reports', 'log-hapus-po'],
   // Gudang: TIGA layar. Dashboard supaya mendarat di tempat yang masuk akal,
   // PO Outstanding untuk melihat apa yang belum datang DAN menandai yang sudah,
   // Complaints untuk melapor. Tidak ada Reports, tidak ada harga, tidak ada
@@ -217,6 +217,20 @@ export const ACCESS = {
 //  sjWrite         create surat jalan / ship over-delivery / re-archive.  sj_rw
 //  ppkekWrite      PPKEK register: dropzone, inline cell edit, import-apply. ppkek_rw
 //  designWrite     upload to the design library.                        designs_write
+//  urgensiWrite    MENGOREKSI angka di layar Urgensi Label, dan            label_urgensi
+//                  menyimpan snapshot ETA.                                 _write
+//
+//                  SONA TIDAK PUNYA INI, dan itu bukan kelalaian. Seluruh
+//                  maksud layar itu adalah mengoreksi angka yang dia
+//                  berikan -- "data yg sona kasih itu ga akurat". Yang
+//                  dikoreksi tidak memegang pena koreksinya. Dia tetap
+//                  tidak bisa MEMBACA layarnya juga (lihat ACCESS): daftar
+//                  yang isinya "angka kamu salah, yang benar ini" bukan
+//                  dokumen yang dikirim balik ke yang membuatnya lewat
+//                  layar portal, itu pekerjaan percakapan.
+//
+//                  kevin ikut lewat alias peran (username kevin -> role
+//                  'wilbert'), jadi dia tidak perlu disebut sendiri.
 //  poCreate        generate a PO (PO Converter + Label Request).         pos_insert
 //  poReceive       tandai baris PO sudah sampai di layar PO Outstanding.   pos_update
 //                  Menutup sisa PO dan TIDAK menyentuh stok apa pun. Sengaja
@@ -259,15 +273,15 @@ export const CAPS = {
   //
   // Pembagian kerjanya tidak berubah: sona yang meminta, purchasing yang
   // menjadikannya PO.
-  wilbert:    grant('approve editMaster labelStockWrite paymentWrite prfCreate prfReceive markPaid sjWrite ppkekWrite designWrite poCreate poReceive labelParse labelRequestFill labelRequestAsk complaintClose auditHapus'),
+  wilbert:    grant('approve editMaster urgensiWrite labelStockWrite paymentWrite prfCreate prfReceive markPaid sjWrite ppkekWrite designWrite poCreate poReceive labelParse labelRequestFill labelRequestAsk complaintClose auditHapus'),
   // cania/visca RECEIVE the invoices and raise the PRF from them. Until v12.0
   // they held prfCreate WITHOUT paymentWrite, which read as a sensible split and
   // was not: an invoice only reaches the PRF builder once it has left stage 1,
   // and the control that moves it lives on the intake half of the screen. So
   // their builder was permanently empty — not because no invoice existed, but
   // because they could never enter one in the first place.
-  cania:      grant('editMaster labelStockWrite paymentWrite prfCreate sjWrite designWrite poCreate poReceive labelParse labelRequestFill complaintWrite complaintClose'),
-  visca:      grant('editMaster labelStockWrite paymentWrite prfCreate sjWrite designWrite poCreate poReceive labelParse labelRequestFill complaintWrite complaintClose'),
+  cania:      grant('editMaster urgensiWrite labelStockWrite paymentWrite prfCreate sjWrite designWrite poCreate poReceive labelParse labelRequestFill complaintWrite complaintClose'),
+  visca:      grant('editMaster urgensiWrite labelStockWrite paymentWrite prfCreate sjWrite designWrite poCreate poReceive labelParse labelRequestFill complaintWrite complaintClose'),
   // sekar: purchasing-side payment + PPKEK; payment STATUS is read-only for sekar.
   sekar:      grant('paymentWrite prfCreate paymentReadonly ppkekWrite markPaid'),
   // finance: receive + mark paid; cannot approve POs or raise a PRF. Keeps

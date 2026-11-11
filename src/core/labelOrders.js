@@ -192,7 +192,11 @@ export const REORDER_WINDOW_DAYS = 40;
 // Cocokkan lewat ERP kalau ada; kalau kosong, jatuh ke nama spec. SKU tanpa ERP
 // masih ada 8 di tracker, dan justru mereka yang paling mudah terpesan dua kali
 // karena tidak tersambung ke Order Tracking sama sekali.
-function orderMatchKeys(row) {
+// Diekspor untuk core/urgensi.js. Layar Urgensi Label harus mencocokkan baris
+// kebutuhan ke baris PO dengan aturan yang SAMA PERSIS dengan layar ini --
+// salinan kedua akan suatu hari berbeda pendapat, dan bedanya muncul sebagai
+// "sudah dipesan" di satu layar dan "belum" di layar sebelahnya.
+export function orderMatchKeys(row) {
   const erp = normErp(row.erp);
   const spec = String(row.spec || row.name || row.d || row.dimension || '')
     .replace(/\s+/g, '').toUpperCase();

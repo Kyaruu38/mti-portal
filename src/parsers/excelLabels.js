@@ -40,7 +40,16 @@ const ALIASES = [
   ['erp', [/^erp\s*code$/i, /物料编号/]],
   ['brand', [/brand/i, /品牌/]],
   ['ttl', [/tt\s*\/\s*tl/i, /^tt.?tl$/i]],
-  ['pr', [/^pr$/i, /ply/i]],
+  // 层级 DIANCURKAN, dan anchor-nya penting: 层级块 (plyBlock) adalah kolom
+  // LAIN, dan pola tanpa anchor akan menyerap dua-duanya ke 'pr' sehingga
+  // kolom balok lapisnya hilang tanpa suara -- findHeaderRow() cuma menyimpan
+  // kolom pertama per kunci.
+  //
+  // Sampai sekarang 层级 tidak ada aliasnya sama sekali, jadi kolom PR di
+  // lembar Sona DIBUANG dan nilainya cuma didapat dari hasil urai nama barang.
+  // Itu kebetulan berhasil untuk lembar yang namanya lengkap, dan diam-diam
+  // gagal untuk yang tidak.
+  ['pr', [/^pr$/i, /ply/i, /^层级$/]],
   ['ms', [/m\s*\+\s*s/i]],
   ['snow', [/泥雪地/, /牵引标识/]],
   ['pattern', [/^pattern$/i, /花纹/]],

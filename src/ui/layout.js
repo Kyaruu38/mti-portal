@@ -35,6 +35,13 @@ const NAV = [
     { id: 'label-library', t: 's_library', ic: 'layers' },
     { id: 'label-artwork', t: 's_artwork', ic: 'image' },
     { id: 'label-stock', t: 's_labelstock', ic: 'box' },
+    // Tab SENDIRI, tepat di bawah Stok Label dan bukan di dalamnya.
+    //
+    // Permintaan pemiliknya: "gw gamau di gabung sama yg punya sona ya, gw mau
+    // mini tab sendiri". Tetangganya memang Stok Label -- orang yang membuka
+    // yang satu biasanya mau membandingkan dengan yang lain -- tapi keduanya
+    // layar yang berbeda, karena yang ini memeriksa angka yang itu terima.
+    { id: 'urgensi-label', t: 's_urgensi', ic: 'warn' },
     { id: 'surat-jalan', t: 's_surat', ic: 'file' },
   ] },
   { label: 'nav_po', items: [
@@ -153,7 +160,7 @@ function bilahTab(st) {
 
 const TITLES = {
   dashboard: 's_dashboard', approval: 's_approval', 'label-request': 's_label',
-  'label-library': 's_library', 'label-artwork': 's_artwork', 'label-stock': 's_labelstock', 'surat-jalan': 's_surat', 'po-converter': 's_converter', 'po-saya': 's_po_saya', 'kas-label': 's_kas_label', 'outstanding-po': 's_outstanding', complaints: 's_complaints',
+  'label-library': 's_library', 'label-artwork': 's_artwork', 'label-stock': 's_labelstock', 'urgensi-label': 's_urgensi', 'surat-jalan': 's_surat', 'po-converter': 's_converter', 'po-saya': 's_po_saya', 'kas-label': 's_kas_label', 'outstanding-po': 's_outstanding', complaints: 's_complaints',
   ppkek: 's_ppkek', payment: 's_payment', finance: 's_finance', 'master-data': 's_master', reports: 's_reports', 'log-hapus-po': 's_log_hapus',
 };
 
