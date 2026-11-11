@@ -3,6 +3,7 @@ import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.j
 import { t, tr } from '../i18n/index.js';
 import { badge, btn, icon, driveLink, inputEl, searchInput, gambarAman, modal, field, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring, tanyaTeks } from '../ui/components.js';
 import { cariDesain } from '../core/cariDesain.js';
+import { cocokkanBerkas, patchPindah, sudahPindah } from '../core/migrasiDrive.js';
 import { uploadToDrive } from '../core/drive.js';
 import { insertDesign, updateDesign, deleteDesign, replaceArtwork } from '../core/designsApi.js';
 import { linkOutbox } from '../core/driveOutbox.js';
@@ -79,10 +80,27 @@ export function labelLibraryScreen() {
       can(st.user.role, 'designWrite')
         ? btn(t('lib_upload'), { variant: 'primary', iconName: 'upload', onClick: () => uploadDesign() })
         : badge(tr({ id: 'Read-only', en: 'Read-only', zh: '只读' }), 'gray', { iconName: 'eye' }),
+      can(st.user.role, 'designWrite')
+        ? btn(tr({ id: 'Pindah ke Drive pusat', en: 'Move to the central Drive', zh: '迁移至中央云盘' }), {
+            iconName: 'upload', onClick: () => pindahKeDrivePusat(),
+          })
+        : null,
     ]),
     hitunganSaring(designs.length, st.designs.length, {
       id: `desain`, en: `design${st.designs.length === 1 ? '' : 's'}`, zh: `个设计`,
     }),
+    // Kemajuan migrasi Drive, disebut di tempat yang orangnya memang melihat.
+    // Hilang sendiri begitu semuanya pindah -- angka '635 dari 635' yang
+    // menetap cuma jadi hiasan yang lama-lama tidak dibaca.
+    (() => {
+      const pindah = st.designs.filter(sudahPindah).length;
+      if (!pindah || pindah === st.designs.length) return null;
+      return h('div', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
+        id: `${pindah} dari ${st.designs.length} design sudah pindah ke Drive pusat`,
+        en: `${pindah} of ${st.designs.length} designs moved to the central Drive`,
+        zh: `${st.designs.length} 个设计中已有 ${pindah} 个迁移至中央云盘`,
+      }));
+    })(),
   ]);
 
   // SEPULUH YANG TERAKHIR MASUK, sisanya lewat penyaring.
@@ -706,6 +724,167 @@ function badgeMerek(b) {
   return h('span.badge.badge-merek', { style: { '--bc': warna } }, b);
 }
 
+
+// ---------------------------------------------------------------------------
+// PINDAH KE DRIVE PUSAT
+//
+// 635 berkas design dimiliki akun pribadi, sementara arsitektur portal ini
+// menyebut satu Drive departemen (purchase.ptmti) sebagai tempatnya. Berkas
+// yang diunggah LEWAT portal sudah benar sejak awal -- drive-upload menyetel
+// izinnya 'reader'. Yang 635 itu warisan, di-share tangan, dan izinnya
+// 'writer': siapa pun yang punya link bisa MENIMPA berkas cetaknya.
+//
+// Sumbernya berkas di tangan orangnya, bukan tarikan dari Drive, dan itu bukan
+// pilihan rasa: Drive tidak mengirim header CORS untuk unduhan, jadi fetch()
+// dari halaman ini ditolak sebelum satu bita pun sampai. Unduh foldernya dari
+// Drive (satu ZIP), buka, serahkan berkasnya ke sini.
+//
+// Sesudah itu jalurnya jalur portal sendiri, jadi izin dan pemiliknya benar
+// tanpa ada yang perlu menyentuh token apa pun.
+async function pindahKeDrivePusat() {
+  if (blockWrite('pindah design ke Drive pusat')) return;
+  const files = await pickFiles({ accept: 'image/*,.pdf', multiple: true });
+  if (!files || !files.length) return;
+
+  const st = getState();
+  const lap = cocokkanBerkas(Array.from(files), st.designs);
+  if (!lap.pasangan.length) {
+    toast({
+      id: `Tidak ada satu pun dari ${files.length} berkas yang cocok ke design — ${lap.takCocok.length} tidak cocok, ${lap.ganda.length} cocok ke lebih dari satu, ${lap.sudah.length} sudah pindah.`,
+      en: `None of the ${files.length} files match a design — ${lap.takCocok.length} no match, ${lap.ganda.length} match more than one, ${lap.sudah.length} already moved.`,
+      zh: `${files.length} 个文件中没有任何一个匹配到设计 — ${lap.takCocok.length} 个无匹配，${lap.ganda.length} 个匹配到多个，${lap.sudah.length} 个已迁移。`,
+    });
+    return;
+  }
+
+  // Satu baris keterangan per golongan, dan yang TIDAK akan dikerjakan disebut
+  // sejelas yang akan. Laporan yang cuma menyebut "128 siap dipindah" dari 635
+  // berkas membuat 507 sisanya hilang dari percakapan.
+  const garis = (teks, warna) => h('div', { style: { fontSize: '11.5px', color: warna || 'var(--text-2)', marginTop: '3px' } }, teks);
+  const body = h('div.stack', { style: { gap: '2px' } }, [
+    garis(tr({
+      id: `${lap.pasangan.length} berkas cocok ke satu design dan akan dipindah.`,
+      en: `${lap.pasangan.length} files match exactly one design and will be moved.`,
+      zh: `${lap.pasangan.length} 个文件各匹配到唯一设计，将被迁移。`,
+    }), 'var(--st-green-tx)'),
+    lap.sudah.length ? garis(tr({
+      id: `${lap.sudah.length} sudah pernah dipindah — dilewati, bukan dikerjakan dua kali.`,
+      en: `${lap.sudah.length} were already moved — skipped, not done twice.`,
+      zh: `${lap.sudah.length} 个此前已迁移 — 跳过，不重复执行。`,
+    })) : null,
+    lap.ganda.length ? garis(tr({
+      id: `${lap.ganda.length} cocok ke LEBIH DARI SATU design dan TIDAK ditebak — spec-nya kembar. Pindah tangan lewat tombol Ganti Artwork di kartunya.`,
+      en: `${lap.ganda.length} match MORE THAN ONE design and are NOT guessed — their specs are identical. Move those by hand with Replace Artwork on the card.`,
+      zh: `${lap.ganda.length} 个匹配到多个设计，不作猜测 — 其规格相同。请在卡片上用「更换图稿」手动迁移。`,
+    }), 'var(--st-amber-tx)') : null,
+    lap.takCocok.length ? garis(tr({
+      id: `${lap.takCocok.length} tidak cocok ke design mana pun — namanya tidak sama dengan spec atau kode ERP design mana pun.`,
+      en: `${lap.takCocok.length} match no design at all — their names match no design's spec or ERP code.`,
+      zh: `${lap.takCocok.length} 个未匹配到任何设计 — 其文件名与任何设计的规格或 ERP 代码均不相符。`,
+    }), 'var(--st-red-tx)') : null,
+    ...lap.takCocok.slice(0, 5).map(f => h('div.mono', { style: { fontSize: '10px', color: 'var(--text-3)' } }, `• ${f.name}`)),
+    lap.takCocok.length > 5 ? h('div.mono', { style: { fontSize: '10px', color: 'var(--text-3)' } }, `…+${lap.takCocok.length - 5}`) : null,
+    h('div', { style: { fontSize: '11px', color: 'var(--text-3)', marginTop: '10px', lineHeight: 1.5 } }, tr({
+      id: 'Versi design TIDAK dinaikkan — ini berkas yang sama pindah rumah, bukan artwork baru. Alamat lamanya disimpan di riwayat tiap design, jadi masih ada jalan pulang kalau ada yang salah. Berkas di Drive lama TIDAK dihapus; hapus sendiri sesudah lu periksa hasilnya.',
+      en: 'The design version is NOT bumped — this is the same file changing homes, not a new artwork. Each design keeps its old address in its history, so there is a way back if something is wrong. Files on the old Drive are NOT deleted; delete them yourself once you have checked the result.',
+      zh: '设计版本不会递增 — 这是同一文件更换存放位置，而非新图稿。每个设计都会在历史记录中保留旧地址，因此出错时仍有回退之路。旧云盘上的文件不会被删除；请在你核对结果后自行删除。',
+    })),
+    h('div.mono', { id: 'mig-progress', style: { fontSize: '11px', marginTop: '10px', fontWeight: 700 } }, ''),
+  ]);
+
+  let berhenti = false, jalan = false;
+  const tutup = () => { berhenti = true; ov.remove(); };
+  const ov = modal({
+    title: tr({ id: 'Pindah ke Drive pusat', en: 'Move to the central Drive', zh: '迁移至中央云盘' }),
+    subtitle: tr({
+      id: `${files.length} berkas dipilih`,
+      en: `${files.length} files selected`,
+      zh: `已选择 ${files.length} 个文件`,
+    }),
+    width: 620,
+    body,
+    footer: h('div.row.gap8', { style: { justifyContent: 'flex-end' } }, [
+      btn(t('cancel'), { onClick: () => tutup() }),
+      btn(tr({ id: `Pindah ${lap.pasangan.length} berkas`, en: `Move ${lap.pasangan.length} files`, zh: `迁移 ${lap.pasangan.length} 个文件` }), {
+        variant: 'primary',
+        onClick: async (ev) => {
+          if (jalan) { berhenti = true; return; }
+          jalan = true;
+          // currentTarget, bukan target: target bisa jadi simpul teks atau ikon
+          // DI DALAM tombolnya, dan menulis textContent ke situ tidak mengubah
+          // label tombol yang dilihat orangnya.
+          const tombol = ev && ev.currentTarget;
+          if (tombol) tombol.textContent = tr({ id: 'Stop', en: 'Stop', zh: '停止' });
+          await jalankanPindah(lap.pasangan, () => berhenti);
+          ov.remove();
+        },
+      }),
+    ]),
+    onClose: () => tutup(),
+  });
+  document.body.appendChild(ov);
+}
+
+// Dikerjakan SATU-SATU, dan itu disengaja.
+//
+// 635 unggahan paralel akan menabrak batas laju Drive, dan yang gagal karena
+// dibatasi laju gagal dengan cara yang paling tidak enak: sebagian berhasil,
+// sebagian tidak, dan tidak ada yang tahu yang mana sampai ada yang membuka
+// kartunya satu per satu. Satu-satu lebih lambat dan bisa dibaca.
+//
+// Kemajuannya ditulis LANGSUNG ke node, bukan lewat setUI(): mount() tidak
+// punya diffing, jadi setUI() per berkas akan membongkar-pasang seluruh layar
+// 635 kali dan mencabut modalnya sendiri di tengah jalan.
+async function jalankanPindah(pasangan, mauBerhenti) {
+  const st = getState();
+  const node = document.getElementById('mig-progress');
+  const tulis = (teks, warna) => { if (node) { node.textContent = teks; node.style.color = warna || ''; } };
+  let sukses = 0, gagal = 0;
+  const salah = [];
+
+  for (let i = 0; i < pasangan.length; i++) {
+    if (mauBerhenti && mauBerhenti()) { tulis(tr({ id: 'Dihentikan.', en: 'Stopped.', zh: '已停止。' })); break; }
+    const { file, design } = pasangan[i];
+    tulis(tr({
+      id: `${i + 1}/${pasangan.length} — ${design.erp || design.spec} · ${sukses} berhasil, ${gagal} gagal`,
+      en: `${i + 1}/${pasangan.length} — ${design.erp || design.spec} · ${sukses} done, ${gagal} failed`,
+      zh: `${i + 1}/${pasangan.length} — ${design.erp || design.spec} · 成功 ${sukses}，失败 ${gagal}`,
+    }));
+    try {
+      const up = await uploadToDrive(file, 'LabelDesigns/', file.name);
+      // up.placeholder berarti Drive belum terkonfigurasi dan berkasnya cuma
+      // masuk outbox. Dalam keadaan itu MIGRASINYA TIDAK BOLEH ditandai
+      // selesai: barisnya akan menunjuk alamat kosong sementara riwayatnya
+      // bilang sudah pindah, dan tidak akan ada yang mencobanya lagi.
+      if (up.placeholder || !up.url) throw new Error('Drive belum terkonfigurasi — berkas masuk outbox, baris design tidak diubah');
+      const thumb = await renderThumb(file).catch(() => '');
+      const patch = patchPindah(design, {
+        url: up.url, thumb, oleh: st.user.username, tanggal: fmtDate(new Date()),
+      });
+      await replaceArtwork(design.id, patch);
+      if (up.outboxId) await linkOutbox(up.outboxId, 'designs', design.id, 'url');
+      Object.assign(design, patch);
+      sukses++;
+    } catch (e) {
+      gagal++;
+      salah.push(`${design.erp || design.spec}: ${(e && e.message) || e}`);
+      console.error('pindah design gagal', design.erp, e);
+    }
+  }
+
+  logAudit({
+    entity: 'design', target: 'LabelDesigns', action: 'pindah ke Drive pusat',
+    detail: `${sukses} berhasil, ${gagal} gagal dari ${pasangan.length}`,
+  });
+  // Yang gagal DISEBUT, bukan cuma dihitung. Satu angka "12 gagal" tidak bisa
+  // ditindaklanjuti; dua belas kode ERP bisa.
+  toast({
+    id: `${sukses} design pindah ke Drive pusat${gagal ? `, ${gagal} GAGAL: ${salah.slice(0, 4).join(' | ')}${salah.length > 4 ? ` …+${salah.length - 4}` : ''}` : ''}. Berkas di Drive lama belum dihapus.`,
+    en: `${sukses} designs moved to the central Drive${gagal ? `, ${gagal} FAILED: ${salah.slice(0, 4).join(' | ')}${salah.length > 4 ? ` …+${salah.length - 4}` : ''}` : ''}. Files on the old Drive are not deleted.`,
+    zh: `${sukses} 个设计已迁移至中央云盘${gagal ? `，${gagal} 个失败：${salah.slice(0, 4).join(' | ')}${salah.length > 4 ? ` …+${salah.length - 4}` : ''}` : ''}。旧云盘上的文件尚未删除。`,
+  });
+  setState({});
+}
 
 async function uploadDesign() {
   if (blockWrite('upload desain label')) return;

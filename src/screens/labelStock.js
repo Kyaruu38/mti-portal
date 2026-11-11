@@ -708,9 +708,15 @@ function bacaSheetOrder(wb, fileName) {
   const bagian = [], gagal = [];
   for (const o of peta.order) {
     try {
-      const res = parseLabelSheet(wb.rows(o.nama), { brandMap: st.brandMap || [], knownErps });
+      // master dikirim masuk supaya medan kosong yang sudah diketahui portal
+      // tidak ikut jadi pertanyaan -- lihat MEDAN_PERIKSA di excelLabels.js.
+      const res = parseLabelSheet(wb.rows(o.nama), { brandMap: st.brandMap || [], knownErps, master: st.items || [] });
       if (!res.ok) { gagal.push({ sheet: o.nama, alasan: tr(res.error) }); continue; }
-      bagian.push({ sheet: o.nama, kategori: o.kategori, items: res.items });
+      // perluCek ikut dibawa, bukan dibuang di sini. Layar ini membaca BANYAK
+      // sheet order sekaligus dari satu workbook, jadi dia justru tempat baris
+      // yang tidak terbaca paling mudah hilang: 14 sheet, dan yang tampil cuma
+      // satu angka total di kartu paling atas.
+      bagian.push({ sheet: o.nama, kategori: o.kategori, items: res.items, perluCek: res.perluCek || [] });
     } catch (e) {
       console.warn('sheet order gagal diparse:', o.nama, e);
       gagal.push({ sheet: o.nama, alasan: String((e && e.message) || e) });
@@ -1595,6 +1601,7 @@ function buyNowTab(st) {
       })),
     ]) : null,
 
+    bannerPerluCek(st),
     s.stop ? bannerStop(semua) : null,
     daftar.kodeGanda.length ? bannerKodeGanda(daftar.kodeGanda) : null,
     s.cek ? h('div.cfg-banner', { style: { display: 'block', background: 'var(--st-amber-bg)', color: 'var(--st-amber-tx)', borderColor: 'var(--st-amber-tx)' } }, [
@@ -1968,6 +1975,47 @@ async function exportBeli(rows) {
     cols: [{ wch: 46 }, { wch: 18 }, { wch: 8 }, { wch: 12 }, { wch: 14 }, { wch: 11 }, { wch: 14 },
            { wch: 10 }, { wch: 11 }, { wch: 13 }, { wch: 8 }, { wch: 10 }, { wch: 10 }],
   }]);
+}
+
+// BARIS ORDER YANG TIDAK TERBACA, DISEBUT DI LAYAR YANG MEMBACANYA.
+//
+// Layar ini menyerap satu workbook berisi sampai 14 sheet sekaligus. Baris yang
+// jumlahnya tidak terbaca atau mereknya tidak dikenali dulu cuma menaikkan
+// penghitung di dalam parser dan tidak pernah sampai ke mana pun — dan di sini
+// akibatnya paling mahal, karena daftar belanja yang keluar dari layar ini yang
+// dipakai membeli. Kekurangan satu baris berarti label satu barang tidak dicetak,
+// dan yang menemukannya gudang, bukan portal.
+//
+// Yang disebut: sheet-nya, nomor barisnya seperti di Excel, dan sel yang bikin
+// dia gagal. Penyelesaiannya TIDAK di sini — orang yang memegang berkasnya yang
+// menjawab, di layar Request Label (kartu "perlu dicek") atau di berkasnya
+// sendiri. Layar ini tugasnya memastikan tidak ada yang bisa mengaku tidak tahu.
+function bannerPerluCek(st) {
+  const bagian = ((st.labelBuyRaw || {}).bagian || []);
+  const semua = bagian.flatMap(b => (b.perluCek || []).map(e => ({ ...e, sheet: b.sheet })));
+  if (!semua.length) return null;
+  const tanpaQty = semua.filter(e => !e.ikut);
+  const ditahan = semua.filter(e => e.tahan);
+  const contoh = semua.slice(0, 6);
+  return h('div.cfg-banner', {
+    style: { display: 'block', background: 'var(--st-amber-bg)', color: 'var(--st-amber-tx)', borderColor: 'var(--st-amber-tx)' },
+  }, [
+    h('div', { style: { fontWeight: 700 } }, [icon('warn', 14), tr({
+      id: ` ${semua.length} baris di berkas order TIDAK terbaca utuh — ${ditahan.length} ditahan, ${tanpaQty.length} belum masuk daftar belanja ini.`,
+      en: ` ${semua.length} rows in the order file were NOT read in full — ${ditahan.length} held, ${tanpaQty.length} not yet in this buy list.`,
+      zh: ` 订单文件中有 ${semua.length} 行未被完整读取 — ${ditahan.length} 行被拦下，${tanpaQty.length} 行尚未进入本采购清单。`,
+    })]),
+    h('div', { style: { fontSize: '11.5px', marginTop: '4px', fontWeight: 400 } }, tr({
+      id: 'Bukan di-skip: menunggu dijawab. Yang jumlahnya tidak terbaca belum dihitung sama sekali, yang mereknya tidak dikenali ikut tapi mereknya belum bisa dipercaya. Jawab di layar Request Label (kartu "perlu dicek") atau betulkan selnya di berkasnya, lalu unggah ulang.',
+      en: 'Not skipped: waiting to be answered. Rows with an unreadable quantity are not counted at all; rows with an unrecognised brand are included but their brand cannot be trusted yet. Answer them on the Request Label screen ("needs checking" card) or fix the cell in the file and re-upload.',
+      zh: '并非跳过，而是等待回答。数量无法读取的行完全未被计入；品牌无法识别的行已包含，但其品牌尚不可信。请在标签申请界面（「需要核对」卡片）回答，或在文件中修正该单元格后重新上传。',
+    })),
+    ...contoh.map(e => h('div.mono', { style: { fontSize: '10.5px', marginTop: '3px', fontWeight: 400 } },
+      `• ${e.sheet} baris ${e.baris} — ${e.erp || '(tanpa ERP)'} — ${(e.semuaSebab || [e.sebab]).join(', ')}` +
+      (e.qtyMentah ? ` · qty:"${e.qtyMentah}"` : '') + (e.merekMentah ? ` · merek:"${e.merekMentah}"` : ''))),
+    semua.length > contoh.length ? h('div.mono', { style: { fontSize: '10.5px', marginTop: '3px', fontWeight: 400 } },
+      `…+${semua.length - contoh.length}`) : null,
+  ]);
 }
 
 function bannerStop(semua) {

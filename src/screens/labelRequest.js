@@ -3,7 +3,8 @@ import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.j
 import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, pilihCari, poNoField, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring, tanyaTeks } from '../ui/components.js';
 import { readWorkbook } from '../core/xlsx.js';
-import { parseLabelSheet } from '../parsers/excelLabels.js';
+import { parseLabelSheet, MEDAN_PERIKSA_LABEL, MEDAN_PERIKSA_BERAT } from '../parsers/excelLabels.js';
+import { MEREK_RESMI, ejaanResmi } from '../parsers/brandMap.js';
 import { money, num, ppnFor, ppnModeFromForm, fmtDateTime } from '../core/format.js';
 import { can, isReadOnly } from '../auth/roles.js';
 import { statusText } from '../core/statusText.js';
@@ -348,9 +349,21 @@ function parseNow() {
   try {
     const rows = ui.labelWb.rows(ui.labelSheet);
     const knownErps = new Set(st.items.map(i => i.erp));
-    const res = parseLabelSheet(rows, { brandMap: st.brandMap, knownErps });
+    // Master item dikirim masuk: medan yang kosong di lembar tapi sudah
+    // diketahui portal diambil dari sana, bukan ditanyakan ulang ke orangnya.
+    const res = parseLabelSheet(rows, { brandMap: st.brandMap, knownErps, master: st.items });
     if (!res.ok) { toast(res.error); return; }
-    const sel = {}; res.items.forEach((_, i) => (sel[i] = true));
+    // BARIS YANG PERLU DICEK TIDAK DICENTANG DULUAN.
+    //
+    // Centang di layar ini adalah "ini yang saya pesan". Mencentang duluan
+    // baris yang mereknya belum terbaca berarti menawarkannya untuk dipesan
+    // dalam keadaan yang portal sendiri tahu belum beres — dan satu klik
+    // "Generate PO" sudah cukup untuk melewatkannya tanpa ada yang membaca.
+    // Yang DITAHAN tidak dicentang. Yang cuma 'tanya' tetap dicentang: dia
+    // boleh dipesan, pertanyaannya soal medan yang tercetak di label, bukan
+    // soal boleh-tidaknya barisnya dibeli.
+    const sel = {};
+    res.items.forEach((it, i) => (sel[i] = !(it.cek || []).some(c => beratSebab(c) === 'tahan')));
     // lrHarga dikosongkan bareng labelSel: keduanya berkunci INDEKS ke
     // labelResult.items, jadi ketikan dari workbook sebelumnya akan menempel
     // ke POSISI baris, bukan ke barangnya. Lihat catatan panjang di openRequest().
@@ -372,10 +385,244 @@ function upsertItems(items) {
   const st = getState();
   for (const it of items) {
     if (!it.erp) continue;
-    const ex = st.items.find(x => x.erp === it.erp);
-    if (ex) { Object.assign(ex, { spec: it.spec || ex.spec, brand: it.brand || ex.brand, market: it.market || ex.market, ms: it.ms || ex.ms, rr: it.rr || ex.rr, noise: it.noise || ex.noise, ean: it.ean || ex.ean, nameEn: it.nameEn || ex.nameEn, nameZh: it.nameZh || ex.nameZh }); }
-    else st.items.push({ id: uid('itm'), erp: it.erp, spec: it.spec, brand: it.brand, market: it.market, unit: '张', ms: it.ms, rr: it.rr, noise: it.noise, ean: it.ean, nameEn: it.nameEn, nameZh: it.nameZh });
+    // Merek yang belum dijawab TIDAK ikut ditulis ke master item. Kalau ikut,
+    // '95H CAPITOL' dan 'TBR' masuk ke kolom merek secara permanen, dan aturan
+    // "kosong tidak pernah menimpa" di panen label justru melindunginya dari
+    // diperbaiki nanti. Medan lainnya tetap ditulis — yang satu rusak bukan
+    // alasan membuang yang sembilan benar.
+    const merekBeres = !(it.cek || []).some(c => c.startsWith('merek'));
+    const it2 = merekBeres ? it : { ...it, brand: '' };
+    upsertSatu(st, it2);
   }
+}
+
+function upsertSatu(st, it) {
+  const ex = st.items.find(x => x.erp === it.erp);
+  if (ex) { Object.assign(ex, { spec: it.spec || ex.spec, brand: it.brand || ex.brand, market: it.market || ex.market, ms: it.ms || ex.ms, rr: it.rr || ex.rr, noise: it.noise || ex.noise, ean: it.ean || ex.ean, nameEn: it.nameEn || ex.nameEn, nameZh: it.nameZh || ex.nameZh }); }
+  else st.items.push({ id: uid('itm'), erp: it.erp, spec: it.spec, brand: it.brand, market: it.market, unit: '张', ms: it.ms, rr: it.rr, noise: it.noise, ean: it.ean, nameEn: it.nameEn, nameZh: it.nameZh });
+}
+
+// ---------------------------------------------------------------------------
+// PERLU DICEK: TIDAK ADA MEDAN YANG BOLEH HILANG DIAM-DIAM.
+//
+// Aturannya dari pemiliknya: "merek, qty everything, kalo ada gk kebaca lu
+// harus confirm ke org yang upload, gw gamau lu nge skip yang ga kebaca".
+//
+// Yang dulu terjadi di layar ini ada dua rupa, dan dua-duanya berakhir di
+// tempat yang sama -- orang lain yang menanggungnya:
+//
+//   1. Baris LENYAP. QTY yang bukan angka ('asap', '-', kosong karena barisnya
+//      belum diputuskan) cuma menaikkan penghitung di dalam parser. Yang tampil
+//      di kaki tabel cuma angkanya: "12 dilewati". Mana, kenapa, apa isinya --
+//      tidak pernah disebut. Ordernya jalan dengan jumlah kurang, dan yang
+//      menemukan kekurangannya gudang, waktu labelnya tidak cukup.
+//
+//   2. Baris LOLOS dengan isi yang salah. '95H CAPITOL' di kolom merek (indeks
+//      beban yang bocor dari kolom sebelahnya), '(ID-WL-TBR-PT)' di kolom pasar
+//      (prefiks penuh, bukan kode pasar -- 702 dari 1.560 baris pernah begitu),
+//      '—' di mana-mana. Tidak ada yang menahannya, dan nilainya masuk ke
+//      master item secara permanen.
+//
+// Sekarang sepuluh medan diperiksa, dan yang kosong berhenti di sini. Tapi
+// pertanyaan yang bisa dijawab portal sendiri TIDAK ditanyakan: kalau ERP-nya
+// ada di master item, medan yang kosong diambil dari sana dan ditandai
+// "dari master". Kartu yang penuh pertanyaan yang sudah ada jawabannya adalah
+// kartu yang orang berhenti baca, dan kartu yang tidak dibaca sama saja dengan
+// tidak ada.
+const SEBAB_TEKS = {
+  qty_tidak_terbaca: { id: 'Jumlahnya tidak terbaca', en: 'Quantity unreadable', zh: '数量无法读取' },
+  qty_nol: { id: 'Jumlahnya nol / minus', en: 'Quantity is zero or negative', zh: '数量为零或负数' },
+  merek_asing: { id: 'Mereknya tidak dikenali', en: 'Brand not recognised', zh: '品牌无法识别' },
+};
+
+// Medan -> cara menjawabnya. Merek satu-satunya yang pakai daftar tertutup,
+// karena dia satu-satunya yang punya daftar resmi; sisanya diketik, karena
+// mengarang daftar tertutup untuk kode pola atau indeks beban berarti menolak
+// nilai sah yang belum pernah dilihat portal.
+const CARA_JAWAB = {
+  brand: 'merek',
+  qty: 'angka',
+};
+
+const medanDari = (sebab) => String(sebab || '').replace(/_(kosong|asing|tidak_terbaca|nol)$/, '');
+
+function labelSebab(sebab) {
+  if (SEBAB_TEKS[sebab]) return tr(SEBAB_TEKS[sebab]);
+  const l = MEDAN_PERIKSA_LABEL[medanDari(sebab)];
+  return l ? tr({ id: `${tr(l)} kosong`, en: `${tr(l)} is empty`, zh: `${tr(l)}为空` }) : sebab;
+}
+
+function perluCekAktif(res) {
+  return (res.perluCek || []).filter(e => (e.semuaSebab || [e.sebab]).length);
+}
+
+// Satu pintu untuk semua jawaban, apa pun medannya.
+//
+// Dicari lewat _row, BUKAN indeks array: `items` bertambah waktu baris yang
+// jumlahnya kosong dijawab, dan indeks yang disimpan di entri akan menunjuk
+// barang yang salah begitu itu terjadi.
+function jawabMedan(entry, kunci, nilaiMentah) {
+  const st = getState(); const res = st.ui.labelResult; if (!res) return;
+  let nilai = String(nilaiMentah ?? '').trim();
+
+  if (kunci === 'qty') {
+    const n = parseNumber(nilai, 'id');
+    if (!Number.isFinite(n) || n <= 0) {
+      toast({ id: 'Isi jumlahnya dengan angka lebih dari 0', en: 'Enter a quantity greater than 0', zh: '请输入大于 0 的数量' });
+      return;
+    }
+    nilai = n;
+  } else if (kunci === 'brand') {
+    // Jawaban merek ikut disnap ke ejaan resmi. Kalau tidak, orang yang
+    // mengetik 'golden crown' di kartu ini memasukkan ejaan kedua lewat pintu
+    // yang justru dibuat untuk menutupnya.
+    nilai = ejaanResmi(nilai) || nilai.toUpperCase();
+    if (!nilai) return;
+  } else if (kunci === 'market') {
+    nilai = nilai.toUpperCase();
+    if (!nilai) return;
+  } else if (!nilai) {
+    return;
+  }
+
+  const it = (res.items || []).find(x => x._row === entry._row);
+  const sisa = (entry.semuaSebab || [entry.sebab]).filter(c => medanDari(c) !== kunci);
+  entry.semuaSebab = sisa;
+  entry.jawab = { ...(entry.jawab || {}), [kunci]: nilai };
+  if (entry.calon) entry.calon[kunci] = nilai;
+
+  if (it) {
+    it[kunci] = nilai;
+    it.cek = sisa.slice();
+  } else if (kunci === 'qty') {
+    // Barisnya belum ada di daftar pesanan -- baris tanpa jumlah memang tidak
+    // pernah dimasukkan. Di sini dia didorong masuk, LENGKAP, karena
+    // excelLabels.js tetap mengurai barisnya sampai habis dan menyimpannya
+    // sebagai `calon`. Tidak ada pembacaan ulang berkas.
+    const baru = { ...(entry.calon || {}), qty: nilai, cek: sisa.slice() };
+    res.items.push(baru);
+    entry.ikut = true;
+    const sel = { ...(st.ui.labelSel || {}) };
+    sel[res.items.length - 1] = !sisa.some(c => beratSebab(c) === 'tahan');
+    setUI({ labelSel: sel });
+  }
+
+  entry.tahan = sisa.some(c => beratSebab(c) === 'tahan');
+  if (!sisa.length) {
+    const target = it || (res.items || []).find(x => x._row === entry._row);
+    const i = target ? res.items.indexOf(target) : -1;
+    if (i >= 0) {
+      const sel = { ...(getState().ui.labelSel || {}) };
+      sel[i] = true;
+      setUI({ labelSel: sel });
+    }
+  } else {
+    entry.sebab = sisa[0];
+  }
+
+  // Angka di kartu, di kaki tabel dan di penjaga PO dihitung dari satu sumber,
+  // supaya tidak pernah ada dua angka yang saling membantah di satu layar.
+  const aktif = perluCekAktif(res);
+  res.stats.perluCek = aktif.length;
+  res.stats.menahan = aktif.filter(e => e.tahan).length;
+  res.stats.skipped = aktif.filter(e => !e.ikut).length;
+  setUI({ labelResult: res });
+}
+
+function beratSebab(sebab) {
+  if (sebab === 'merek_asing') return 'tahan';
+  return MEDAN_PERIKSA_BERAT[medanDari(sebab)] || 'tanya';
+}
+
+function kendaliJawab(e, kunci) {
+  const cara = CARA_JAWAB[kunci] || 'teks';
+  if (cara === 'merek') {
+    return pilihCari(MEREK_RESMI.slice().sort().map(m => ({ value: m, label: m })), {
+      value: (e.jawab || {})[kunci] || '',
+      onChange: v => jawabMedan(e, kunci, v),
+      minWidth: '210px',
+      cariPlaceholder: tr({ id: 'Ini merek apa?…', en: 'Which brand is this?…', zh: '这是什么品牌？…' }),
+    });
+  }
+  const idEl = `cek-${kunci}-${e._row}`;
+  return h('div.row.gap8', [
+    h('input.input.mono', {
+      id: idEl,
+      placeholder: cara === 'angka' ? '0' : '—',
+      style: { width: cara === 'angka' ? '92px' : '140px', textAlign: cara === 'angka' ? 'right' : 'left', fontSize: '11.5px', padding: '4px 7px' },
+    }),
+    btn(tr({ id: 'Simpan', en: 'Save', zh: '保存' }), {
+      sm: true,
+      onClick: () => {
+        const el = document.getElementById(idEl);
+        jawabMedan(e, kunci, el ? el.value : '');
+      },
+    }),
+  ]);
+}
+
+function kartuPerluCek(res) {
+  const sisa = perluCekAktif(res);
+  if (!sisa.length) return null;
+  const nTahan = sisa.filter(e => e.tahan).length;
+  const nDariMaster = (res.perluCek || []).reduce((a, e) => a + Object.keys(e.dariMaster || {}).length, 0);
+
+  const baris = sisa.map(e => {
+    const sebabList = (e.semuaSebab || [e.sebab]);
+    // Satu medan bisa muncul dua kali (mis. merek kosong DAN tidak dikenali);
+    // yang ditanyakan tetap satu kali.
+    const medan = [...new Set(sebabList.map(medanDari))];
+    const mentah = (k) => k === 'qty' ? e.qtyMentah : k === 'brand' ? e.merekMentah : k === 'market' ? e.pasarMentah : '';
+    return h('tr', [
+      h('td.mono', { style: { fontSize: '11px' } }, String(e.baris)),
+      h('td.mono', { style: { fontSize: '11px' } }, e.erp || '—'),
+      h('td', { style: { fontSize: '11px', maxWidth: '280px' } }, e.nama || '—'),
+      h('td', e.tahan
+        ? badge(tr({ id: 'Ditahan', en: 'Held', zh: '已拦下' }), 'red')
+        : badge(tr({ id: 'Boleh jalan', en: 'Can proceed', zh: '可继续' }), 'amber')),
+      h('td', h('div.stack', { style: { gap: '7px' } }, medan.map(k => {
+        const m = mentah(k);
+        const sebabIni = sebabList.find(c => medanDari(c) === k);
+        return h('div.row.gap8', { style: { alignItems: 'center', flexWrap: 'wrap' } }, [
+          h('span', { style: { fontSize: '11px', fontWeight: 700, minWidth: '104px' } }, labelSebab(sebabIni)),
+          m ? h('span.mono', { style: { fontSize: '10px', color: 'var(--text-3)' } }, `sel: "${m}"`) : null,
+          kendaliJawab(e, k),
+        ]);
+      }))),
+    ]);
+  });
+
+  return h('div.card', { style: { border: `1.5px solid var(--st-${nTahan ? 'red' : 'amber'}-tx)` } }, [
+    h('div.card-head', [
+      h('div.card-title', [icon('warn', 15), ' ', tr({
+        id: `${sisa.length} baris perlu dicek — ${nTahan} ditahan`,
+        en: `${sisa.length} row(s) need checking — ${nTahan} held`,
+        zh: `${sisa.length} 行需核对 — ${nTahan} 行被拦下`,
+      })]),
+    ]),
+    h('div', { style: { fontSize: '11.5px', color: 'var(--text-3)', padding: '0 16px 10px' } }, [
+      h('div', tr({
+        id: 'Tidak ada baris yang di-skip. Yang DITAHAN tidak bisa dipesan sampai dijawab — jumlah, merek, pasar dan spec, karena empat itu yang menentukan label mana yang dicetak dan berapa banyak. Yang "boleh jalan" tetap ikut dipesan, tapi medannya tercetak di label jadi tetap ditanyakan.',
+        en: 'No row is skipped. The HELD ones cannot be ordered until answered — quantity, brand, market and spec, because those four decide which label gets printed and how many. The others still get ordered, but their fields are printed on the label, so they are still asked about.',
+        zh: '没有任何行被跳过。被拦下的行在回答前无法下单 — 数量、品牌、市场与规格，因为这四项决定印哪张标签以及印多少。其余行仍会下单，但其字段会印在标签上，因此仍需确认。',
+      })),
+      nDariMaster ? h('div', { style: { marginTop: '4px' } }, tr({
+        id: `${nDariMaster} medan kosong lainnya TIDAK ditanyakan karena ERP-nya sudah ada di master item — diambil dari sana.`,
+        en: `${nDariMaster} other empty fields are NOT asked about because their ERP is already in the item master — taken from there.`,
+        zh: `另有 ${nDariMaster} 个空字段未被询问，因为其 ERP 已存在于物料主数据中 — 直接取用。`,
+      })) : null,
+    ]),
+    h('div.tbl-wrap', h('table.tbl', [
+      h('thead', h('tr', [
+        h('th', tr({ id: 'Baris', en: 'Row', zh: '行' })),
+        h('th', t('col_erp')),
+        h('th', tr({ id: 'Nama barang', en: 'Item name', zh: '物料名称' })),
+        h('th', tr({ id: 'Status', en: 'Status', zh: '状态' })),
+        h('th', tr({ id: 'Jawab di sini', en: 'Answer here', zh: '在此回答' })),
+      ])),
+      h('tbody', baris),
+    ])),
+  ]);
 }
 
 // Kotak di jendela saring baris hasil baca Excel. Isinya persis kolom yang
@@ -501,7 +748,16 @@ function step3() {
     ]),
   ]);
 
-  const warn = (res.warnings || []).map(w => h('div.cfg-banner', { style: { background: 'var(--st-amber-bg)', color: 'var(--st-amber-tx)', borderColor: 'var(--st-amber-tx)' } }, [icon('warn', 15), t('lr_shift_warn')]));
+  // PERINGATANNYA MENYEBUT DIRINYA SENDIRI, BUKAN SELALU SOAL KOLOM PR.
+  //
+  // Baris ini dulu menggambar t('lr_shift_warn') untuk SETIAP warning, apa pun
+  // isinya. Begitu excelLabels.js mulai mengirim warning kedua
+  // ('qty_unvalidated' — kolom QTY tidak bisa divalidasi), layarnya tetap
+  // menulis "kolom PR hilang, sudah dikoreksi otomatis": keterangan yang tidak
+  // ada hubungannya, dan yang lebih buruk, berbunyi seperti kabar baik.
+  const warn = (res.warnings || []).map(w => h('div.cfg-banner', {
+    style: { background: 'var(--st-amber-bg)', color: 'var(--st-amber-tx)', borderColor: 'var(--st-amber-tx)' },
+  }, [icon('warn', 15), w.type === 'shifted_pr' ? t('lr_shift_warn') : (w.msg || String(w.type || ''))]));
 
   const thead = h('thead', h('tr', [
     h('th', h('input', { type: 'checkbox', checked: selCount === res.items.length, onChange: e => { const s = {}; res.items.forEach((_, i) => (s[i] = e.target.checked)); setUI({ labelSel: s }); }, style: { accentColor: 'var(--accent)' } })),
@@ -560,10 +816,14 @@ function step3() {
       tombolFilter({ id: 'lr-baris', medan, judul: t('lr_step_preview') }),
     ]),
     h('div.tbl-wrap', h('table.tbl', [thead, body])),
+    // Kaki tabel tidak lagi menulis "N dilewati" sebagai satu-satunya kabar
+    // soal baris yang tidak masuk. "Dilewati" berbunyi seperti keputusan yang
+    // sudah diambil; yang benar adalah baris itu MENUNGGU dijawab, dan kartu di
+    // atas tabel ini yang menyebut mana saja.
     h('div.tbl-foot', tr({
-      id: `${rows.length}/${res.stats.total} · ${res.stats.skipped} ${t('lr_skipped')} · header baris ${res.stats.headerRow}`,
-      en: `${rows.length}/${res.stats.total} · ${res.stats.skipped} ${t('lr_skipped')} · header row ${res.stats.headerRow}`,
-      zh: `${rows.length}/${res.stats.total} · ${res.stats.skipped} ${t('lr_skipped')} · 表头行 ${res.stats.headerRow}`,
+      id: `${rows.length}/${res.stats.total} · ${perluCekAktif(res).length} perlu dicek (lihat kartu di atas) · header baris ${res.stats.headerRow}`,
+      en: `${rows.length}/${res.stats.total} · ${perluCekAktif(res).length} need checking (see card above) · header row ${res.stats.headerRow}`,
+      zh: `${rows.length}/${res.stats.total} · ${perluCekAktif(res).length} 行需核对（见上方卡片）· 表头行 ${res.stats.headerRow}`,
     })),
   ]);
 
@@ -620,7 +880,27 @@ function step3() {
   // berbeda pendapat. Yang ditulis cuma textContent, jadi aman.
   setTimeout(segarkanHarga, 0);
 
-  return h('div.stack', { style: { gap: '14px' } }, [summary, ...warn, table, actionBar]);
+  return h('div.stack', { style: { gap: '14px' } }, [summary, ...warn, kartuPerluCek(res), table, actionBar]);
+}
+
+// Penjaga terakhir sebelum baris berubah jadi pesanan.
+//
+// Kartu PERLU DICEK sudah melepas centangnya, tapi centang bisa dipasang balik
+// dengan satu klik — termasuk lewat kotak "pilih semua" di kepala tabel, yang
+// mencentang SELURUH baris tanpa membaca `cek` sama sekali. Jadi penolakannya
+// harus ada di sini juga, di tempat yang tidak bisa dilewati: menyebut baris
+// mana dan apa yang belum dijawab, bukan cuma menolak.
+function tahanBelumBeres(chosen) {
+  const belum = chosen.filter(r => (r.cek || []).some(c => beratSebab(c) === 'tahan'));
+  if (!belum.length) return false;
+  const daftar = belum.slice(0, 5).map(r => `#${(r._row ?? 0) + 1} ${r.erp || r.spec || ''}`).join(', ');
+  const lagi = belum.length > 5 ? ` …+${belum.length - 5}` : '';
+  toast({
+    id: `${belum.length} baris yang dicentang belum dijawab di kartu "perlu dicek": ${daftar}${lagi}`,
+    en: `${belum.length} ticked row(s) are still unanswered in the "needs checking" card: ${daftar}${lagi}`,
+    zh: `已勾选的 ${belum.length} 行在「需要核对」卡片中尚未回答：${daftar}${lagi}`,
+  });
+  return true;
 }
 
 // sona's half: freeze what she selected and hand it over. Nothing about the
@@ -634,6 +914,7 @@ async function submitRequest() {
     toast({ id: 'Centang dulu baris yang mau diminta', en: 'Tick the rows you are requesting first', zh: '请先勾选要申请的行' });
     return;
   }
+  if (tahanBelumBeres(chosen)) return;
   const local = {
     file: ui.labelFile, sheet: ui.labelSheet, rows: chosen,
     by: st.user.username, at: new Date().toISOString(), status: 'Diminta',
@@ -1008,6 +1289,8 @@ function openPoModal() {
     toast({ id: 'Centang dulu baris yang mau di-PO', en: 'Tick the rows to raise a PO for first', zh: '请先勾选要开采购单的行' });
     return;
   }
+  // chosen di sini bentuknya { r, harga, ... } — barisnya di .r
+  if (tahanBelumBeres(chosen.map(x => x.r || x))) return;
   // Menahan di sini, bukan mengarang angka. Sampai v15.2 baris tanpa harga
   // diberi Rp 1.000/pcs oleh `|| 1000` dan PO-nya tetap terbit — PDF berisi
   // nilai kontrak palsu yang bisa dikirim ke pemasok. Layar yang menolak jalan

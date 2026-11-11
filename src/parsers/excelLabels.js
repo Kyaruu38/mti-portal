@@ -11,6 +11,7 @@
 // QTY column (must be numeric) and auto-correct, surfacing a warning.
 
 import { parseItemName } from './itemName.js';
+import { canonicalBrand, ejaanResmi, merekDikenal } from './brandMap.js';
 import { parseNumber } from './numbers.js';
 
 // Header alias -> canonical key. Matched case-insensitively as substrings.
@@ -145,6 +146,26 @@ export function pisahSpecSize(rows, headerIdx, map, multi) {
 // diketik tangan, dan itu justru yang paling sering di berkas order bulanan.
 const toNum = v => { const n = parseNumber(v, 'id'); return Number.isFinite(n) ? n : NaN; };
 const NUMERIC = v => v !== '' && v != null && Number.isFinite(toNum(v));
+
+// ANGKA POLOS: dipakai HANYA untuk mendeteksi pergeseran kolom, dan ketatnya
+// disengaja. parseNumber() memang memaafkan banyak bentuk -- itu gunanya untuk
+// MEMBACA sel yang diketik tangan. Tapi untuk MENEBAK kolom mana sebenarnya
+// kolom QTY, kemurahan itu berbahaya: '152/149M' (indeks beban) lolos
+// NUMERIC() dan terbaca 152149, dan '18PR' terbaca 18.
+//
+// Itu bukan dugaan. Diuji: lembar satu baris dengan QTY berisi 'asap' membuat
+// correctQty memindahkan kolom QTY ke kolom 负荷指数 di sebelahnya, lalu
+// memesan 152.149 lembar label dari satu baris yang jumlahnya tidak terbaca.
+// Spanduk 'kolom PR hilang' muncul, jadi secara teknis ada peringatan -- tapi
+// peringatannya menyebut hal lain, dan angkanya tetap masuk ke PO.
+//
+// Kolom QTY berisi angka saja: '1200', '1.200', '1,200', '1200.0'. Yang
+// mengandung huruf atau garis miring BUKAN kandidat, apa pun kata parseNumber.
+const ANGKA_POLOS = v => {
+  const str = String(v ?? '').trim();
+  if (!str || /[A-Za-z/]/.test(str)) return false;
+  return Number.isFinite(toNum(str));
+};
 const ERP_RE = /^\d{6,}[A-Za-z]{0,3}$|^MTI-|^\d{4,}ID$/;
 
 // Validate & auto-correct the QTY column via type inspection of data rows.
@@ -164,9 +185,21 @@ function correctQty(rows, headerIdx, map) {
   // reporting "no shift detected", which reads like a clean bill of health.
   if (!sample.length) return { map, shifted: false, unvalidated: true };
 
-  const numericAt = col => sample.filter(r => NUMERIC(r[col])).length / sample.length;
+  const numericAt = col => sample.filter(r => ANGKA_POLOS(r[col])).length / sample.length;
   const declared = numericAt(map.qty);
   if (declared >= 0.6) return { map, shifted: false };
+
+  // SAMPEL TERLALU KECIL UNTUK MEMUTUSKAN PERGESERAN.
+  //
+  // Dengan satu atau dua baris, "kolom di sebelahnya 100% angka" tidak berarti
+  // apa-apa -- satu sel kebetulan angka sudah cukup. Dan akibat salahnya tidak
+  // simetris: tidak menggeser berarti barisnya ditanyakan ke orangnya, sedangkan
+  // menggeser dengan salah berarti angka dari kolom lain masuk ke PO sebagai
+  // jumlah pesanan. Jadi kalau tidak yakin, JANGAN geser -- biarkan jalur
+  // PERLU DICEK yang menanganinya.
+  if (sample.length < 3) {
+    return { map, shifted: false, sampelKecil: sample.length };
+  }
 
   // QTY column isn't numeric -> look at neighbours (the shift is usually +/-1..2).
   let bestCol = map.qty, bestScore = declared;
@@ -227,19 +260,88 @@ function kodePasar(v) {
 
 const POLA_STOK_LABEL = /^\d+(?:[.,]\d+)?\s*[x×*]\s*\d+(?:[.,]\d+)?\s*mm$/i;
 
+// ---------------------------------------------------------------------------
+// MEDAN YANG HARUS TERBACA, DAN APA YANG TERJADI KALAU TIDAK.
+//
+// Aturannya dari pemiliknya, dan bunyinya tidak menyisakan ruang: "merek, qty
+// everything, kalo ada gk kebaca lu harus confirm ke org yang upload, gw gamau
+// lu nge skip yang ga kebaca".
+//
+// Jadi tidak ada satu pun medan di bawah yang boleh hilang diam-diam. Tapi
+// "jangan di-skip" TIDAK sama dengan "tanyakan semuanya ke orangnya": kalau
+// ERP-nya sudah ada di master item, medan yang kosong di lembar itu SUDAH
+// diketahui portal, dan menanyakannya berarti menyuruh orang mengetik ulang
+// sesuatu yang sudah tersimpan. Pertanyaan yang bisa dijawab sendiri adalah
+// pertanyaan yang bikin kartunya panjang, dan kartu yang panjang tidak dibaca.
+//
+// Urutannya: baca lembar -> kalau kosong, ambil dari master (dicatat asalnya)
+// -> kalau master juga tidak punya, BARU ditanyakan.
+//
+// Dua tingkat berat, dan bedanya nyata:
+//   'tahan'  barisnya TIDAK boleh dipesan sampai dijawab. Empat medan saja:
+//            jumlah (memesan tanpa jumlah bukan pilihan), merek dan pasar
+//            (dua-duanya yang memilih DESIGN -- salah satu kosong berarti
+//            labelnya tidak bisa dipilih, bukan cuma kurang rapi), dan spec
+//            (itu identitas barangnya; tanpa dia barisnya tidak menunjuk apa
+//            pun).
+//   'tanya'  barisnya boleh dipesan, tapi medannya tetap ditanyakan karena dia
+//            TERCETAK di label. Dilepas dari penahan dengan sengaja: menahan
+//            seluruh order bulanan karena satu kolom 花纹 kosong akan membuat
+//            orang berhenti memakai kartunya dan mulai mencari jalan pintas.
+const MEDAN_PERIKSA = [
+  { kunci: 'qty',       berat: 'tahan', master: null,        label: { id: 'Jumlah', en: 'Quantity', zh: '数量' } },
+  { kunci: 'brand',     berat: 'tahan', master: 'brand',     label: { id: 'Merek', en: 'Brand', zh: '品牌' } },
+  { kunci: 'market',    berat: 'tahan', master: 'market',    label: { id: 'Pasar', en: 'Market', zh: '市场' } },
+  { kunci: 'spec',      berat: 'tahan', master: 'spec',      label: { id: 'Spec', en: 'Spec', zh: '规格' } },
+  { kunci: 'size',      berat: 'tanya', master: 'size',      label: { id: 'Dimensi ban', en: 'Tyre size', zh: '轮胎尺寸' } },
+  { kunci: 'ttl',       berat: 'tanya', master: 'ttTl',      label: { id: 'TT / TL', en: 'TT / TL', zh: 'TT / TL' } },
+  { kunci: 'pr',        berat: 'tanya', master: 'ply',       label: { id: 'PR (lapis)', en: 'PR (ply)', zh: '层级 PR' } },
+  { kunci: 'pattern',   berat: 'tanya', master: 'pattern',   label: { id: 'Kode pola', en: 'Pattern code', zh: '花纹代码' } },
+  { kunci: 'loadSpeed', berat: 'tanya', master: 'loadSpeed', label: { id: 'Indeks beban', en: 'Load index', zh: '负荷指数' } },
+  { kunci: 'erp',       berat: 'tanya', master: null,        label: { id: 'Kode ERP', en: 'ERP code', zh: 'ERP 代码' } },
+];
+
+export const MEDAN_PERIKSA_LABEL = Object.fromEntries(MEDAN_PERIKSA.map(m => [m.kunci, m.label]));
+export const MEDAN_PERIKSA_BERAT = Object.fromEntries(MEDAN_PERIKSA.map(m => [m.kunci, m.berat]));
+
+// PASAR YANG BENTUKNYA BUKAN KODE PASAR DIANGGAP TIDAK TERBACA.
+//
+// Kode pasar adalah segmen terakhir prefiks nama barang: BX, PT, SNI, OEM,
+// ATD, EU, ZCTJ. Yang masuk ke kolom ini dan BUKAN itu sudah terbukti ada:
+// 702 dari 1.560 baris pernah menyimpan prefiks penuh '(ID-WL-TBR-PT)', dan
+// '—' juga pernah. kodePasar() sudah melipat dua bentuk itu, tapi yang lolos
+// dari dua-duanya tetap harus ditanyakan -- karena pasar yang salah berarti
+// pilihTemplat() tidak menemukan templat, dan itu baru ketahuan di langkah
+// cetak, jauh dari orang yang tahu jawabannya.
+const POLA_PASAR = /^[A-Z]{2,6}$/;
+
 // Main entry. rows = array-of-arrays (SheetJS header:1). knownErps = Set of ERP codes.
-export function parseLabelSheet(rows, { brandMap, knownErps = new Set() } = {}) {
+export function parseLabelSheet(rows, { brandMap, knownErps = new Set(), master = [] } = {}) {
+  // Master item dibuat jadi indeks SEKALI per lembar, bukan dicari linear per
+  // baris: lembar order bulanan bisa 600 baris dan master 1.583 item, dan
+  // find() di dalam loop berarti hampir satu juta perbandingan untuk satu
+  // unggahan. Diterima sebagai array ATAU Map, supaya pemanggil yang sudah
+  // punya indeksnya tidak membangun yang kedua.
+  const masterIdx = master instanceof Map
+    ? master
+    : new Map((master || []).filter(x => x && x.erp).map(x => [String(x.erp).trim(), x]));
   const warnings = [];
   const header = findHeaderRow(rows);
   if (header.idx < 0 || header.hits < 3) {
     return { ok: false, error: 'Header tidak terdeteksi (kolom market / ERP CODE / QTY tidak ditemukan).', warnings };
   }
   const mapAwal = pisahSpecSize(rows, header.idx, header.map, header.multi || {});
-  const { map, shifted, unvalidated } = correctQty(rows, header.idx, mapAwal);
+  const { map, shifted, unvalidated, sampelKecil } = correctQty(rows, header.idx, mapAwal);
   if (shifted) {
     warnings.push({
       type: 'shifted_pr',
       msg: 'Kolom "PR" hilang di sheet ini — kolom di kanan TT/TL bergeser. Otomatis dikoreksi lewat validasi tipe QTY.',
+    });
+  }
+  if (sampelKecil != null) {
+    warnings.push({
+      type: 'sampel_kecil',
+      msg: `Kolom QTY tidak berisi angka dan sampelnya cuma ${sampelKecil} baris — terlalu sedikit untuk memastikan kolomnya bergeser, jadi TIDAK digeser. Baris yang jumlahnya tidak terbaca masuk daftar "perlu dicek" di bawah.`,
     });
   }
   if (unvalidated) {
@@ -252,7 +354,30 @@ export function parseLabelSheet(rows, { brandMap, knownErps = new Set() } = {}) 
 
   const items = [];
   let section = '';
-  let skipped = 0;
+  // BARIS YANG TIDAK TERBACA TIDAK DIBUANG LAGI -- DIA DILEMPAR KE SINI.
+  //
+  // Sebelum ini baris yang QTY-nya bukan angka cuma menaikkan satu penghitung
+  // (`skipped`), dan yang tampil di kaki tabel cuma angkanya: "12 dilewati".
+  // Yang mana, kenapa, dan apa isinya tidak pernah disebut -- jadi baris yang
+  // tidak terbaca BUKAN ditolak, melainkan hilang tanpa suara, dan ordernya
+  // tetap jalan dengan jumlah yang kurang. Yang menemukan kekurangannya bukan
+  // portal ini, tapi gudang, waktu labelnya tidak cukup.
+  //
+  // Sekarang tiap baris yang tidak terbaca disimpan UTUH beserta sebabnya,
+  // nomor barisnya di lembar, dan isi sel yang bikin dia gagal -- supaya yang
+  // mengunggah bisa menjawab "ini merek apa" dan "ini jumlahnya berapa", lalu
+  // barisnya ikut. Bukan di-skip, bukan dipesan buta: diperiksa dulu.
+  const perluCek = [];
+  const cekBaris = (i, row, sebab, extra = {}) => {
+    perluCek.push({
+      _row: i,
+      baris: i + 1,                      // nomor baris seperti yang dilihat orang di Excel
+      erp: String(get(row, map.erp)).trim(),
+      nama: String(get(row, map.nameEn) || get(row, map.nameZh) || get(row, map.spec)).trim(),
+      sebab,
+      ...extra,
+    });
+  };
 
   for (let i = header.idx + 1; i < rows.length; i++) {
     const row = rows[i] || [];
@@ -264,17 +389,43 @@ export function parseLabelSheet(rows, { brandMap, knownErps = new Set() } = {}) 
 
     const erp = String(get(row, map.erp)).trim();
     const qtyRaw = get(row, map.qty);
-    // Skip rows without a numeric QTY (per spec).
-    if (!NUMERIC(qtyRaw)) { skipped++; continue; }
-    const qty = toNum(qtyRaw);
-    if (qty <= 0) { skipped++; continue; }
+    // QTY DIPERIKSA DI SINI, TAPI BARISNYA TETAP DIURAI SAMPAI HABIS.
+    //
+    // Dulu di titik ini ada `continue`, jadi baris yang QTY-nya tidak terbaca
+    // tidak pernah sampai ke penguraian nama, merek, dimensi dan pola. Yang
+    // tersisa dari dia cuma satu angka di penghitung `skipped`. Akibatnya
+    // bukan cuma orangnya tidak tahu baris mana -- tidak ada apa pun yang bisa
+    // ditawarkan untuk dibetulkan, karena isinya sudah tidak ada.
+    //
+    // Sekarang barisnya diurai seperti baris normal, hasilnya disimpan sebagai
+    // `calon` di daftar PERLU DICEK, dan yang mengunggah cuma perlu mengisi
+    // jumlahnya untuk membuatnya ikut. Yang kosong jumlahnya tetap TIDAK masuk
+    // daftar pesanan -- memesan label tanpa jumlah bukan pilihan.
+    const qtyKosong = !NUMERIC(qtyRaw);
+    const qty = qtyKosong ? null : toNum(qtyRaw);
+    const qtyNol = !qtyKosong && qty <= 0;
 
     const nameEn = String(get(row, map.nameEn)).trim();
     const nameZh = String(get(row, map.nameZh)).trim();
     const parsed = parseItemName(nameEn || nameZh, brandMap);
 
     const market = kodePasar(get(row, map.market)) || kodePasar(parsed.market);
-    const brand = String(get(row, map.brand)).trim();
+    // MEREK DISNAP KE EJAAN RESMI DI SINI, DAN YANG TIDAK DIKENALI DITANDAI.
+    //
+    // Dulu isi kolom merek dibawa APA ADANYA -- `brand || parsed.brand` -- jadi
+    // lembar yang menulis 'GOLDENCROWN', 'SRYKER' atau 'BISEN' memasukkan ejaan
+    // itu ke master item, dan satu merek jadi dua. Sekarang dia lewat
+    // canonicalBrand() + ejaanResmi(), yang menerjemahkan Mandarin, menyatukan
+    // beda spasi/huruf, dan membetulkan salah ketik yang terdaftar.
+    //
+    // Yang TIDAK bisa dikenali tidak ditebak dan tidak dibuang: barisnya tetap
+    // ikut, tapi ditandai `cek` supaya layarnya menanyakannya ke yang mengunggah
+    // sebelum barisnya boleh dipesan. '95H CAPITOL' dan 'TBR' di kolom merek
+    // adalah bentuk kerusakan yang justru harus kelihatan, bukan dirapikan
+    // diam-diam jadi merek yang kedengarannya mirip.
+    const merekMentah = String(get(row, map.brand)).trim();
+    const kandidatMerek = canonicalBrand(merekMentah, brandMap) || parsed.brand || '';
+    const brand = ejaanResmi(kandidatMerek) || kandidatMerek;
     // Dipisah SEBELUM dipakai, bukan sesudah: begitu '254X79mm' ikut masuk
     // ke `size`, aturan "kosong tidak pernah menimpa" di label_master_panen
     // justru melindunginya dari diperbaiki.
@@ -283,12 +434,12 @@ export function parseLabelSheet(rows, { brandMap, knownErps = new Set() } = {}) 
 
     const isNew = section === 'newitems' || (erp && !knownErps.has(erp)) || !erp;
 
-    items.push({
+    const calon = {
       market,
       spec: String(get(row, map.spec)).trim() || parsed.spec,
       erp,
       ean: String(get(row, map.ean)).trim(),
-      brand: brand || parsed.brand,
+      brand,
       ttl: String(get(row, map.ttl)).trim() || parsed.tube,
       pr: String(get(row, map.pr)).trim() || parsed.pr,
       ms: String(get(row, map.ms)).trim(),
@@ -338,15 +489,99 @@ export function parseLabelSheet(rows, { brandMap, knownErps = new Set() } = {}) 
       isNew,
       section,
       _row: i,
-    });
+    };
+
+    // -----------------------------------------------------------------------
+    // PEMERIKSAAN SELURUH MEDAN. Satu tempat, bukan tersebar.
+    //
+    // Tiga keputusan per medan, dan urutannya yang menentukan:
+    //   1. Terbaca dari lembar?            -> selesai.
+    //   2. Kosong tapi ERP-nya ada di master item? -> diambil dari sana, dan
+    //      asalnya DICATAT di calon.dariMaster. Dicatat bukan untuk rapi-rapian:
+    //      tanpa itu, nilai yang datang dari master tidak bisa dibedakan dari
+    //      nilai yang benar-benar tertulis di lembar bulan ini, dan panen
+    //      berikutnya akan menulisnya balik ke master sebagai "dikonfirmasi
+    //      lembar" padahal tidak ada yang mengkonfirmasi apa pun.
+    //   3. Master juga tidak punya?        -> DITANYAKAN. Bukan di-skip.
+    const cek = [];
+    const dariMaster = {};
+    const mst = masterIdx.get(erp) || null;
+
+    if (qtyKosong) cek.push('qty_tidak_terbaca');
+    else if (qtyNol) cek.push('qty_nol');
+
+    for (const m of MEDAN_PERIKSA) {
+      if (m.kunci === 'qty') continue;                 // sudah ditangani di atas
+      let v = String(calon[m.kunci] ?? '').trim();
+      // Pasar yang bentuknya bukan kode pasar sama saja dengan tidak terbaca.
+      if (m.kunci === 'market' && v && !POLA_PASAR.test(v)) v = '';
+      if (!v && mst && m.master) {
+        const dari = String(mst[m.master] ?? '').trim();
+        if (dari) {
+          calon[m.kunci] = dari;
+          dariMaster[m.kunci] = dari;
+          v = dari;
+        }
+      }
+      // ERP kosong di bagian `newitems` BUKAN kerusakan: bagian itu ada justru
+      // untuk barang yang belum punya kode. Menanyakannya di situ berarti
+      // menanyakan sesuatu yang memang belum ada jawabannya.
+      if (m.kunci === 'erp' && !v && section === 'newitems') continue;
+      if (!v) { cek.push(m.kunci + '_kosong'); continue; }
+      if (m.kunci === 'brand' && !merekDikenal(v)) cek.push('merek_asing');
+    }
+
+    calon.cek = cek;
+    calon.dariMaster = dariMaster;
+
+    // SATU TEMPAT YANG MEMUTUSKAN: ikut dipesan, atau ditahan dulu.
+    //
+    // Baris tanpa jumlah TIDAK masuk `items` -- seluruh jalur hilir (harga,
+    // subtotal, susunDaftarBeli() di labelStock) menganggap qty angka, dan
+    // menaruh null di sana berarti memindahkan kerusakannya ke tempat yang
+    // lebih jauh dari tempat orangnya bisa membetulkannya.
+    //
+    // Baris yang medannya kurang tapi jumlahnya ada TETAP masuk daftar, dengan
+    // `cek` yang tidak kosong. Layar unggah yang melepas centangnya kalau ada
+    // sebab bertingkat 'tahan' -- jadi dia KELIHATAN di tabel, bisa disaring,
+    // bisa dijawab, tapi tidak ikut terpesan diam-diam.
+    const berat = cek.map(c => MEDAN_PERIKSA_BERAT[c.replace(/_(kosong|asing|tidak_terbaca|nol)$/, '')] || (c.startsWith('merek') ? 'tahan' : 'tanya'));
+    const adaTahan = berat.includes('tahan');
+    if (cek.length) {
+      cekBaris(i, row, cek[0], {
+        semuaSebab: cek,
+        tahan: adaTahan,
+        dariMaster,
+        merekMentah: merekMentah || kandidatMerek,
+        qtyMentah: String(qtyRaw ?? '').trim(),
+        pasarMentah: String(get(row, map.market)).trim(),
+        ikut: !(qtyKosong || qtyNol),
+        calon,
+      });
+    }
+    if (qtyKosong || qtyNol) continue;
+    items.push(calon);
   }
 
+  // `skipped` dipertahankan BENTUKNYA (kaki tabel dan labelStock.js membacanya)
+  // tapi sekarang artinya tepat: baris yang benar-benar tidak masuk daftar
+  // pesanan, bukan "baris yang kami lewati dan lupakan".
+  const terbuang = perluCek.filter(x => !x.ikut);
+  const menahan = perluCek.filter(x => x.tahan);
   return {
     ok: true,
     warnings,
     columns: map,
     items,
-    stats: { total: items.length, skipped, newItems: items.filter(x => x.isNew).length, headerRow: header.idx + 1 },
+    perluCek,
+    stats: {
+      total: items.length,
+      skipped: terbuang.length,
+      perluCek: perluCek.length,
+      menahan: menahan.length,
+      newItems: items.filter(x => x.isNew).length,
+      headerRow: header.idx + 1,
+    },
   };
 }
 
