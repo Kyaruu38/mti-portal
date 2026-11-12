@@ -133,3 +133,40 @@ export function kodeDariSpec(spec) {
   const m = KURUNG.exec(String(spec ?? '').trim());
   return m ? m[1].trim() : '';
 }
+
+// -----------------------------------------------------------------------------
+// VARIAN SUDUT — penggabungan foto utama dengan sudut-sudut lainnya.
+//
+// Ada DI SINI, bukan di screens/polaBan.js, karena alasan yang sama dengan
+// seluruh berkas ini: ini aturan, bukan tampilan. Layar yang memanggilnya
+// mengimpor dom.js dan store.js, dan apa pun yang hidup di sana tidak bisa
+// diuji tanpa menyalakan DOM. Pemisahan yang sama dengan urgensi.js lawan
+// urgensiApi.js.
+// -----------------------------------------------------------------------------
+
+// Urutan tampil, dan itu BUKAN abjad: tapak dulu karena itu yang dipakai
+// label dan yang paling sering dicari, lalu pelek karena paling mirip ban
+// sungguhan, lalu donat. Abjad akan menaruh donat di depan tanpa alasan.
+export const URUT_BENTUK = ['tapak', 'pelek', 'donat'];
+
+export function gabungVarian(utama, varian) {
+  const peta = new Map();
+  for (const v of (varian || [])) {
+    if (!v || !v.kode) continue;
+    if (!peta.has(v.kode)) peta.set(v.kode, []);
+    peta.get(v.kode).push(v);
+  }
+  return (utama || []).map(p => {
+    const lain = (peta.get(p.kode) || []).slice().sort((a, b) => {
+      const ia = URUT_BENTUK.indexOf(a.bentuk);
+      const ib = URUT_BENTUK.indexOf(b.bentuk);
+      // Bentuk yang TIDAK DIKENAL turun ke belakang, tidak naik ke depan.
+      // indexOf mengembalikan -1 untuk yang tidak ada di daftar, dan -1
+      // mengurutkan SEBELUM 0 — artinya bentuk asing akan muncul paling kiri,
+      // persis kebalikan dari yang diinginkan. Kalau basis data suatu hari
+      // menyimpan bentuk keempat, dia muncul di belakang yang sudah dikenal.
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+    return { ...p, varian: lain };
+  });
+}

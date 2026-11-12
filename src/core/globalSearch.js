@@ -136,7 +136,10 @@ export const SEARCH_TYPES = {
   // bukan data yang perlu dijaga: barangnya dijual di pasar dan gambarnya ada
   // di katalog pabrik. Yang dijaga di portal ini angka dan harga, bukan ini.
   'Pola Ban': {
-    screens: [],
+    // Sejak v28.0 ada layarnya: library pola ban. Sebelum itu daftar ini
+    // kosong dengan sengaja, karena tidak ada layar yang menampilkan foto
+    // tapak dan satu-satunya jalan keluar adalah tautan Drive.
+    screens: ['pola-ban'],
     visible: r => hasScreen(r, 'label-library') || hasScreen(r, 'label-artwork')
                || hasScreen(r, 'label-stock')   || hasScreen(r, 'label-request')
                || hasModule(r, 'Label'),

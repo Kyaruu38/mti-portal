@@ -43,6 +43,12 @@ const state = {
   // baris design, lihat core/polaFoto.js. Kosong sampai tabelnya dimigrasi,
   // dan yang kosong cuma membuat tipe "Pola Ban" tidak keluar di pencarian.
   polaFoto: [],
+  // Sudut pandang LAIN dari pola yang sama: { kode, bentuk, driveId, urlLihat,
+  // urlGambar }, bentuk = tapak | pelek | donat. Sengaja TIDAK digabung ke
+  // polaFoto — tabel itu satu baris per kode dan artwork v27.0 bergantung pada
+  // itu; lihat supabase/sql/pola_foto_varian.sql. Kosong berarti layar library
+  // cuma menampilkan foto utama, dan itu bukan kerusakan.
+  polaFotoVarian: [],
   // Tab yang sedang terbuka, urut kiri-ke-kanan. st.screen tetap yang AKTIF —
   // seluruh kode lama yang membaca st.screen tidak perlu tahu tab ini ada.
   // Hidup di memori saja: menutup tab bukan keputusan yang perlu diingat

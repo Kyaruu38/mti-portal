@@ -28,7 +28,7 @@ import { fetchPpkek } from '../core/ppkekApi.js';
 import { fetchLabelStock, fetchLabelUploads, fetchLabelSettings, fetchLabelStockTrend } from '../core/labelStockApi.js';
 import { fetchLabelPrices } from '../core/labelPricesApi.js';
 import { fetchErpTarikan } from '../core/erpTarikanApi.js';
-import { fetchPolaFoto } from '../core/polaFotoApi.js';
+import { fetchPolaFoto, fetchPolaFotoVarian } from '../core/polaFotoApi.js';
 
 // Log in by username. Uses Supabase Auth when configured; otherwise a demo check.
 export async function login(username, password) {
@@ -195,6 +195,10 @@ async function hydrate(user, username, preferScreen, preferLang) {
     // belum ada, fetch-nya mengembalikan null dan st.polaFoto dibiarkan
     // kosong — akibatnya cuma tipe "Pola Ban" tidak muncul di pencarian.
     ['polaFoto',      () => fetchPolaFoto()],
+    // Varian sudutnya. Dimuat terpisah dari polaFoto dengan sengaja: kalau
+    // tabel varian belum dimigrasi, foto utama tetap masuk dan artwork tetap
+    // jalan. Yang hilang cuma lencana sudut di layar library.
+    ['polaFotoVarian', () => fetchPolaFotoVarian()],
     // Riwayat tarikan 采购申请. Dari sinilah KAS dihitung — lihat
     // core/kasLabel.js. Kalau ini null, kas terlihat PENUH lagi, dan itu bukan
     // kegagalan yang boleh diam: orangnya akan menarik excel tahap berikutnya
@@ -261,6 +265,7 @@ async function hydrate(user, username, preferScreen, preferLang) {
   if (nilai.labelStockGudang) st.labelStockGudang = nilai.labelStockGudang;
   if (nilai.labelPrices)   st.labelPrices   = nilai.labelPrices;
   if (nilai.polaFoto)      st.polaFoto      = nilai.polaFoto;
+  if (nilai.polaFotoVarian) st.polaFotoVarian = nilai.polaFotoVarian;
 
   // DRAIN THE DRIVE QUEUE. Anything that failed to reach Drive while it was
   // down goes up now, without anyone re-picking a file.

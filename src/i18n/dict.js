@@ -54,6 +54,7 @@ export const DICT = {
   s_label: { id: 'Label Request', en: 'Label Request', zh: '标签申请' },
   s_library: { id: 'Design Library', en: 'Design Library', zh: '设计库' },
   s_artwork: { id: 'Artwork Otomatis', en: 'Automatic Artwork', zh: '自动生成图稿' },
+  s_polaban: { id: 'Pola Ban', en: 'Tyre Patterns', zh: '轮胎花纹' },
   s_labelstock: { id: 'Stok Label', en: 'Label Stock', zh: '标签库存' },
   s_urgensi: { id: 'Urgensi Label', en: 'Label Urgency', zh: '标签紧急度' },
   // Namanya menyebut dirinya sendiri. "Delivery Note" saja membuat orang

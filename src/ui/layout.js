@@ -34,6 +34,11 @@ const NAV = [
     { id: 'label-request', t: 's_label', ic: 'tag' },
     { id: 'label-library', t: 's_library', ic: 'layers' },
     { id: 'label-artwork', t: 's_artwork', ic: 'image' },
+    // Tetangganya Artwork, bukan Design Library. Yang membuka layar ini
+    // sedang mencari BENTUK tapak untuk ditempel ke artwork — bukan mencari
+    // berkas design. Menaruhnya di bawah Artwork membuat urutan membacanya
+    // sama dengan urutan kerjanya.
+    { id: 'pola-ban', t: 's_polaban', ic: 'layers' },
     { id: 'label-stock', t: 's_labelstock', ic: 'box' },
     // Tab SENDIRI, tepat di bawah Stok Label dan bukan di dalamnya.
     //
@@ -160,7 +165,7 @@ function bilahTab(st) {
 
 const TITLES = {
   dashboard: 's_dashboard', approval: 's_approval', 'label-request': 's_label',
-  'label-library': 's_library', 'label-artwork': 's_artwork', 'label-stock': 's_labelstock', 'urgensi-label': 's_urgensi', 'surat-jalan': 's_surat', 'po-converter': 's_converter', 'po-saya': 's_po_saya', 'kas-label': 's_kas_label', 'outstanding-po': 's_outstanding', complaints: 's_complaints',
+  'label-library': 's_library', 'label-artwork': 's_artwork', 'pola-ban': 's_polaban', 'label-stock': 's_labelstock', 'urgensi-label': 's_urgensi', 'surat-jalan': 's_surat', 'po-converter': 's_converter', 'po-saya': 's_po_saya', 'kas-label': 's_kas_label', 'outstanding-po': 's_outstanding', complaints: 's_complaints',
   ppkek: 's_ppkek', payment: 's_payment', finance: 's_finance', 'master-data': 's_master', reports: 's_reports', 'log-hapus-po': 's_log_hapus',
 };
 

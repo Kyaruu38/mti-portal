@@ -175,14 +175,36 @@ serve(async (req) => {
     if (!up.ok) return json({ error: 'Drive upload failed', detail: await up.text() }, 502);
     const data = await up.json();
 
-    // Anyone with the link can view — the whole point of this Drive layout.
-    await fetch(`https://www.googleapis.com/drive/v3/files/${data.id}/permissions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: 'reader', type: 'anyone' }),
-    });
+    // Anyone with the link can view -- the whole point of this Drive layout.
+    //
+    // HASILNYA DIPERIKSA, DAN INI BUKAN KERAPIAN. Sebelumnya panggilan ini
+    // di-await tapi responsnya dibuang, jadi kalau Drive menolak (403 karena
+    // kebijakan berbagi, atau 429 karena laju) fungsinya TETAP mengembalikan
+    // {id, webViewLink} seperti sukses. Barisnya tersimpan, tautannya
+    // tersimpan, dan berkasnya PRIVATE. Yang menemukannya pemasok, waktu
+    // mengklik "Buka berkas cetak" dan dapat layar "Anda memerlukan akses" --
+    // berminggu-minggu kemudian, tanpa satu pun jejak kenapa.
+    //
+    // Gagalnya TIDAK membatalkan unggahan: berkasnya sudah di Drive dan
+    // membuangnya berarti kehilangan artwork yang baru naik. Yang dilakukan:
+    // dicoba sekali lagi, lalu kalau masih gagal hasilnya tetap dikembalikan
+    // TAPI dengan izinPublik:false dan sebabnya, supaya pemanggilnya bisa
+    // bilang apa adanya, bukan diam.
+    let izinPublik = true;
+    let izinGagal = '';
+    for (let coba = 0; coba < 2; coba++) {
+      const perm = await fetch(`https://www.googleapis.com/drive/v3/files/${data.id}/permissions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'reader', type: 'anyone' }),
+      });
+      if (perm.ok) { izinPublik = true; izinGagal = ''; break; }
+      izinPublik = false;
+      izinGagal = `${perm.status} ${(await perm.text()).slice(0, 300)}`;
+      if (perm.status < 500 && perm.status !== 429) break;  // 403/400 tidak akan sembuh dengan diulang
+    }
 
-    return json({ id: data.id, webViewLink: data.webViewLink });
+    return json({ id: data.id, webViewLink: data.webViewLink, izinPublik, izinGagal });
   } catch (e) {
     return json({ error: String(e) }, 500);
   }

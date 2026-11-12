@@ -146,8 +146,24 @@ export async function pushToDrive(file, folderPath, filename, category) {
       throw new Error(`HTTP ${res.status}${detail ? ` — ${detail.slice(0, 300)}` : ''}`);
     }
     const json = await res.json();
-    // Expected: { id, webViewLink }
-    return { url: json.webViewLink || json.url, id: json.id, name, placeholder: false };
+    // Expected: { id, webViewLink, izinPublik, izinGagal }
+    //
+    // izinPublik DIBAWA TERUS, tidak dibuang di sini. Unggahan yang berhasil
+    // tapi izinnya gagal menghasilkan berkas yang cuma bisa dibuka pemiliknya
+    // -- pemasok dapat layar "Anda memerlukan akses" dan gambarnya tidak
+    // pernah muncul. Dari sisi portal itu terlihat sukses sempurna, dan itulah
+    // sebabnya dia pernah berjalan berminggu-minggu tanpa ketahuan. Kalau
+    // medannya tidak ada (fungsi versi lama yang belum di-deploy), dianggap
+    // true: menandai semua unggahan lama sebagai gagal izin cuma akan membuat
+    // peringatannya diabaikan.
+    return {
+      url: json.webViewLink || json.url,
+      id: json.id,
+      name,
+      placeholder: false,
+      izinPublik: json.izinPublik !== false,
+      izinGagal: json.izinGagal || '',
+    };
   } catch (e) {
     // UKURAN BERKASNYA IKUT DICATAT, dan ini bukan hiasan.
     //

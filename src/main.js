@@ -50,6 +50,7 @@ const LAZY = {
   'label-stock':    () => import('./screens/labelStock.js').then(m => m.labelStockScreen),
   'urgensi-label':  () => import('./screens/urgensiLabel.js').then(m => m.urgensiLabelScreen),
   'label-artwork':  () => import('./screens/labelArtwork.js').then(m => m.labelArtworkScreen),
+  'pola-ban':       () => import('./screens/polaBan.js').then(m => m.polaBanScreen),
   'surat-jalan':    () => import('./screens/suratJalan.js').then(m => m.suratJalanScreen),
   'po-converter':   () => import('./screens/poConverter.js').then(m => m.poConverterScreen),
   'outstanding-po': () => import('./screens/outstandingPo.js').then(m => m.outstandingPoScreen),
