@@ -38,6 +38,11 @@ const state = {
   labelUploads: [],    // upload history (who/when/counts/quarantined rows)
   labelSettings: null, // { moq, leadNormal, leadUrgent, leadSuper, overstockMultiple }
   labelTrend: [],      // total stock per upload day, for the dashboard chart
+  // FOTO POLA BAN: { kode, driveId, urlLihat, urlGambar } per kode tapak.
+  // Bukan bagian dari `designs` dengan sengaja — satu pola dipakai puluhan
+  // baris design, lihat core/polaFoto.js. Kosong sampai tabelnya dimigrasi,
+  // dan yang kosong cuma membuat tipe "Pola Ban" tidak keluar di pencarian.
+  polaFoto: [],
   // Tab yang sedang terbuka, urut kiri-ke-kanan. st.screen tetap yang AKTIF —
   // seluruh kode lama yang membaca st.screen tidak perlu tahu tab ini ada.
   // Hidup di memori saja: menutup tab bukan keputusan yang perlu diingat

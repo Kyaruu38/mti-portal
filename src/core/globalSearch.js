@@ -30,6 +30,7 @@
 // the thing that decides visibility and the thing that decides where "Buka"
 // lands can never drift apart.
 import { allowedScreens, allowedReportModules } from '../auth/roles.js';
+import { cariPola, fotoPas } from './polaFoto.js';
 
 const hasScreen = (role, id) => allowedScreens(role).includes(id);
 const hasModule = (role, m) => allowedReportModules(role).includes(m);
@@ -122,6 +123,24 @@ export const SEARCH_TYPES = {
   // pencariannya disembunyikan total — dia tidak bisa mencari di layar yang
   // justru dia sendiri yang isi.
   'Label Stock': { screens: ['label-stock'], visible: r => hasScreen(r, 'label-stock') },
+  // POLA BAN — 137 foto tapak yang sebelumnya tidak ada jalannya ke portal.
+  //
+  // `screens: []` DISENGAJA, bukan kelupaan. Tidak ada layar yang menampilkan
+  // foto tapak, jadi openTarget() mengembalikan null dan tombol "Buka" tidak
+  // digambar — yang tersisa cuma tautan "Drive ↗", dan itu memang tujuannya:
+  // orangnya mau MELIHAT gambarnya, bukan mendarat di suatu daftar.
+  // layout.js sudah menangani hasil tanpa target (lihat canOpen()), jadi ini
+  // bukan keadaan baru yang perlu ditambal di sana.
+  //
+  // Terbuka untuk siapa pun yang menyentuh label atau artwork. Foto tapak ban
+  // bukan data yang perlu dijaga: barangnya dijual di pasar dan gambarnya ada
+  // di katalog pabrik. Yang dijaga di portal ini angka dan harga, bukan ini.
+  'Pola Ban': {
+    screens: [],
+    visible: r => hasScreen(r, 'label-library') || hasScreen(r, 'label-artwork')
+               || hasScreen(r, 'label-stock')   || hasScreen(r, 'label-request')
+               || hasModule(r, 'Label'),
+  },
 };
 
 // The screen THIS role should be taken to for this type, or null if none of the
@@ -258,6 +277,59 @@ export function globalSearch(st, q) {
         type: 'Design', id: d.erp || d.spec, ref: d, drive: realUrl(d.driveUrl),
         sub: d.erp ? d.spec : [d.brand, d.market].filter(Boolean).join(' · '),
       });
+    }
+  }
+
+  // POLA BAN. Tidak memakai hit() seperti yang lain, dan itu bukan
+  // ketidakseragaman yang perlu diluruskan.
+  //
+  // hit() memadatkan dengan membuang SEMUA yang bukan alnum, termasuk '+' dan
+  // '-'. Untuk nama pemasok dan nomor dokumen itu benar. Untuk kode pola itu
+  // salah: CR926 dan CR926+ adalah dua tapak berbeda dengan dua foto berbeda,
+  // begitu juga ST-100 dan ST100. Mengetik "CR926" lalu mendapat foto CR926+
+  // di baris pertama bukan hasil yang kurang tepat — itu gambar yang salah,
+  // dan orangnya akan memakainya untuk artwork. Aturannya ada di
+  // core/polaFoto.js beserta alasannya, dan cermin SQL-nya public.padat_pola().
+  //
+  // cariPola() sudah mengurutkan sendiri: yang sama persis dulu, kandidat
+  // belakangan. Jadi di sini TIDAK boleh ada sort lagi — kuota per tipe
+  // memotong dari depan, dan mengurutkan ulang di sini akan membuang justru
+  // yang paling tepat.
+  if (may('Pola Ban')) {
+    // Dari 3 karakter ke atas saja. "A" akan mencocok puluhan kode lewat
+    // awalan dan membanjiri kuota tipe lain tanpa memberi tahu apa pun.
+    const kunci = String(mentah).trim();
+    if (kunci.replace(/[^0-9A-Za-z]/g, '').length >= 3) {
+      const cocok = cariPola(st.polaFoto || [], kunci);
+      // Kalau LEBIH DARI SATU baris sah disebut cocok, tidak ada satu pun yang
+      // boleh ditampilkan sebagai "cocok". Itu keadaan nyata: folder fotonya
+      // memuat ST-100 dan ST100 sebagai dua berkas berbeda, dan mengetik
+      // "ST100" mendarat di keduanya. Menandai dua-duanya cocok membuat orang
+      // mengambil yang paling atas, yaitu benar separuh waktu — dan yang salah
+      // tidak kelihatan sampai artwork-nya tercetak. Jadi di sini keduanya
+      // ditandai AMBIGU, dan orangnya yang memilih. Aturan yang sama dengan
+      // fotoPas() di core/polaFoto.js dan dengan medan excel yang tidak
+      // terbaca: ditanyakan, bukan ditebak.
+      // fotoPas() memegang SATU-SATUNYA aturan tentang "boleh dipakai begitu
+      // saja", dan dia yang sama yang dipakai kalau nanti ada yang menempelkan
+      // foto ke artwork. Diputuskan di sana, bukan diputuskan ulang di sini:
+      // dua tempat yang memutuskan hal yang sama akan berbeda jawabannya
+      // begitu salah satunya diubah.
+      //
+      // Catat bahwa mengetik "ST-100" LENGKAP dengan garisnya tetap cocok
+      // persis — yang ambigu cuma kalau yang diketik tidak membedakan keduanya.
+      const pasti = fotoPas(st.polaFoto || [], kunci);
+      for (const f of cocok) {
+        if (penuh('Pola Ban')) break;
+        // Sub-barisnya menyatakan DERAJAT kecocokannya, bukan basa-basi.
+        // Orang yang mengetik AS858Pro dan melihat AS858 harus tahu bahwa itu
+        // tebakan portal, bukan berkas bernama AS858Pro — kalau tidak, dia
+        // menempelkannya ke artwork seolah-olah sudah benar.
+        const sub = pasti && f.kode === pasti.kode ? 'foto tapak — cocok'
+                  : f.pas ? 'foto tapak — AMBIGU, pastikan dulu'
+                  : `foto tapak — mirip (dicari: ${kunci})`;
+        taruh('Pola Ban', { type: 'Pola Ban', id: f.kode, ref: f, drive: f.urlLihat, sub });
+      }
     }
   }
 
