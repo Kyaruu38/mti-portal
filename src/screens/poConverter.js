@@ -5,7 +5,7 @@ import { can } from '../auth/roles.js';
 import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, poNoField, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
 import { parseZcPo } from '../parsers/zcPoPdf.js';
 import { money, num, ccyDecimals, ppnFor, ppnModeFromForm } from '../core/format.js';
-import { insertPO, newLineId, duplicatePoNumber } from '../core/posApi.js';
+import { insertPO, newLineId, duplicatePoNumber, galatPermanen, sebabGagalSimpan } from '../core/posApi.js';
 import { blockWrite } from '../core/guard.js';
 import { fmtDate } from '../core/format.js';
 import { poDocument, ensureCap } from '../ui/documents.js';
@@ -265,6 +265,20 @@ async function genConverterPO() {
         id: `No. PO ${po.no} sudah dipakai — ganti nomornya`,
         en: `PO number ${po.no} is already taken — use a different one`,
         zh: `采购单号 ${po.no} 已被使用 — 请更换号码`,
+      });
+      return;
+    }
+    // Galat server yang permanen diperlakukan SAMA dengan nomor kembar:
+    // dibatalkan, modalnya dibiarkan terbuka, sebabnya disebut. Dulu dia
+    // jatuh ke cabang "simpan lokal, nanti disinkronkan" di bawah, dan itu
+    // yang membuat dua PO hilang tanpa suara pada 12 Nov 2026 — trigger di
+    // basis data melempar 42883 pada setiap insert, portalnya bilang
+    // tersimpan, salinan lokalnya habis waktu login berikutnya.
+    if (galatPermanen(e)) {
+      toast({
+        id: `PO TIDAK tersimpan — ditolak server: ${sebabGagalSimpan(e)}. Jangan dicetak dulu, laporkan ini.`,
+        en: `PO was NOT saved — rejected by the server: ${sebabGagalSimpan(e)}. Do not print it yet; report this.`,
+        zh: `采购单未保存 — 被服务器拒绝：${sebabGagalSimpan(e)}。请先不要打印，并上报此问题。`,
       });
       return;
     }

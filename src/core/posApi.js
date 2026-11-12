@@ -244,3 +244,48 @@ export function duplicatePoNumber(e) {
   if (e.code === '23505') return true;
   return /duplicate key value|pos_no_unik|already exists/i.test(String(e.message || e));
 }
+
+// Galat yang TIDAK akan sembuh kalau diulang -- dan kenapa membedakannya
+// menentukan apakah sebuah PO hilang diam-diam atau tidak.
+//
+// Jalur simpan di layar PO punya dua cabang: nomor kembar -> batalkan dan
+// suruh ganti nomor; SELAIN ITU -> anggap gangguan sementara, simpan lokal,
+// bilang "nanti disinkronkan". Cabang kedua itu benar untuk jaringan putus
+// dan timeout. Untuk galat server yang permanen dia FATAL: PO-nya tampil di
+// layar seolah jadi, PDF-nya tercetak, lalu salinan lokalnya habis pada login
+// berikutnya. Yang menemukannya orang yang membuat PO-nya, berjam-jam
+// kemudian, dengan kalimat "barusan gw bikin tapi ilang".
+//
+// Itu persis yang terjadi 12 Nov 2026: trigger pos_isi_supplier_id() di basis
+// data kembali ke versi yang memakai min(uuid) -- fungsi yang tidak ada di
+// Postgres -- jadi SETIAP insert ke pos melempar 42883. Dua PO (BSN dan
+// TRAILFINDER) hilang begitu saja, dan portalnya tidak pernah bilang gagal.
+//
+// Aturannya: kalau Postgres/PostgREST sempat MENJAWAB dengan kode galat, itu
+// permanen kecuali kode itu memang kode "coba lagi". Kalau tidak ada kode
+// sama sekali, permintaannya tidak pernah sampai -- itu jaringan, dan itu
+// memang layak diulang. Arah ragunya sengaja ke "permanen": salah menyebut
+// gangguan sementara sebagai permanen cuma membuat orang menekan simpan lagi;
+// salah ke arah sebaliknya membuat PO-nya lenyap.
+const KODE_COBA_LAGI = new Set([
+  '08000', '08003', '08006', '08001', '08004',  // koneksi putus
+  '53300', '53400',                             // server kehabisan sumber daya
+  '57014',                                      // kueri dibatalkan
+  '40001', '40P01',                             // serialization / deadlock
+]);
+
+export function galatPermanen(e) {
+  if (!e) return false;
+  const kode = String(e.code || '');
+  if (!kode) return false;              // tanpa kode = tidak pernah sampai = jaringan
+  if (KODE_COBA_LAGI.has(kode)) return false;
+  return true;
+}
+
+// Kalimat yang dibaca orang yang menekan simpan. Kodenya ikut disebut, bukan
+// buat dia -- buat yang nanti dikirimi screenshot-nya.
+export function sebabGagalSimpan(e) {
+  const kode = String((e && e.code) || '').trim();
+  const pesan = String((e && (e.message || e.hint)) || e || '').slice(0, 160);
+  return kode ? `${kode} — ${pesan}` : pesan;
+}
