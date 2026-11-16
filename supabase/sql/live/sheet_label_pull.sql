@@ -2,7 +2,13 @@
 -- DITANGKAP DARI PRODUKSI 2026-11-16 lewat pg_get_functiondef().
 -- Ini CERMIN apa yang hidup, bukan niat. Kalau beda dengan file
 -- rancangan di ../, yang HIDUP adalah yang di sini.
--- md5(prosrc-setara) 3b5babf755b2
+-- md5(prosrc-setara) 4a6f20da2ab8
+--
+-- 2026-11-16: 6 field dibuang supaya payload turun 1.047 kB -> 728 kB.
+--   Dibuang: supplier_full, po_status, deskripsi_cn, satuan, qty_sj, qty_direct.
+--   Alasan: tidak satupun dipakai "Sinkron Portal.gs" (satu-satunya pemakai
+--   RPC ini). Egress tarikan per jam turun 737 MB -> 512 MB per bulan.
+--   Kalau nanti ada yang butuh field itu lagi, tambahkan balik di sini.
 
 CREATE OR REPLACE FUNCTION public.sheet_label_pull(p_token text)
  RETURNS jsonb
@@ -16,7 +22,7 @@ begin
     raise exception 'token ditolak';
   end if;
   with li as (
-    select p.id as po_id, p.no as po_no, p.supplier as sup, p.status as po_status,
+    select p.id as po_id, p.no as po_no, p.supplier as sup,
            p.created_at as dibuat, x.i as it, (x.ord - 1)::int as idx
       from public.pos p, jsonb_array_elements(p.items) with ordinality as x(i, ord)
      where p.source = 'label' and p.deleted_at is null
@@ -42,18 +48,12 @@ begin
           when li.sup ilike '%BSN%' then 'BSN'
           when li.sup ilike '%WANLIAN%' then 'WANLIAN'
           else li.sup end,
-      'supplier_full', li.sup,
       'po_mti', li.po_no,
-      'po_status', li.po_status,
       'erp_id', li.it ->> 'erp',
       'deskripsi', li.it ->> 'd',
-      'deskripsi_cn', li.it ->> 'cn',
       'ukuran', li.it ->> 'dimension',
-      'satuan', li.it ->> 'unit',
       'bulan_order', to_char(li.dibuat, 'YYYY-MM'),
       'qty_order', coalesce((li.it ->> 'qty')::numeric, 0),
-      'qty_sj', coalesce(sj.qty_sj, 0),
-      'qty_direct', coalesce((li.it ->> 'receivedDirect')::numeric, 0),
       'qty_terima', coalesce(sj.qty_sj, 0) + coalesce((li.it ->> 'receivedDirect')::numeric, 0),
       'tgl_datang', coalesce(
           to_char(greatest(sj.tgl_sj, nullif(li.it ->> 'receivedDirectAt','')::date), 'YYYY-MM-DD'),
@@ -77,4 +77,4 @@ begin
   )
   select coalesce(jsonb_agg(j order by dibuat, po_no, idx), '[]'::jsonb) into v_out from baris;
   return v_out;
-end $function$
+end $function$;
