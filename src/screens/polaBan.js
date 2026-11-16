@@ -20,7 +20,7 @@ import { h } from '../core/dom.js';
 import { getState, setUI } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
 import { btn, driveLink, searchInput, gambarAman, modal, pager, pageSlice } from '../ui/components.js';
-import { cariPola, gabungVarian, URUT_BENTUK } from '../core/polaFoto.js';
+import { cariPola, gabungVarian, URUT_BENTUK, fotoUkuran } from '../core/polaFoto.js';
 
 // Urutan sudut yang ditampilkan, dan namanya dalam bahasa orang yang membaca.
 //
@@ -136,7 +136,8 @@ function kartu(p) {
       },
     }, [
       gambarAman({
-        src: p.urlGambar, alt: p.kode,
+        // Kisi minta 300 piksel; jendelanya nanti yang memakai berkas asli.
+        src: fotoUkuran(p.urlGambar), alt: p.kode,
         style: { maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' },
       }),
     ]),

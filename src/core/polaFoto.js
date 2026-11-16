@@ -147,6 +147,35 @@ export function kodeDariSpec(spec) {
 // Urutan tampil, dan itu BUKAN abjad: tapak dulu karena itu yang dipakai
 // label dan yang paling sering dicari, lalu pelek karena paling mirip ban
 // sungguhan, lalu donat. Abjad akan menaruh donat di depan tanpa alasan.
+// UKURAN FOTO DIMINTA KE GOOGLE, BUKAN DIKECILKAN PERAMBAN.
+//
+// url_gambar tersimpan sebagai lh3.googleusercontent.com/d/<id> TANPA akhiran
+// ukuran, dan tanpa akhiran lh3 melayani berkas ASLINYA. Diukur 16 Nov 2026:
+// dua belas foto contoh semuanya 1600 piksel tinggi, rata-rata 194 KB. Kisi
+// kartunya menggambar tinggi 150 piksel. Jadi setiap kartu mengunduh gambar
+// sebelas kali lebih besar daripada yang pernah terlihat, lalu peramban
+// mengecilkannya — pekerjaan yang hasilnya dibuang.
+//
+// Membuka layarnya dengan 24 kartu berarti 4,6 MB. Dengan =h300 (300 piksel,
+// dua kali tinggi kartu supaya tetap tajam di layar retina) rata-ratanya jadi
+// 15 KB dan 24 kartu jadi 0,35 MB. Tiga belas kali lebih ringan, gambar yang
+// sama persis.
+//
+// Dipakai HANYA untuk kisi. Jendela yang terbuka waktu kartunya diklik tetap
+// memakai berkas aslinya: di situ orangnya memang sedang memandang fotonya.
+//
+// Kalau akhirannya sudah ada, URL-nya dikembalikan apa adanya — menempelkan
+// dua akhiran menghasilkan alamat yang tidak dilayani siapa pun. URL yang
+// bukan lh3 juga tidak disentuh: aturan ukuran ini milik Google, bukan milik
+// semua alamat gambar.
+export function fotoUkuran(url, akhiran = '=h300') {
+  const u = String(url ?? '');
+  if (!u) return u;
+  if (!u.includes('lh3.googleusercontent.com/')) return u;
+  if (/=[a-z]\d+/i.test(u)) return u;
+  return u + akhiran;
+}
+
 export const URUT_BENTUK = ['tapak', 'pelek', 'donat'];
 
 export function gabungVarian(utama, varian) {
