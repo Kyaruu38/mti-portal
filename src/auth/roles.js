@@ -106,6 +106,18 @@ export const USERS = {
   bcl:      { name: 'BCL',       tag: 'CV Bintang Cahaya Label',       init: 'BC', color: '#4A6076', lang: 'id', role: 'supplier', email: 'bintang@mti.co.id' },
   shengyou: { name: 'SHENG YOU', tag: 'PT Sheng You Corp · 标签供应商',  init: 'SY', color: '#4A6076', lang: 'zh', role: 'supplier' },
   wanlian:  { name: 'WANLIAN',   tag: 'PT Wanlian Teknologi Tape · 标签供应商', init: 'WL', color: '#4A6076', lang: 'zh', role: 'supplier' },
+  //
+  // gaohe: akun Auth-nya dibuat 16 Nov 2026 dan SEHAT -- email terkonfirmasi,
+  // password keset, profil role='supplier' dengan supplier_id terisi, dan
+  // penyamaran di dalam transaksi membuktikan 4 PO-nya memang terlihat.
+  // Yang hilang barisnya DI SINI, dan tanpa baris ini login('gaohe') berhenti
+  // di makeUser() -- Supabase tidak pernah ditanya sama sekali -- lalu
+  // menjawab 'username atau password salah'. Persis pesan menyesatkan yang
+  // sudah dicatat di kasus bcl di atas, dan persis itu yang dilaporkan Cania
+  // waktu mencoba gaohe@mti.co.id. Membuat kotak akun di Supabase BUKAN
+  // membuat akun portal; daftar yang menentukan siapa yang boleh masuk ada
+  // di berkas ini, dan dia ikut rilis, bukan ikut basis data.
+  gaohe:    { name: 'GAOHE',     tag: 'PT Gaohe Stiker Indonesia · 标签供应商', init: 'GH', color: '#4A6076', lang: 'zh', role: 'supplier' },
   wangyaqian:   { name: 'wangyaqian',   tag: '仓库 Warehouse', init: 'WY', color: '#A8743A', lang: 'zh', role: 'warehousemti' },
 };
 
