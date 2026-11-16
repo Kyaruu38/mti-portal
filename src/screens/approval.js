@@ -493,6 +493,39 @@ export function approvalScreen() {
           h('span', { style: { fontSize: '9.5px', color: 'var(--text-3)' } }, fmtDate(p.createdAt)),
         ]),
         h('div', { style: { fontSize: '11.8px', color: 'var(--text-2)', marginTop: '3px' } }, p.supplier),
+        // PEMASOK TANPA AKUN PORTAL — PO LABELNYA TIDAK AKAN PERNAH DIA LIHAT.
+        //
+        // pos_read_supplier mencocokkan lewat supplier_id milik akun. Tidak ada
+        // akun berarti tidak ada yang mencocokkan, dan PO-nya diam di portal
+        // dengan status Approved yang terlihat meyakinkan dari sisi dalam.
+        // Terukur waktu ini ditulis: 4 PO label PT GAOHE STIKER INDONESIA
+        // (11 Nov) sudah Approved dan tidak terlihat oleh siapa pun.
+        //
+        // HANYA PO LABEL. Pemasok converter (bahan baku, kemasan, gas) memang
+        // tidak memakai portal — 41 PO converter dari 13 pemasok ada di
+        // keadaan yang sama dan itu BENAR. Memperingatkan mereka berarti
+        // peringatan yang menyala terus sampai tidak ada yang membacanya lagi.
+        //
+        // TIDAK MENAHAN APA PUN. Approve tetap jalan; yang dicegah bukan
+        // approve-nya melainkan approve TANPA TAHU PO-nya tidak akan sampai.
+        (p.source === 'label'
+          && Array.isArray(getState().pemasokBerakun)
+          && getState().pemasokBerakun.length
+          && p.supplierId
+          && getState().pemasokBerakun.indexOf(p.supplierId) < 0)
+          ? h('div', {
+              style: {
+                fontSize: '10px', fontWeight: 700, marginTop: '4px', padding: '3px 6px',
+                borderRadius: '4px', lineHeight: 1.35,
+                color: 'var(--st-red-tx)', background: 'var(--st-red-bg)',
+                border: '1px solid var(--st-red-tx)',
+              },
+            }, tr({
+              id: 'Pemasok ini belum punya akun portal — PO-nya tidak akan terlihat olehnya',
+              en: 'This supplier has no portal account — the PO will not be visible to them',
+              zh: '该供应商没有门户账号 — 此采购单对他们不可见',
+            }))
+          : null,
         h('div.row', { style: { justifyContent: 'space-between', marginTop: '7px' } }, [h('span.mono', { style: { fontSize: '12px', fontWeight: 600 } }, money(p.total, p.currency)), badge(label, tone)]),
         h('div', { style: { fontSize: '10px', color: 'var(--text-3)', marginTop: '4px' } }, `${t('ap_submitted_by')} ${p.by}`),
       ]);

@@ -12,6 +12,7 @@ import { t } from '../i18n/index.js';
 import { fetchSuratJalan } from '../core/suratJalanApi.js';
 import { fetchPOs, UUID_RE } from '../core/posApi.js';
 import { fetchSuppliers } from '../core/suppliersApi.js';
+import { fetchPemasokBerakun } from '../core/pemasokAkunApi.js';
 import { fetchAuditLog } from '../core/auditApi.js';
 import { fetchDescDict } from '../core/descDictApi.js';
 import { fetchItems } from '../core/itemsApi.js';
@@ -149,6 +150,9 @@ async function hydrate(user, username, preferScreen, preferLang) {
     // Suppliers: pola ganti-seluruhnya yang sama. Menutup celah yang sama yang
     // A3 tutup untuk PO — supplier yang dibuat cania kelihatan oleh wilbert.
     ['suppliers',     () => fetchSuppliers()],
+    // Dipakai Approval buat memperingatkan PO label yang pemasoknya belum
+    // punya akun portal. Isinya cuma daftar UUID, jadi murah.
+    ['pemasokBerakun', () => fetchPemasokBerakun()],
     ['descDict',      () => fetchDescDict()],
     ['items',         () => fetchItems()],
     ['brandMap',      () => fetchBrandMap()],
@@ -227,6 +231,8 @@ async function hydrate(user, username, preferScreen, preferLang) {
     st.pos = [...nilai.pos, ...localOnly];
   }
   if (nilai.suppliers)     st.suppliers     = nilai.suppliers;
+  // null = gagal ambil = JANGAN diterapkan; biarkan nilai lama (atau null).
+  if (Array.isArray(nilai.pemasokBerakun)) st.pemasokBerakun = nilai.pemasokBerakun;
   if (nilai.descDict)      st.descDict      = nilai.descDict;
   if (nilai.items)         st.items         = nilai.items;
   if (nilai.brandMap)      st.brandMap      = nilai.brandMap;
@@ -389,6 +395,7 @@ export async function logout() {
     user: null, screen: 'login', menuOpen: false, langOpen: false, toast: null,
     ui: {},
     suppliers: [], units: [], items: [], brandMap: [], designs: [], descDict: [],
+    pemasokBerakun: null,
     pos: [], labelBatches: [], ppkek: [], invoices: [], prfs: [], payments: [],
     audit: [], suratJalan: [],
     labelStock: [], labelUploads: [], labelSettings: null,

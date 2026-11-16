@@ -80,6 +80,11 @@ function fromRow(row) {
   const items = (row.items || []).map((it, idx) => ({ ...it, lineId: it.lineId || `${row.id}:${idx}` }));
   return {
     id: row.id, no: row.no, contract: row.contract || '', supplier: row.supplier, supplierZh: row.supplier_zh || '',
+    // DIBACA SAJA, TIDAK PERNAH DITULIS BALIK — lihat catatan di toRow().
+    // Dipakai layar Approval untuk memperingatkan kalau pemasok PO label
+    // belum punya akun portal; mencocokkan lewat NAMA tidak bisa dipakai,
+    // 'PT WANLIAN' dan 'PT.WANLIAN' adalah pemasok yang sama.
+    supplierId: row.supplier_id || null,
     address: row.address || '', contact: row.contact || '', phone: row.phone || '',
     currency: row.currency, unit: row.unit || null,
     subtotal: row.subtotal || 0, ppn: row.ppn || 0, ppnMode: row.ppn_mode || 'suspended', total: row.total || 0,
