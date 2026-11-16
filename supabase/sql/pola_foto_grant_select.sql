@@ -1,0 +1,67 @@
+-- =====================================================================
+-- pola_foto_grant_select.sql                   dijalankan: 16 Nov 2026
+--
+-- LAYAR TYRE PATTERNS BILANG "TABELNYA KOSONG" PADAHAL ISINYA 137 BARIS.
+--
+-- Dilaporkan: "tire pattern ini kapan? kok blom bisa di search". Layarnya
+-- ada di menu sejak v28.0, kotak carinya ada, tapi menulis
+-- "0 patterns · 0 extra angles — No tyre pattern photos yet. The
+-- pola_foto table is empty."
+--
+-- Tabelnya TIDAK kosong: pola_foto 137 baris, pola_foto_varian 134.
+--
+-- SEBABNYA DUA LAPIS IZIN YANG BERBEDA, DAN CUMA SATU YANG DITULIS.
+-- pola_foto.sql membuat policy pola_foto_baca (auth.uid() is not null)
+-- dan pola_foto_varian.sql membuat pola_foto_varian_baca (true). Kedua
+-- policy itu benar dan memang terpasang. Yang tidak pernah ditulis:
+-- GRANT SELECT ke peran `authenticated`.
+--
+-- Postgres memeriksa GRANT LEBIH DULU, baru policy. Tanpa grant,
+-- policy-nya tidak pernah sempat dievaluasi sama sekali -- jadi policy
+-- yang sudah benar itu tidak menolong apa pun. PostgREST menolak,
+-- fetchPolaFoto() menangkap galatnya dan mengembalikan null, st.polaFoto
+-- tetap kosong, dan layar menyimpulkan tabelnya yang kosong.
+--
+-- Dibandingkan dengan tabel yang jalan, bedanya kelihatan telanjang:
+--   designs       authenticated: DELETE,INSERT,REFERENCES,SELECT,...
+--   label_stock   authenticated: REFERENCES,SELECT,TRIGGER,...
+--   pola_foto     authenticated: REFERENCES,TRIGGER,TRUNCATE   <- tanpa SELECT
+--   pola_foto_varian  idem
+--
+-- pola_foto.sql SEBENARNYA menulis grant -- tapi hanya untuk fungsinya:
+--   grant execute on function public.cari_pola_foto(text) to authenticated;
+--   grant execute on function public.padat_pola(text) to authenticated;
+-- Tabelnya terlewat. pola_foto_varian.sql tidak punya baris grant sama
+-- sekali. Ironinya, cari_pola_foto() yang diberi izin itu TIDAK PERNAH
+-- DIPANGGIL siapa pun -- polaFotoApi.js memakai .from('pola_foto')
+-- biasa. Jadi yang diberi izin adalah yang tidak dipakai, dan yang
+-- dipakai tidak diberi izin.
+--
+-- CLAUDE.md sudah memperingatkan bentuk jebakan ini dari sisi
+-- sebaliknya: "alter default privileges Supabase memberi authenticated
+-- jauh lebih banyak daripada yang disangka, jadi tabel baru perlu revoke
+-- eksplisit SEBELUM memberi yang seharusnya." Di sini default itu TIDAK
+-- datang, dan tidak ada yang memeriksa apakah ia datang.
+--
+-- DIVERIFIKASI SEPERTI PostgREST MENJALANKANNYA, bukan sebagai postgres:
+--   set local role authenticated;
+--   set local request.jwt.claims = '{"sub":"<uuid>","role":"authenticated"}';
+--   select count(*) from public.pola_foto;        -> 137
+--   select count(*) from public.pola_foto_varian; -> 134
+-- Sebelum grant ini keduanya ditolak.
+--
+-- Hanya SELECT, dan hanya authenticated. anon sengaja tidak diberi:
+-- pola_foto_baca mensyaratkan auth.uid() tidak null, jadi anon tetap
+-- tidak akan melihat apa pun, dan memberi grant yang pasti tertolak
+-- hanya menambah permukaan tanpa menambah guna.
+-- =====================================================================
+
+grant select on public.pola_foto to authenticated;
+grant select on public.pola_foto_varian to authenticated;
+
+-- PEMERIKSA (jalankan sebagai PostgREST, jangan sebagai postgres):
+-- set local role authenticated;
+-- set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000000001"}';
+-- select (select count(*) from public.pola_foto) as pola,
+--        (select count(*) from public.pola_foto_varian) as varian;
+-- Harapan: 137 / 134.

@@ -250,3 +250,8 @@ select (select count(*) from public.pola_foto)                                as
        (select jsonb_agg(x) from (select kode_plus, array_agg(kode) kode
                                     from public.pola_foto group by 1
                                    having count(*) > 1) x)                     as perlu_dipastikan;
+
+-- DITAMBAHKAN 16 Nov 2026: tanpa baris ini policy di atas tidak pernah
+-- sempat dievaluasi -- Postgres memeriksa GRANT dulu, baru policy.
+-- Lihat pola_foto_grant_select.sql untuk ceritanya.
+grant select on public.pola_foto to authenticated;

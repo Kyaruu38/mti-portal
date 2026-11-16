@@ -69,3 +69,7 @@ create policy pola_foto_varian_baca on public.pola_foto_varian
 
 comment on table public.pola_foto_varian is
   'Sudut pandang lain dari pola ban. Foto utama tetap di pola_foto.';
+
+-- DITAMBAHKAN 16 Nov 2026: berkas ini semula tidak punya baris grant
+-- sama sekali, jadi policy pola_foto_varian_baca tidak menolong apa pun.
+grant select on public.pola_foto_varian to authenticated;
