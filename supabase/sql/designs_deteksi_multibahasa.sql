@@ -13,64 +13,69 @@
 -- ---------------------------------------------------------------------
 -- 1. dsg_brand(): 4 lapis deteksi merek (EN / Mandarin / singkatan)
 -- ---------------------------------------------------------------------
-create or replace function public.dsg_brand(t text) returns text
-language plpgsql immutable as $fn$
-declare
-  asli text := coalesce(t, '');
-  nrm  text := upper(regexp_replace(coalesce(t,''), '[^A-Za-z0-9]', '', 'g'));
-  pfx  text;
-  p    text[];
-  i    int;
+-- DITULIS BALIK DARI PRODUKSI 16 Nov 2026.
+-- Versi rancangan yang lama di file ini SUDAH TERTINGGAL dari yang hidup.
+-- Untuk dsg_brand selisihnya 35 merek (daftar 18 -> 52); menjalankan versi
+-- lama ke basis data akan MENGHAPUS deteksi 35 merek itu.
+-- Cermin per-fungsi ada di supabase/sql/live/dsg_brand.sql
+CREATE OR REPLACE FUNCTION public.dsg_brand(t text)
+ RETURNS text
+ LANGUAGE plpgsql
+ IMMUTABLE
+AS $function$
+declare n text; asli text; pre text; b text; p text[];
+  daftar text[] := array[
+    'AMERICANROADSTAR','TRUSTTRACKOVERALL','GOLDENCROWN','MASTERTRACK','FREECOUNTRY',
+    'TRANSEAGLE','TRAVELSTAR','GRIPMASTER','BLACKARROW','XCELLENT','WESTLAKE','GOODRIDE',
+    'HERCULES','EFFIPLUS','AGGRESSOR','SUPERMAX','TECHKING','BRANSALES','REDCLIFF',
+    'RODOFORT','CHAOYANG','MICHELIN','TRAZANO','CAPITOL','IRONMAN','MIRAGE','SUDESTE',
+    'ASCENDO','OMNIMAX','STRADAR','VANTAGE','WANLIAN','STRYKER','ARISUN','ANTINI',
+    'ARROYO','NEBULA','SEDONA','TIANLI','UNITED','VITOUR','ASPIRA','TUCSON','ORNATE',
+    'HIRUN','NIPON','ITARO','RISEN','DIDAR','YARTU','XBRI','TKV'
+  ];
+  -- nama China -> merek. 无内 (tubeless), 纳米高抓, 配套, 编织袋, 东南亚, 美国,
+  -- 巴拉圭, 停用 BUKAN merek; itu keterangan produk/pasar, jangan dimasukkan.
+  china text[][] := array[
+    ['威狮','WESTLAKE'], ['西湖','WESTLAKE'], ['好运','GOODRIDE'], ['全诺','TRAZANO'],
+    ['朝阳','CHAOYANG'], ['金冠','GOLDENCROWN'], ['力奔','NIPON'], ['欧耐特','ORNATE'],
+    ['雅度','YARTU'], ['日升','RISEN'], ['天力','TIANLI'], ['路诚','TRUSTTRACKOVERALL']
+  ];
   singkat text[][] := array[
     ['WL','WESTLAKE'], ['GR','GOODRIDE'], ['TN','TRAZANO'],
-    ['JG','GOLDENCROWN'], ['YR','YARTU'], ['CY','CHAOYANG'],
-    ['NIPON','NIPON'], ['ORNATE','ORNATE'], ['ARISUN','ARISUN'],
-    ['OMNIMAX','OMNIMAX'], ['VITOUR','VITOUR'], ['RISEN','RISEN'],
-    ['TIANLI','TIANLI'], ['TRUSTTRACK','TRUSTTRACK'],
-    ['BLACKARROW','BLACKARROW'], ['TRANSEAGLE','TRANSEAGLE'],
-    ['XCELLENT','XCELLENT'], ['TKV','TKV']
-  ];
-  daftar text[] := array[
-    'WESTLAKE','GOODRIDE','TRAZANO','CHAOYANG','GOLDENCROWN','NIPON',
-    'ORNATE','YARTU','RISEN','TIANLI','TRUSTTRACK','ARISUN','OMNIMAX',
-    'VITOUR','TRANSEAGLE','BLACKARROW','XCELLENT','TKV'
-  ];
-  china text[][] := array[
-    ['威狮','WESTLAKE'], ['西湖','WESTLAKE'],
-    ['好运','GOODRIDE'],  ['全诺','TRAZANO'],
-    ['朝阳','CHAOYANG'],  ['金冠','GOLDENCROWN'],
-    ['力奔','NIPON'],     ['欧耐特','ORNATE'],
-    ['雅度','YARTU'],     ['日升','RISEN'],
-    ['天力','TIANLI'],    ['路诚','TRUSTTRACK']
+    ['JG','GOLDENCROWN'], ['YR','YARTU'], ['CY','CHAOYANG']
   ];
 begin
-  -- lapis 1: prefix resmi "(ID-XXX-" paling dipercaya
-  pfx := (regexp_match(asli, '[(]ID-([A-Za-z0-9]+)-'))[1];
-  if pfx is not null and upper(pfx) not in ('TBR','ID') then
-    for i in 1 .. array_length(singkat, 1) loop
-      if upper(pfx) = singkat[i][1] then return singkat[i][2]; end if;
+  asli := coalesce(t, '');
+  n := public.dsg_norm(asli);
+
+  -- 1. prefix resmi paling dipercaya
+  pre := upper(regexp_replace(coalesce(substring(asli from '\(ID-([A-Za-z0-9 _]+?)-'), ''), '[^A-Za-z0-9]', '', 'g'));
+  if pre <> '' and pre <> 'TBR' and pre <> 'ID' then
+    foreach p slice 1 in array singkat loop
+      if pre = p[1] then return p[2]; end if;
     end loop;
-    return upper(pfx);
+    return pre;
   end if;
 
-  -- lapis 2: nama latin lengkap
-  for i in 1 .. array_length(daftar, 1) loop
-    if nrm like '%' || daftar[i] || '%' then return daftar[i]; end if;
+  -- 2. nama latin lengkap
+  foreach b in array daftar loop
+    if position(b in n) > 0 then return b; end if;
   end loop;
 
-  -- lapis 3: nama Mandarin
-  for i in 1 .. array_length(china, 1) loop
-    if position(china[i][1] in asli) > 0 then return china[i][2]; end if;
+  -- 3. nama China
+  foreach p slice 1 in array china loop
+    if position(p[1] in asli) > 0 then return p[2]; end if;
   end loop;
 
-  -- lapis 4: singkatan, hanya kalau berdiri sebagai kata utuh
-  --          (biar "WL" tidak ikut kena di kata seperti "BOWL")
+  -- 4. singkatan, HANYA sebagai kata utuh di teks asli — supaya 'WL' tidak
+  --    ikut tertangkap di tengah kata lain
   foreach p slice 1 in array singkat loop
     if asli ~* ('\m' || p[1] || '\M') then return p[2]; end if;
   end loop;
 
   return '';
-end $fn$;
+end $function$;
+
 
 -- ---------------------------------------------------------------------
 -- 2. Katalog pencocokan: indeks nama Inggris DAN Mandarin sekaligus
@@ -92,23 +97,36 @@ returns void language sql security definer as $fn$
 $fn$;
 
 -- rebuild penuh (dipakai sekali waktu migrasi / kalau mau reset)
-create or replace function public.dsg_katalog_segarkan()
-returns jsonb language plpgsql security definer as $fn$
+-- DITULIS BALIK DARI PRODUKSI 16 Nov 2026.
+-- Versi rancangan yang lama di file ini SUDAH TERTINGGAL dari yang hidup.
+-- Untuk dsg_brand selisihnya 35 merek (daftar 18 -> 52); menjalankan versi
+-- lama ke basis data akan MENGHAPUS deteksi 35 merek itu.
+-- Cermin per-fungsi ada di supabase/sql/live/dsg_katalog_segarkan.sql
+CREATE OR REPLACE FUNCTION public.dsg_katalog_segarkan()
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
 declare v_lama int; v_baru int;
 begin
   select count(*) into v_lama from public.dsg_katalog;
 
   create temp table _kat_baru on commit drop as
   with mentah as (
-    select it->>'erp' as erp, it->>'d'  as spec from public.pos p, jsonb_array_elements(p.items) it
+    -- PO: nama Inggris (d) DAN nama Mandarin (cn), dua-duanya diindeks
+    select it->>'erp' as erp, it->>'d' as spec from public.pos p, jsonb_array_elements(p.items) it
     union all
     select it->>'erp' as erp, it->>'cn' as spec from public.pos p, jsonb_array_elements(p.items) it
     union all
     select erp, spec_name as spec from public.label_stock
   )
-  select distinct trim(erp) as erp, trim(spec) as spec,
-         public.dsg_norm(spec) as nrm, public.dsg_kode(spec) as kode,
-         public.dsg_sig(spec)  as sig, public.dsg_brand(spec) as merek
+  select distinct
+         trim(erp) as erp,
+         trim(spec) as spec,
+         public.dsg_norm(spec)  as nrm,
+         public.dsg_kode(spec)  as kode,
+         public.dsg_sig(spec)   as sig,
+         public.dsg_brand(spec) as merek
     from mentah
    where coalesce(trim(erp),'') <> '' and coalesce(trim(spec),'') <> '';
 
@@ -117,11 +135,17 @@ begin
   delete from public.dsg_katalog;
   insert into public.dsg_katalog (erp, spec, nrm, kode, sig, merek)
        select erp, spec, nrm, kode, sig, merek from _kat_baru;
+
   analyze public.dsg_katalog;
 
-  return jsonb_build_object('sebelum', v_lama, 'sesudah', v_baru,
-    'erp', (select count(distinct erp) from public.dsg_katalog));
-end $fn$;
+  return jsonb_build_object(
+    'sebelum', v_lama, 'sesudah', v_baru,
+    'erp', (select count(distinct erp) from public.dsg_katalog),
+    'ada_mandarin', (select count(*) from public.dsg_katalog where spec ~ '[\u4e00-\u9fff]'),
+    'tanpa_merek', (select count(*) from public.dsg_katalog where coalesce(merek,'')='')
+  );
+end $function$;
+
 
 -- ---------------------------------------------------------------------
 -- 3. Trigger: PO / label_stock baru langsung masuk katalog

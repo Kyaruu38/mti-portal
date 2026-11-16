@@ -1,4 +1,25 @@
 -- =====================================================================
+-- !!! JANGAN JALANKAN FILE INI APA ADANYA — 16 Nov 2026 !!!
+--
+-- label_master_panen() DI BAWAH SUDAH KEDALUWARSA.
+--
+-- Fungsi yang sama ditulis ulang di items_label_bx.sql (9 Nov 2026), dan
+-- VERSI 9 NOV ITULAH yang sekarang hidup di basis data (diverifikasi
+-- 16 Nov 2026: panjang badan di DB 2594, cocok dengan 9 Nov, bukan dengan
+-- file ini). Menjalankan file ini akan MENURUNKAN produksi ke versi
+-- 6 Nov tanpa peringatan apa pun.
+--
+-- Dua berkas mendefinisikan satu fungsi, dan tidak ada apa pun di repo
+-- yang menentukan siapa yang menang — yang menentukan cuma urutan siapa
+-- yang terakhir dijalankan. Itu persis bentuk kesalahan yang memakan dua
+-- PO di v28.1.
+--
+-- YANG MASIH BERLAKU dari berkas ini: hanya blok policy
+-- items_read_supplier di bagian paling bawah.
+-- Cermin fungsi yang HIDUP: supabase/sql/live/label_master_panen.sql
+-- =====================================================================
+
+-- =====================================================================
 -- label_master.sql                      dijalankan: 6 Nov 2026
 --
 -- MASTER LABEL DIPANEN DARI LEMBAR ORDER, BUKAN DIISI DUA KALI.
