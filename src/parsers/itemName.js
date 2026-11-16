@@ -48,6 +48,31 @@ export function parseItemName(raw, brandMap) {
   if (pat) {
     brandRaw = body.slice(body.indexOf(']', body.indexOf(pat[1])) + 1);
     brandRaw = brandRaw.replace(/\b(TL|TT)\b/g, '').replace(/无内|东南亚|全诺/g, '').trim();
+    // INDEKS BEBAN TELANJANG — TANPA KURUNG — IKUT TERTELAN JADI MEREK.
+    //
+    // Regex loadIndex di atas cuma menangkap yang DIKURUNG '(152/149M)'. Di
+    // lembar order lain indeksnya ditulis telanjang persis sesudah ']', dan
+    // seluruh ekor itu diambil mentah sebagai merek:
+    //    '[ST-100A]96/92M HI-RUN无内'  ->  merek '96/92M HI-RUN'
+    // Itu tidak ada di peta merek, jadi barisnya kena 'merek_asing' -> medan
+    // 'tahan' -> TIDAK BISA dipesan. Padahal merekDikenal('HI-RUN') true;
+    // yang merusak cuma angka di depannya. Lembar Sona 11.12 HIRUN kena
+    // keenam barisnya, dan itu sebabnya "template Sona tidak bisa ditarik".
+    //
+    // DIUKUR, bukan ditebak. 4.858 nama ber-']' di pos.items.d + items +
+    // designs + label_stock: 739 berbentuk ganda '100/96M GOODRIDE', 820
+    // berbentuk tunggal '100H CAPITOL' / '101A2 HERCULES'. Dua-duanya selama
+    // ini merusak merek. 3.299 yang mulai huruf tidak disentuh.
+    //
+    // Pola DIJANGKARKAN di awal dan harus mulai digit: tidak ada merek yang
+    // namanya dimulai angka, jadi tidak ada nama benar yang bisa kena. Kalau
+    // sesudah dipotong tidak tersisa apa-apa, merek dibiarkan KOSONG —
+    // kosong lebih jujur daripada '100H' yang terlanjur masuk master item.
+    const liTelanjang = brandRaw.match(/^(\d{2,3}\/\d{2,3}[A-Z]\d?|\d{2,3}[A-Z]\d?)(?![\w/])\s*/);
+    if (liTelanjang) {
+      if (!out.loadIndex) out.loadIndex = liTelanjang[1];
+      brandRaw = brandRaw.slice(liTelanjang[0].length).trim();
+    }
   }
   if (/[\u4e00-\u9fff]/.test(brandRaw)) out.chinese = brandRaw;
   // The `|| out.pattern` fallback used to be unconditional: an item name with

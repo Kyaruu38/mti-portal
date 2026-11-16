@@ -61,7 +61,11 @@ const hasModule = (role, m) => allowedReportModules(role).includes(m);
 // memang hilang karena bukan alnum, tapi １５２ bukan 152 bagi JavaScript, dan
 // baris Mandarin di basis data ini memang memuatnya.
 const lipatLebar = s => String(s).replace(/[！-～]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
-const norm = s => lipatLebar(s == null ? '' : s).toUpperCase().replace(/[^0-9A-Z一-鿿]/g, '');
+// 无内 dilipat ke 'TL' SEBELUM apa pun yang lain: dua-duanya tubeless, dan
+// tanpa ini mengetik 'ARROYO TL' tidak menemukan baris '[AR200]ARROYO无内'.
+// Huruf Han tetap TIDAK dibuang (alasannya di blok komentar di atas) — yang
+// berubah cuma: 无内 yang spesifik itu dibaca sebagai TL lebih dulu.
+const norm = s => lipatLebar(s == null ? '' : s).replace(/无内/g, 'TL').toUpperCase().replace(/[^0-9A-Z一-鿿]/g, '');
 
 // `screens` is an ORDERED preference list, not a single destination: the same
 // document lives on different screens for different roles. A PRF is opened from

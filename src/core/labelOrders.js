@@ -198,7 +198,23 @@ export const REORDER_WINDOW_DAYS = 40;
 // "sudah dipesan" di satu layar dan "belum" di layar sebelahnya.
 export function orderMatchKeys(row) {
   const erp = normErp(row.erp);
+  // 无内 DAN 'TL' ITU BARANG YANG SAMA, DAN SEBELUM INI BUKAN KUNCI YANG SAMA.
+  //
+  // Satu barang ditulis dua cara di dua tempat:
+  //    '[AR200]ARROYO无内'   dan   '[AR200]ARROYO TL'
+  // Tanpa dilipat, dua-duanya jadi kunci spec BERBEDA, jadi peringatan
+  // "sudah dipesan dalam 40 hari terakhir" TIDAK MUNCUL untuk pasangan itu —
+  // dan menurut catatan di atas, yang berbahaya memang bukan memesan dua
+  // kali, melainkan memesan dua kali TANPA TAHU.
+  //
+  // Diukur: 2.519 tulisan berbeda di items + designs + label_stock + pos
+  // ternyata cuma 2.383 barang; 122 barang punya 2-3 ejaan.
+  //
+  // Dilipat waktu MEMBANDINGKAN saja. Datanya tidak diubah: label_stock
+  // berkunci spec_name, dan menulis ulang kunci berarti memutus barisnya
+  // dari koreksi dan stok yang sudah menempel padanya.
   const spec = String(row.spec || row.name || row.d || row.dimension || '')
+    .replace(/无内/g, 'TL')
     .replace(/\s+/g, '').toUpperCase();
   return { erp, spec };
 }
