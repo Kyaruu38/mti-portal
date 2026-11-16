@@ -73,3 +73,37 @@ commit;
 --   = 10.200.000; po_revisi_2508_backup berisi 1 baris.
 --   Portal: 01050458095388ID terima 3000 tanggal 2026-09-07.
 --   Sheet : I=3.000 di keempat baris, nol catatan "DITOLAK" tersisa.
+
+-- ---------------------------------------------------------------------------
+-- TABEL CADANGANNYA SUDAH DIBUANG 16 Nov 2026 atas permintaan Kyaru, SESUDAH
+-- isinya dibandingkan baris per baris dengan catatan di atas dan sama persis:
+--   0: 01050458095388ID qty=2000 u=850 a=1700000
+--   1: 010504580901ID   qty=2000 u=850 a=1700000
+--   2: 0105045809450ID  qty=3000 u=850 a=2550000
+--   3: 010504580914ID   qty=3000 u=850 a=2550000
+--   subtotal = total = 8.500.000
+-- Jadi yang hilang cuma salinannya, bukan datanya: seluruh keadaan sebelum
+-- revisi ada di berkas ini, dan blok di bawah mengembalikannya persis.
+--
+-- CARA MEMBALIKKAN (kalau PDF revisinya ternyata bukan 3000 per item):
+-- buang tanda -- di depan tiap baris, lalu jalankan sekali.
+--
+-- begin;
+-- update public.pos p
+--    set items = jsonb_set(jsonb_set(jsonb_set(jsonb_set(
+--                  p.items,
+--                  '{0,qty}', to_jsonb(2000)),
+--                  '{0,a}',   to_jsonb(1700000)),
+--                  '{1,qty}', to_jsonb(2000)),
+--                  '{1,a}',   to_jsonb(1700000)),
+--        subtotal = 8500000,
+--        total    = 8500000
+--  where p.no = 'MC-SYC-SNI-2508'
+--    and p.deleted_at is null
+--    and (p.items->0->>'erp') = '01050458095388ID'
+--    and (p.items->1->>'erp') = '010504580901ID';
+-- commit;
+--
+-- Catatan: membalikkan PO TIDAK membalikkan sheet. Penerimaan 3.000 tanggal
+-- 2026-09-07 di baris 05388ID akan langsung ditolak lagi oleh sheet_label_push
+-- ("3000 lewat dari pesanan 2000") dan kolom J/K-nya ikut dikosongkan lagi.
