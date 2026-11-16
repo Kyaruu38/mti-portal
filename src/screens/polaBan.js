@@ -76,7 +76,13 @@ export function polaBanScreen() {
   // 24 per halaman, bukan PAGE_DEFAULT (10). Ini kisi gambar, bukan tabel:
   // sepuluh kartu meninggalkan ruang kosong di layar lebar dan memaksa orang
   // menekan "berikutnya" untuk melihat yang sebenarnya muat sekaligus.
-  const PER_HALAMAN = 24;
+  // 24 BAWAANNYA, tapi orangnya boleh mengubah — dan sampai v28.1 dia tidak
+  // boleh, padahal kotaknya ada. pager() dipanggil tanpa onSize, jadi
+  // onChange-nya tidak melakukan apa pun; dan karena 24 bukan anggota
+  // PAGE_SIZES, kotaknya menampilkan "10" di layar yang sedang menggambar 24
+  // kartu. Dilaporkan sebagai "satuannya belum sesuai", dan memang begitu:
+  // satu-satunya angka di situ yang benar adalah "1–24 of 137".
+  const PER_HALAMAN = Number(st.ui.polaSize ?? 24);
   const potong = pageSlice(hasil, st.ui.polaPage || 1, PER_HALAMAN);
 
   return h('div.stack', { style: { gap: '12px' } }, [
@@ -99,7 +105,13 @@ export function polaBanScreen() {
       },
     }, potong.items.map(p => kartu(p))),
 
-    pager(potong, { onPage: n => setUI({ polaPage: n }) }),
+    pager(potong, {
+      onPage: n => setUI({ polaPage: n }),
+      // Ganti ukuran SELALU balik ke halaman 1. Tetap di halaman 6 setelah
+      // ukurannya dinaikkan jadi 100 berarti melewati 137 kartu seluruhnya
+      // dan memandang layar kosong.
+      onSize: n => setUI({ polaSize: n, polaPage: 1 }),
+    }),
 
     st.ui.polaBuka ? modalPola(st, semua.find(x => x.kode === st.ui.polaBuka)) : null,
   ]);

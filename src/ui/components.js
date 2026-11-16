@@ -665,11 +665,21 @@ export const PAGE_DEFAULT = 10;
 // bukan halaman kosong yang terlihat seperti "tidak ada hasil".
 export function pageSlice(rows, page, size) {
   const n = rows.length;
-  if (!size || size >= n) return { items: rows, page: 1, pages: 1, from: n ? 1 : 0, to: n, total: n };
+  // `size` IKUT DIKEMBALIKAN, dan itu bukan hiasan.
+  //
+  // pager() menandai pilihan mana yang sedang aktif dengan `info.size === n`.
+  // Selama pageSlice() tidak pernah menyertakan size, info.size SELALU
+  // undefined — jadi tidak ada satu pun <option> yang cocok, dan peramban
+  // jatuh ke pilihan pertama. Kotaknya menulis "10" di layar yang sedang
+  // menampilkan 24 kartu. Angkanya bukan salah hitung; angkanya tidak pernah
+  // dibaca dari mana pun.
+  //
+  // size 0 berarti "Semua": itu nilai yang sah, bukan ketiadaan nilai.
+  if (!size || size >= n) return { items: rows, page: 1, pages: 1, from: n ? 1 : 0, to: n, total: n, size: size || 0 };
   const pages = Math.max(1, Math.ceil(n / size));
   const p = Math.min(Math.max(1, Number(page) || 1), pages);
   const from = (p - 1) * size;
-  return { items: rows.slice(from, from + size), page: p, pages, from: from + 1, to: Math.min(from + size, n), total: n };
+  return { items: rows.slice(from, from + size), page: p, pages, from: from + 1, to: Math.min(from + size, n), total: n, size };
 }
 
 // info = hasil pageSlice(). onPage(n) dan onSize(n) yang menyimpan pilihannya.
@@ -688,18 +698,31 @@ export function pager(info, { onPage, onSize, note } = {}) {
   }, label);
 
   return h('div.tbl-foot', h('div.row.gap8.wrap', { style: { alignItems: 'center' } }, [
-    h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
+    onSize ? h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } }, tr({
       id: 'Tampilkan', en: 'Show', zh: '显示',
-    })),
+    })) : null,
     // <select> biasa, bukan tombol-tombol: empat pilihan yang saling meniadakan
     // memang bentuknya begini, dan dia tidak ikut melebar di layar sempit.
-    h('select.input', {
+    // KOTAK UKURAN HANYA MUNCUL KALAU DIA BISA DIPAKAI.
+    //
+    // Dulu kotaknya selalu digambar, termasuk di layar yang memanggil pager()
+    // tanpa onSize. Di situ onChange-nya memanggil `onSize && onSize(...)` —
+    // tidak melakukan apa-apa — jadi kotaknya terlihat seperti kontrol padahal
+    // mati. Kontrol yang tidak melakukan apa pun lebih buruk daripada kontrol
+    // yang tidak ada: yang satu membuat orang mengira dia salah pakai.
+    //
+    // UKURAN DI LUAR PAGE_SIZES IKUT DIDAFTARKAN. Library pola ban memakai 24
+    // dengan sengaja (kisi gambar, bukan tabel). Tanpa baris ini 24 tidak
+    // punya <option> sendiri, dan kotaknya terpaksa menampilkan angka orang
+    // lain.
+    onSize ? h('select.input', {
       style: { width: 'auto', padding: '4px 8px', fontSize: '11.5px' },
-      onChange: e => onSize && onSize(Number(e.target.value)),
+      onChange: e => onSize(Number(e.target.value)),
     }, [
-      ...PAGE_SIZES.map(n => h('option', { value: String(n), selected: info.size === n }, String(n))),
+      ...[...new Set([...PAGE_SIZES, ...(info.size ? [info.size] : [])])].sort((x, y) => x - y)
+        .map(n => h('option', { value: String(n), selected: info.size === n }, String(n))),
       h('option', { value: '0', selected: !info.size }, tr({ id: 'Semua', en: 'All', zh: '全部' })),
-    ]),
+    ]) : null,
     nomor,
     pages > 1 ? h('div.row.gap8', { style: { marginLeft: '4px' } }, [
       lompat(1, '«', page <= 1),

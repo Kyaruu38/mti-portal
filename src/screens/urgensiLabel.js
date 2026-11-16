@@ -243,7 +243,7 @@ function panelHasil(st, hasil, bisaTulis) {
   const medan = MEDAN(hasil.baris);
   const nilai = nilaiFilter('ur');
   const rows = saring(hasil.baris, medan, nilai);
-  const hal = pageSlice(rows, ui.urPage || 1, PAGE_DEFAULT);
+  const hal = pageSlice(rows, ui.urPage || 1, Number(ui.urSize ?? PAGE_DEFAULT));
   const R = hasil.ringkasan;
 
   const tile = (judul, angka, sub, warna) => h('div.card', { style: { padding: '12px 14px', minWidth: '150px', flex: '1 1 150px' } }, [
@@ -317,8 +317,20 @@ function panelHasil(st, hasil, bisaTulis) {
     h('th', tr({ id: 'Status', en: 'Status', zh: '状态' })),
   ]));
 
-  const body = h('tbody', hal.length
-    ? hal.map(r => barisTabel(r, bisaTulis))
+  // hal ADALAH HASIL pageSlice(), bukan array.
+  //
+  // Sampai v28.1 baris ini berbunyi `hal.length ? hal.map(...)`. hal itu objek
+  // { items, page, pages, from, to, total } — objek tidak punya .length, jadi
+  // syaratnya SELALU undefined, SELALU falsy, dan tabel ini SELALU menggambar
+  // keadaan kosong. Berapa pun barisnya. Cabang hal.map() di sebelahnya tidak
+  // pernah dijalankan sekali pun; kalau sempat, dia akan melempar karena objek
+  // juga tidak punya .map.
+  //
+  // Yang membuatnya tidak ketahuan: keadaan kosongnya adalah pesan "tidak ada
+  // yang cocok", jadi layarnya terbaca seperti saringan yang terlalu ketat,
+  // bukan seperti layar yang rusak.
+  const body = h('tbody', hal.items.length
+    ? hal.items.map(r => barisTabel(r, bisaTulis))
     : barisTakCocok(13, { id: 'ur', adaFilter: jumlahFilterAktif(nilai) > 0 }));
 
   const judulTabel = tr({ id: 'Daftar urgensi', en: 'Urgency list', zh: '紧急度清单' });
@@ -333,7 +345,14 @@ function panelHasil(st, hasil, bisaTulis) {
       ]),
     ]),
     h('div.tbl-wrap', h('table.tbl', [thead, body])),
-    pager(rows.length, ui.urPage || 1, PAGE_DEFAULT, p => setUI({ urPage: p })),
+    // pager(info, { onPage, onSize }) — BUKAN empat argumen berurutan.
+    // Bentuk lama memberi angka sebagai `info`, jadi destrukturisasi di dalam
+    // pager() menghasilkan undefined semua: total falsy -> kotaknya menulis
+    // "kosong", dan onPage undefined -> tombolnya mati.
+    pager(hal, {
+      onPage: n => setUI({ urPage: n }),
+      onSize: n => setUI({ urSize: n, urPage: 1 }),
+    }),
     h('div.tbl-foot', tr({
       id: 'Urut: yang kurang dulu (ETA terdekat), lalu yang datanya belum lengkap, lalu yang stoknya cukup, lalu yang sudah di-PO. Baris tanpa ETA TIDAK ditaruh paling bawah — belum punya tanggal bukan berarti tidak mendesak, justru belum ketahuan.',
       en: 'Order: short rows first (nearest ETA), then rows with incomplete data, then rows with enough stock, then rows already on a PO. Rows with no ETA are NOT pushed to the bottom — having no date does not mean not urgent, it means not yet known.',
