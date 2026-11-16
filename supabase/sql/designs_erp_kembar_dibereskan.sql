@@ -77,3 +77,43 @@ update public.designs set erp = null,
 -- MEMBALIKKAN:
 -- update public.designs d set erp = x.erp_lama
 --   from public.designs_erp_dilepas x where x.design_id = d.id;
+
+-- =====================================================================
+-- SUSULAN 16 Nov 2026 — KODE TRAZANO KETEMU.
+--
+-- Waktu berkas ini pertama dijalankan, kartu TRAZANO
+-- ID11R22.5-18PR(149/146L)[AZ850] dilepas ERP-nya dan dibiarkan kosong
+-- karena kode yang benar belum diketahui. Pemiliknya mencarinya di master
+-- ERP dengan tiga penanda dari spec kartunya -- merek TRAZANO, indeks
+-- beban 149/146L, pasar SNI -- dan menemukannya: 01050458095532ID.
+--
+-- DIPERIKSA SEBELUM DIPASANG, karena aturannya satu item satu kode dan
+-- memasang kode yang sudah dipegang orang lain berarti membuat kembar
+-- baru sambil mengaku membereskan yang lama:
+--   designs     memakai 01050458095532ID : tidak ada
+--   items       memakai kode ini          : tidak ada
+--   label_stock memakai kode ini          : 0 baris
+--   PO mana pun memakai kode ini          : 0 dokumen
+-- Kodenya benar-benar belum terpakai, jadi aman dipasang.
+--
+-- HASIL: ERP kembar di seluruh tabel designs = NOL, dan tidak ada lagi
+-- kartu yang menunggu kode. Satu-satunya kartu yang sengaja dibiarkan
+-- tanpa ERP adalah GOODRIDE 5 Nov -- itu kartu kembar, bukan kartu yang
+-- kehilangan kodenya.
+-- =====================================================================
+
+update public.designs
+   set erp = '01050458095532ID',
+       catatan = 'ERP dibetulkan 16 Nov 2026 — kartu ini sempat memegang 01050458085ID yang ternyata milik ARISUN 12.00R20. Kode TRAZANO yang benar dikonfirmasi pemilik dari master ERP: 01050458095532ID.'
+ where id = '87fa4b80-f884-4c12-942d-ff4f12dfe181';
+
+update public.designs_erp_dilepas
+   set alasan = alasan || ' [SELESAI 16 Nov 2026: kode TRAZANO yang benar = 01050458095532ID, sudah dipasang ke kartu ini.]'
+ where design_id = '87fa4b80-f884-4c12-942d-ff4f12dfe181'
+   and alasan not like '%SELESAI%';
+
+-- PEMERIKSA:
+-- select erp, count(*) from public.designs where coalesce(erp,'')<>''
+--  group by erp having count(*) > 1;              -- harus NOL baris
+-- select erp, brand from public.designs
+--  where id = '87fa4b80-f884-4c12-942d-ff4f12dfe181';  -- 01050458095532ID / TRAZANO
