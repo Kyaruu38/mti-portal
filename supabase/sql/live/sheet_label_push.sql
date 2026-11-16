@@ -2,7 +2,7 @@
 -- DITANGKAP DARI PRODUKSI 2026-11-16 lewat pg_get_functiondef().
 -- Ini CERMIN apa yang hidup, bukan niat. Kalau beda dengan file
 -- rancangan di ../, yang HIDUP adalah yang di sini.
--- md5(prosrc-setara) e82faf8255fc
+-- md5(prosrc-setara) da25e1804d0d
 --
 -- 2026-11-16: DIBENERIN karena sinkron pertama GAGAL dengan
 --   57014 "canceling statement due to statement timeout".
@@ -13,6 +13,13 @@
 --   lalu tiap baris cuma lookup. Logika, pesan dan audit TIDAK diubah.
 --   Catatan: kegagalan lama rollback bersih (tidak ada tulisan separuh).
 --   Sisi Sheets juga dipecah per 100 baris sebagai pengaman kedua.
+--
+-- 2026-11-16 (lanjutan): receivedDirectAt TIDAK lagi di-stempel now()
+--   kalau qty-nya nol. Versi sebelumnya selalu coalesce(v_tgl, now()),
+--   jadi baris yang didorong dengan qty 0 dan tanggal kosong dapat
+--   tanggal datang hari ini padahal tidak ada barang masuk. Sinkron
+--   pertama bikin 11 baris seperti itu; sudah dibersihkan dan nilai
+--   lamanya ada di public.sheet_push_tgl_nol_backup.
 
 CREATE OR REPLACE FUNCTION public.sheet_label_push(p_token text, p_rows jsonb)
  RETURNS jsonb
@@ -77,7 +84,9 @@ begin
            set items = jsonb_set(
                  jsonb_set(items, array[v_idx::text, 'receivedDirect'], to_jsonb(v_qty)),
                  array[v_idx::text, 'receivedDirectAt'],
-                 to_jsonb(coalesce(v_tgl, to_char(now(), 'YYYY-MM-DD'))))
+                 to_jsonb(case when v_qty > 0
+                               then coalesce(v_tgl, to_char(now(), 'YYYY-MM-DD'))
+                               else coalesce(v_tgl, '') end))
          where id = v_po_id;
         v_ok := true; v_pesan := 'OK';
         insert into public.audit_log (username, entity, target, action, detail)
