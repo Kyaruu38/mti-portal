@@ -249,6 +249,26 @@ export function labelArtworkScreen() {
         // bisa dicocokkan ke Master Data tanpa membuka berkasnya.
         lapor.appendChild(h('div', { style: { fontSize: '11px', fontWeight: 700, color: 'var(--text-3)', marginBottom: '3px' } },
           tr({ id: 'Yang diganti', en: 'What was replaced', zh: '替换内容' })));
+        // HURUFNYA IKUT BERGANTI, DAN ITU TIDAK KELIHATAN DI DAFTAR INI.
+        //
+        // sulih() menggambar SETIAP nilai baru dengan StandardFonts.HelveticaBold
+        // -- satu huruf untuk semuanya, apa pun huruf artwork aslinya -- lalu
+        // ukuranPas() memilih ukuran terbesar yang masih muat di kotaknya. Medan
+        // yang TIDAK berubah dilewati (lihat `nilai.nilai === c.lama` di atas),
+        // jadi hurufnya utuh. Akibatnya satu label bisa memuat dua huruf yang
+        // berbeda, dan yang diganti selalu yang terlihat lebih tebal.
+        //
+        // Dilaporkan dari layar pemasok: "tulisan E sama M nya kyk ke-bold
+        // sendiri, ini wajar ga?" -- pertanyaan yang muncul justru karena
+        // layar ini diam soal itu. Gambar sebelum/sesudah di bawah MEMPERLIHATKAN
+        // bedanya tapi tidak MENJELASKANNYA, jadi yang memeriksa harus menebak
+        // antara "rusak" dan "memang begitu". Keduanya salah: tidak rusak, tapi
+        // juga bukan huruf mereknya lagi.
+        lapor.appendChild(h('div', { style: { fontSize: '10.5px', color: 'var(--warn, #e8a700)', lineHeight: 1.5, marginBottom: '4px' } }, tr({
+          id: 'Nilai baru ditulis ulang dengan Helvetica Bold — huruf asli artworknya tidak terbawa, jadi medan di daftar ini memang akan terlihat lebih tebal daripada tetangganya yang tidak diganti. Itu bukan kerusakan. Tapi kalau mereknya menuntut hurufnya sendiri, jangan dicetak massal sebelum ditanyakan.',
+          en: 'New values are redrawn in Helvetica Bold — the artwork\'s own typeface is not carried over, so the fields listed here will look heavier than the untouched ones beside them. That is not a fault. But if the brand requires its own typeface, do not mass-print before asking.',
+          zh: '新值均以 Helvetica Bold 重新绘制 — 不会沿用原 artwork 的字体，因此此处列出的字段看起来会比旁边未改动的字段更粗。这并非故障。但若品牌要求使用其专用字体，请先询问再批量印刷。',
+        })));
         lapor.appendChild(h('div', { style: { display: 'grid', gridTemplateColumns: 'auto 1fr auto 1fr', gap: '2px 8px', alignItems: 'baseline', marginBottom: '10px' } },
           perubahan.map(g => [
             h('span', { style: { fontSize: '10.5px', color: 'var(--text-3)' } }, g.catatan),
