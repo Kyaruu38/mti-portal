@@ -44,7 +44,7 @@ function lukisHuruf(n, currency) {
 }
 import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, pilihCari, statusTone, driveLink, pager, pageSlice, PAGE_DEFAULT, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
-import { money, num, fmtDate, romanMonth, daysUntil, topDays, addDays, ccyTone, CURRENCIES } from '../core/format.js';
+import { money, fmtDate, romanMonth, daysUntil, topDays, ccyTone, CURRENCIES } from '../core/format.js';
 import { prfPaper } from '../ui/documents.js';
 import { downloadBlob } from '../core/dom.js';
 import { can } from '../auth/roles.js';
@@ -54,6 +54,7 @@ import { uploadToDrive } from '../core/drive.js';
 import { linkOutbox } from '../core/driveOutbox.js';
 import { parseInvoicePdf } from '../parsers/invoicePdf.js';
 import { insertInvoice, updateInvoice, deleteInvoice } from '../core/invoicesApi.js';
+import { galatTanpaJawaban } from '../core/posApi.js';
 import { insertPrf, deletePrf, updatePrfStage, selisihPrf, samakanPrfDenganInvoice, nilaiSamaDenganInvoice } from '../core/prfsApi.js';
 import { insertDescDict } from '../core/descDictApi.js';
 import { UUID_RE } from '../core/supabase.js';
@@ -1680,11 +1681,24 @@ async function saveInvoiceModal() {
     if (fakturUp) await linkOutbox(fakturUp.outboxId, 'invoices', saved.id, 'files');
   } catch (e) {
     console.error('Supabase invoice insert failed', e);
-    toast({
-      id: 'Gagal simpan invoice ke server: ' + (e.message || e),
-      en: 'Failed to save the invoice to the server: ' + (e.message || e),
-      zh: '发票保存到服务器失败：' + (e.message || e),
-    });
+    // DUA KEADAAN YANG BEDA, DAN SEBELUMNYA DIJAWAB SATU KALIMAT.
+    //
+    // Kalau server sempat menjawab dengan kode, dia memang menolak: kalimat
+    // "gagal disimpan" benar. Kalau balasannya tidak pernah datang sama
+    // sekali, browsernya TIDAK TAHU apakah barisnya mendarat -- dan 17 Nov
+    // 2026 ternyata mendarat. Mengatakan "gagal" di situ menyuruh orang
+    // mengetik ulang invoice yang sudah ada.
+    toast(galatTanpaJawaban(e)
+      ? {
+          id: `Koneksi putus sebelum server menjawab. Invoice ${f.no} MUNGKIN sudah tersimpan — muat ulang halaman dan periksa dulu sebelum input ulang.`,
+          en: `The connection dropped before the server answered. Invoice ${f.no} MAY already be saved — reload the page and check before entering it again.`,
+          zh: `连接在服务器应答前中断。发票 ${f.no} 可能已保存 — 请先重新加载页面核对，再决定是否重新录入。`,
+        }
+      : {
+          id: 'Gagal simpan invoice ke server: ' + (e.message || e),
+          en: 'Failed to save the invoice to the server: ' + (e.message || e),
+          zh: '发票保存到服务器失败：' + (e.message || e),
+        });
     return;
   }
   if (!local.id) local.id = uid('inv'); // demo mode: insertInvoice no-ops, keep a local id

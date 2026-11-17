@@ -1,4 +1,4 @@
-import { h, wireDrop, pickFiles } from '../core/dom.js';
+import { h, pickFiles } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
 import { card, badge, btn, icon, dropzone, modal, field, inputEl, selectEl, pilihCari, poNoField, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring, tanyaTeks } from '../ui/components.js';

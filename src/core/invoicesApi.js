@@ -1,5 +1,5 @@
 // Supabase persistence for Invoices. Same shape as suppliersApi.js/posApi.js.
-import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged, assertWrote } from './supabase.js';
 
 function fromRow(row) {
   return { id: row.id, no: row.no, supplier: row.supplier, poRef: row.po_ref, currency: row.currency, amount: row.amount, due: row.due, faktur: row.faktur, ppnPaid: row.ppn_paid, status: row.status, files: row.files || [] };
@@ -36,8 +36,7 @@ export async function updateInvoice(id, patch) {
   if ('status' in patch) row.status = patch.status;
   if ('faktur' in patch) row.faktur = patch.faktur;
   if ('files' in patch) row.files = patch.files;
-  const { error } = await c.from('invoices').update(row).eq('id', id);
-  if (error) throw error;
+  assertWrote(await c.from('invoices').update(row).eq('id', id).select('id'), 'ubah invoice');
 }
 
 // Delete. Only reachable from an invoice still at "Diterima Purchasing" — see
@@ -51,6 +50,5 @@ export async function deleteInvoice(id) {
   if (!isConfigured()) return;
   const c = await getClient();
   if (!c) throw new Error('Supabase client unavailable');
-  const { error } = await c.from('invoices').delete().eq('id', id);
-  if (error) throw error;
+  assertWrote(await c.from('invoices').delete().eq('id', id).select('id'), 'hapus invoice');
 }

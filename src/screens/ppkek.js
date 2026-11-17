@@ -6,7 +6,7 @@ import { extractArchive } from '../parsers/archive.js';
 import { parsePpkekPdf, parseSppbPdf } from '../parsers/ppkekPdf.js';
 import { uploadToDrive, ppkekFolder } from '../core/drive.js';
 import { linkOutbox } from '../core/driveOutbox.js';
-import { readWorkbook, writeWorkbook, colLetter } from '../core/xlsx.js';
+import { readWorkbook, writeWorkbook } from '../core/xlsx.js';
 import { num, fmtDate } from '../core/format.js';
 import { insertPpkek, updatePpkek, duplicateNopen, toIsoDate } from '../core/ppkekApi.js';
 import { can } from '../auth/roles.js';

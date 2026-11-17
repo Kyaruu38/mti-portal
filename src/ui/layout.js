@@ -3,7 +3,7 @@ import { ICONS } from '../core/icons.js';
 import { getState, setState, setUI, toast } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
 import { LANGS } from '../i18n/index.js';
-import { allowedScreens, USERS } from '../auth/roles.js';
+import { allowedScreens } from '../auth/roles.js';
 import { logout, refreshData } from '../auth/session.js';
 import { setPref } from '../core/prefs.js';
 import { icon, iconBtn, badge, btn } from './components.js';

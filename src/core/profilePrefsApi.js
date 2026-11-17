@@ -62,6 +62,11 @@ export async function saveProfilePref(patch) {
   const uid = auth && auth.user && auth.user.id;
   if (!uid) return;
 
+  // TIDAK memakai assertWrote(): baris ini menulis preferensi MILIK SENDIRI
+  // (.eq('id', uid) dengan uid dari sesi), dan jalur di bawahnya memang
+  // dirancang memaafkan kolom yang belum dimigrasi. Melempar di sini berarti
+  // tema atau bahasa yang gagal disimpan ke server menjatuhkan kliknya,
+  // padahal salinan di peramban sudah menahan pilihannya.
   const { error } = await c.from('profiles').update(row).eq('id', uid);
   if (!error) return;
   if (isMissingColumn(error)) {

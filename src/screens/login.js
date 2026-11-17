@@ -5,7 +5,7 @@ import { t } from '../i18n/index.js';
 import { icon } from '../ui/components.js';
 import { langSwitch, themeSwitch } from '../ui/layout.js';
 import { isConfigured } from '../core/supabase.js';
-import { COMPANY } from '../config.js';
+ '../config.js';
 import { VERSION, VERSION_DATE } from '../version.js';
 import { LOGO_MTI } from '../assets/images.js';
 import { BRANDS } from '../ui/brands.js';

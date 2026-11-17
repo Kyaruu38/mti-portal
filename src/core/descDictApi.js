@@ -2,7 +2,7 @@
 // Dictionary tab). Same shape as suppliersApi.js: fromRow/toRow + fetch/insert/
 // update/delete, matching the CRUD the existing UI (masterData.js dictTab)
 // already exposes (edit + delete both present, so delete is wired here too).
-import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged, assertWrote } from './supabase.js';
 
 function fromRow(row) { return { id: row.id, en: row.en, zh: row.zh }; }
 function toRow(d) { return { en: d.en, zh: d.zh || null }; }
@@ -38,6 +38,5 @@ export async function deleteDescDict(id) {
   if (!isConfigured()) return;
   const c = await getClient();
   if (!c) throw new Error('Supabase client unavailable');
-  const { error } = await c.from('desc_dict').delete().eq('id', id);
-  if (error) throw error;
+  assertWrote(await c.from('desc_dict').delete().eq('id', id).select('id'), 'hapus istilah kamus');
 }

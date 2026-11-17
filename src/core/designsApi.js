@@ -14,7 +14,7 @@
 // time (parsers/pdf.js renderThumb(), see labelLibrary.js's uploadDesign())
 // that DOES survive across sessions, unlike designUrl. It's what Surat Jalan
 // pulls into the per-item design box (screens/suratJalan.js).
-import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged, assertWrote } from './supabase.js';
 
 // Diekspor SEMATA untuk diuji. Dua pemetaan ini yang memutuskan apakah sebuah
 // artwork ditandai buatan mesin atau tidak, dan aturan itu harus bisa diuji
@@ -78,8 +78,7 @@ export async function updateDesign(id, patch) {
   // layar begitu ERP-nya dibetulkan, supaya bingkai kuning/merahnya hilang.
   if ('catatan' in patch) row.catatan = patch.catatan || null;
   if (!Object.keys(row).length) return;
-  const { error } = await c.from('designs').update(row).eq('id', id);
-  if (error) throw error;
+  assertWrote(await c.from('designs').update(row).eq('id', id).select('id'), 'ubah design');
 }
 
 // ---------------------------------------------------------------------------
@@ -119,13 +118,18 @@ export async function replaceArtwork(id, patch) {
     updated: patch.updated || null,
     riwayat: patch.riwayat || [],
   };
-  let { error } = await c.from('designs').update(row).eq('id', id);
-  if (error && /riwayat/i.test(error.message || '')) {
+  // .select('id') DI KEDUA percobaan, dan assertWrote di ujungnya: tanpa itu,
+  // penolakan RLS pulang sebagai 204 tanpa error dan penggantian artwork
+  // terbaca BERHASIL sementara kartunya masih menunjuk berkas lama. Versi
+  // cadangan (tanpa riwayat) ikut diperiksa — kalau cuma yang pertama yang
+  // diperiksa, jalur cadangannya jadi lubang yang sama.
+  let r = await c.from('designs').update(row).eq('id', id).select('id');
+  if (r.error && /riwayat/i.test(r.error.message || '')) {
     console.warn('Kolom designs.riwayat belum ada — artwork tetap diganti, riwayat tidak tersimpan. Jalankan supabase_designs_riwayat.sql.');
     delete row.riwayat;
-    ({ error } = await c.from('designs').update(row).eq('id', id));
+    r = await c.from('designs').update(row).eq('id', id).select('id');
   }
-  if (error) throw error;
+  assertWrote(r, 'ganti artwork design');
 }
 
 // Deleting the ROW does not delete the file in Drive — the artwork stays where
@@ -135,6 +139,5 @@ export async function deleteDesign(id) {
   if (!isConfigured()) return;
   const c = await getClient();
   if (!c) throw new Error('Supabase client unavailable');
-  const { error } = await c.from('designs').delete().eq('id', id);
-  if (error) throw error;
+  assertWrote(await c.from('designs').delete().eq('id', id).select('id'), 'hapus design');
 }

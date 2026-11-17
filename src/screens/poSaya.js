@@ -202,9 +202,27 @@ export function poSayaScreen() {
   // lagi — atau menyimpulkan sistemnya diam lalu menelepon. Tombol Approve &
   // Hapus sengaja TIDAK ada di layar ini: itu milik supervisor, dan tempatnya
   // di Approval Queue.
+  // KALAU YANG MEMBACA JUSTRU PENYETUJUNYA, KALIMATNYA BERUBAH.
+  //
+  // Dilaporkan apa adanya: "tulisanya nunggu approval gw padahal gw yg nge
+  // approve". Dan memang begitu bunyinya -- wilbert memiliki PO ini, jadi dia
+  // yang mengajukan hapus, dan dia juga satu-satunya yang boleh menyetujuinya.
+  // Spanduk yang menyuruhnya menunggu DIRINYA SENDIRI bukan sekadar janggal:
+  // dia membuat layar ini terbaca seperti antrean yang macet, padahal yang
+  // kurang cuma satu klik di tab sebelah.
+  //
+  // Tombolnya TETAP tidak dipindah ke sini. Itu keputusan lama dan masih
+  // benar: aksi yang menghapus PO milik orang lain tempatnya di Approval
+  // Queue, satu layar, bukan tersebar. Yang diperbaiki kalimatnya -- dia
+  // sekarang menyebut ke MANA harus pergi, bukan menyuruh menunggu.
+  const akuPenyetuju = can(st.user.role, 'approve');
   const spandukHapus = po.deleteRequested
     ? h('div', { style: { padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--st-red-bg)' } }, [
-        h('div', { style: { fontSize: '11.5px', fontWeight: 700, color: 'var(--st-red-tx)' } }, tr({
+        h('div', { style: { fontSize: '11.5px', fontWeight: 700, color: 'var(--st-red-tx)' } }, tr(akuPenyetuju ? {
+          id: `Request hapus sudah diajukan — alasan: ${po.deleteReason || '-'}. ANDA yang menyetujuinya: buka Approval Queue, pilih PO ini, tombol Approve & Hapus ada di sana.`,
+          en: `Delete request submitted — reason: ${po.deleteReason || '-'}. YOU are the approver: open the Approval Queue, select this PO, and the Approve & Delete button is there.`,
+          zh: `删除申请已提交 — 原因：${po.deleteReason || '-'}。您就是审批人：请打开 Approval Queue 并选中此采购单，“批准并删除”按钮在那里。`,
+        } : {
           id: `Request hapus sudah diajukan — menunggu approval Wilbert. Alasan: ${po.deleteReason || '-'}`,
           en: `Delete request submitted — awaiting Wilbert's approval. Reason: ${po.deleteReason || '-'}`,
           zh: `删除申请已提交 — 等待 Wilbert 审批。原因：${po.deleteReason || '-'}`,

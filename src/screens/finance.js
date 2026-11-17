@@ -1,8 +1,8 @@
 import { h } from '../core/dom.js';
 import { getState, setState, setUI, toast, uid, logAudit } from '../core/store.js';
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, icon, dropzone, modal, checkRow, driveLink, statusTone, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
-import { money, num, ccyDecimals, fmtDate, fmtDateTime, daysUntil, similarity, normalize, sumByCurrency, moneyMulti, CURRENCIES } from '../core/format.js';
+import { card, badge, btn, icon, dropzone, modal, checkRow, driveLink, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, barisTakCocok, hitunganSaring } from '../ui/components.js';
+import { money, num, ccyDecimals, fmtDate, fmtDateTime, daysUntil, similarity, sumByCurrency, moneyMulti, CURRENCIES } from '../core/format.js';
 import { parsePaymentProof } from '../parsers/bankProof.js';
 import { parseNumber } from '../parsers/numbers.js';
 import { uploadToDrive } from '../core/drive.js';
@@ -12,6 +12,28 @@ import { updatePrfStage, selisihPrf } from '../core/prfsApi.js';
 import { blockWrite } from '../core/guard.js';
 import { confirmPrfPaid } from '../core/paymentsApi.js';
 import { isConfigured } from '../core/supabase.js';
+
+// AKSI UANG DI LAYAR INI: markPaid DIKURANGI peran yang tahap keuangannya
+// memang ditandai read-only.
+//
+// Ditemukan lewat audit: izin 'paymentReadonly' selama ini HANYA dibaca
+// payment.js, sementara layar INI -- satu-satunya tempat PRF benar-benar
+// ditandai Paid -- tidak pernah memeriksanya sama sekali. sekar memegang
+// markPaid DAN paymentReadonly sekaligus, dan ACCESS memberinya layar ini,
+// jadi larangan yang tertulis di roles.js berlaku di satu layar dan bisa
+// dilangkahi hanya dengan membuka layar sebelah.
+//
+// Gerbangnya ditaruh DI SINI, bukan dengan mencabut markPaid dari sekar,
+// karena yang harus menentukan adalah niat yang sudah tertulis ('tahap
+// finance read-only untuk peran ini') -- bukan daftar peran yang harus diingat
+// benar di dua berkas sekaligus. Mencabut markPaid juga akan diam-diam
+// mengubah arti izin itu untuk peran lain yang suatu hari memakainya.
+//
+// YANG DIBATASI CUMA AKSI UANGNYA. Membaca dan mencocokkan bukti transfer
+// tetap terbuka untuk semua yang bisa membuka layar ini -- lihat catatan
+// dropzone di bawah: menyatukan dua gerbang itu pernah membuat supervisor
+// kehilangan langkah periksanya sendiri.
+const bolehBayar = (role) => can(role, 'markPaid') && !can(role, 'paymentReadonly');
 
 // DISPLAY ONLY. PRF stage values are stored in Postgres and compared with ===
 // throughout this file (and in prfsApi/paymentsApi); this lookup is used at the
@@ -55,7 +77,7 @@ const MEDAN_PRF_MASUK = (semua) => [
 export function financeScreen() {
   const st = getState(); const ui = st.ui;
   const canReceive = can(st.user.role, 'financeReceive');
-  const canPay = can(st.user.role, 'markPaid');
+  const canPay = bolehBayar(st.user.role);
 
   // Overdue: invoices received-not-paid past due. Totaled PER CURRENCY — never merged.
   const overdue = st.invoices.filter(i => i.status !== 'Paid' && daysUntil(i.due) < 0);
@@ -140,7 +162,7 @@ export function financeScreen() {
   // any database write, so RLS could not have stopped a read-only account.
   //
   // Gated on isReadOnly, NOT on canPay. Gating it on canPay was wrong and broke
-  // wilbert: he holds this screen but not markPaid, so the dropzone went inert
+  // wilbert, who did not hold markPaid at the time (he does now): the dropzone went inert
   // for him — and since ui.proofMatch / ui.proofManual are set ONLY inside
   // handleProof(), the entire right-hand panel became permanently stuck on its
   // empty placeholder. He could no longer even LOOK at a transfer proof.
@@ -286,7 +308,7 @@ async function handleProof(file) {
 }
 
 function matchCard(m) {
-  const canPay = can(getState().user.role, 'markPaid');
+  const canPay = bolehBayar(getState().user.role);
   if (!m.prf) return manualCard({ file: m.file, fields: m.fields });
   // Word picked first so the interpolation below stays identical in all three
   // languages (the amount test itself is untouched).
@@ -323,7 +345,7 @@ function matchCard(m) {
 
 function manualCard(m) {
   const st0 = getState();
-  const canPay = can(st0.user.role, 'markPaid');
+  const canPay = bolehBayar(st0.user.role);
   const f = m.fields;
   // Every PRF finance could legitimately be paying. The operator picks ONE;
   // nothing is inferred.

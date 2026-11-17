@@ -7,7 +7,7 @@
 // items jsonb, created_by, created_at). There's no separate po_ids column —
 // each line inside `items` already carries its own `poId`, so the set of
 // POs a document references is derived from that on read.
-import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged, assertWrote } from './supabase.js';
 
 function fromRow(row) {
   const items = row.items || [];
@@ -72,8 +72,7 @@ export async function updateSuratJalan(id, patch) {
   if (!c) throw new Error('Supabase client unavailable');
   const row = {};
   if ('driveUrl' in patch) row.drive_url = patch.driveUrl;
-  const { error } = await c.from('surat_jalan').update(row).eq('id', id);
-  if (error) throw error;
+  assertWrote(await c.from('surat_jalan').update(row).eq('id', id).select('id'), 'ubah surat jalan');
 }
 
 // ---------------------------------------------------------------------------

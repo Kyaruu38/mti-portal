@@ -4,7 +4,7 @@
 // other module here: fetch* returns null (never []) when Supabase isn't
 // configured or the read failed, so a caller can tell "no data" apart from
 // "couldn't read" and leave local state alone.
-import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged, assertWrote } from './supabase.js';
 
 function fromRow(row) {
   return {
@@ -287,8 +287,7 @@ export async function setLabelStockErp(id, erp) {
   if (!isConfigured()) return;
   const c = await getClient();
   if (!c) throw new Error('Supabase client unavailable');
-  const { error } = await c.from('label_stock')
+  assertWrote(await c.from('label_stock')
     .update({ erp: erp || null, erp_confirmed: !!erp, updated_at: new Date().toISOString() })
-    .eq('id', id);
-  if (error) throw error;
+    .eq('id', id).select('id'), 'simpan kecocokan ERP stok label');
 }

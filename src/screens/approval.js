@@ -3,7 +3,7 @@ import { getState, setState, setUI, toast, logAudit } from '../core/store.js';
 import { blockWrite } from '../core/guard.js';
 import { parseNumber, parseMoney, moneyInputText, qtyInputText } from '../parsers/numbers.js';
 import { t, tr } from '../i18n/index.js';
-import { card, badge, btn, icon, modal, field, inputEl, selectEl, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring, pager, pageSlice, PAGE_DEFAULT } from '../ui/components.js';
+import { card, badge, btn, modal, field, inputEl, selectEl, tombolFilter, nilaiFilter, saring, jumlahFilterAktif, hitunganSaring, pager, pageSlice, PAGE_DEFAULT } from '../ui/components.js';
 import { money, num, fmtDate, ppnFor, poTermDays, isAdvanceTerm, ccyDecimals, totalPerMataUang } from '../core/format.js';
 import { newLineId } from '../core/posApi.js';
 import { poDocument, ensureCap } from '../ui/documents.js';

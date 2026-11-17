@@ -21,7 +21,7 @@ import { card, badge, btn, inputEl, selectEl } from '../ui/components.js';
 import { fmtDate } from '../core/format.js';
 import { can, isReadOnly } from '../auth/roles.js';
 import { blockWrite } from '../core/guard.js';
-import { JENIS_KOMPLAIN, STATUS_KOMPLAIN, insertComplaint, updateComplaint, fetchComplaints } from '../core/complaintsApi.js';
+import { JENIS_KOMPLAIN, insertComplaint, updateComplaint, fetchComplaints } from '../core/complaintsApi.js';
 
 const WARNA = { 'Open': 'red', 'In progress': 'amber', 'Closed': 'green' };
 

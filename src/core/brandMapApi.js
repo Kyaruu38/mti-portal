@@ -1,6 +1,6 @@
 // Supabase persistence for Brand Mapping (Master Data > Brand Mapping tab).
 // Same shape as suppliersApi.js.
-import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged, assertWrote } from './supabase.js';
 
 function fromRow(row) { return { id: row.id, zh: row.zh, canonical: row.canonical }; }
 function toRow(b) { return { zh: b.zh, canonical: b.canonical }; }
@@ -36,6 +36,5 @@ export async function deleteBrandMap(id) {
   if (!isConfigured()) return;
   const c = await getClient();
   if (!c) throw new Error('Supabase client unavailable');
-  const { error } = await c.from('brand_map').delete().eq('id', id);
-  if (error) throw error;
+  assertWrote(await c.from('brand_map').delete().eq('id', id).select('id'), 'hapus pemetaan merek');
 }

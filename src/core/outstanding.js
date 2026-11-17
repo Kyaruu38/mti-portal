@@ -118,7 +118,17 @@ export function poOutstanding(st, po) {
 // gudang mencocokkan warna, posisi tulisan, ukuran, dan kerekatan terhadap
 // desain yang disetujui. Tidak ada satu pun dari itu yang berarti untuk satu
 // drum oli.
-export function isLabelPO(po) { return po && po.source === 'label'; }
+// Definisinya TINGGAL SATU, di core/erpRequest.js. Dulu berkas ini punya
+// salinannya sendiri (`po && po.source === 'label'`) yang kebetulan setara --
+// dan "kebetulan setara" persis keadaan yang membuat dua salinan berbahaya:
+// yang satu diperbaiki, yang satu tidak, dan tidak ada yang kelihatan rusak
+// sampai dua layar menjawab berbeda untuk PO yang sama.
+// Diimpor LALU diekspor ulang, bukan `export { x } from` saja: bentuk itu
+// tidak membuat binding lokal, sementara berkas ini memanggil isLabelPO()
+// sendiri di tiga tempat di bawah. Yang lolos `node --check` belum tentu
+// lolos saat dijalankan.
+import { isLabelPO } from './erpRequest.js';
+export { isLabelPO };
 
 // Every approved, non-closed PO that still has goods outstanding.
 //

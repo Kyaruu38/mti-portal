@@ -2,7 +2,7 @@
 // Same shape as suppliersApi.js. `erp` is unique in the schema — a duplicate
 // save surfaces as a real Postgres error, caught and toasted by the caller
 // like every other module, not silently handled here.
-import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged, assertWrote } from './supabase.js';
 
 function fromRow(row) {
   return {
@@ -66,8 +66,7 @@ export async function deleteItem(id) {
   if (!isConfigured()) return;
   const c = await getClient();
   if (!c) throw new Error('Supabase client unavailable');
-  const { error } = await c.from('items').delete().eq('id', id);
-  if (error) throw error;
+  assertWrote(await c.from('items').delete().eq('id', id).select('id'), 'hapus item');
 }
 
 

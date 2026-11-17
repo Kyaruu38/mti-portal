@@ -1,6 +1,6 @@
 // Supabase persistence for Units (Master Data > Unit tab). Same shape as
 // itemsApi.js/brandMapApi.js.
-import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged, assertWrote } from './supabase.js';
 
 function fromRow(row) { return { id: row.id, code: row.code, intl: row.code_intl, note: row.note }; }
 function toRow(u) { return { code: u.code, code_intl: u.intl || null, note: u.note || null }; }
@@ -36,6 +36,5 @@ export async function deleteUnit(id) {
   if (!isConfigured()) return;
   const c = await getClient();
   if (!c) throw new Error('Supabase client unavailable');
-  const { error } = await c.from('units').delete().eq('id', id);
-  if (error) throw error;
+  assertWrote(await c.from('units').delete().eq('id', id).select('id'), 'hapus satuan');
 }

@@ -287,6 +287,31 @@ export function galatPermanen(e) {
   return true;
 }
 
+// JAWABAN YANG TIDAK PERNAH DATANG BUKAN BUKTI TULISANNYA TIDAK MENDARAT.
+//
+// 17 Nov 2026: visca menyimpan invoice IDR 1.638.826.401,37 dan layarnya
+// menjawab "Failed to save the invoice to the server: TypeError: Failed to
+// fetch". Barisnya SUDAH ada di database jam 10:29, lengkap dengan tautan
+// Drive aslinya. Yang hilang cuma balasan HTTP-nya di tengah jalan.
+//
+// Pesan yang memastikan "gagal disimpan" memastikan sesuatu yang browsernya
+// TIDAK BISA TAHU, dan akibatnya orang mengetik ulang invoice satu koma enam
+// miliar. Yang menahannya cuma index unik (supplier, no) di database -- dan
+// bergantung pada jaring pengaman untuk menutupi pesan yang salah adalah cara
+// kerja yang cuma selamat sampai ada satu tabel yang indexnya belum dibuat.
+//
+// galatPermanen() di atas memakai "tanpa kode = tidak pernah sampai" untuk
+// memutuskan BOLEH-TIDAKNYA diulang, dan untuk itu dia tetap benar: kiriman
+// yang tidak sampai memang pantas diulang. Yang tidak boleh diambil dari
+// ketiadaan kode adalah kesimpulan tentang APA YANG SUDAH TERJADI di server.
+// Dua pertanyaan berbeda, dan selama ini dijawab satu fungsi.
+export function galatTanpaJawaban(e) {
+  if (!e) return false;
+  if (e.code || e.status) return false;   // server sempat menjawab -> bukan kasus ini
+  return /failed to fetch|networkerror|network error|load failed|aborted/i
+    .test(String((e && e.message) || e));
+}
+
 // Kalimat yang dibaca orang yang menekan simpan. Kodenya ikut disebut, bukan
 // buat dia -- buat yang nanti dikirimi screenshot-nya.
 export function sebabGagalSimpan(e) {

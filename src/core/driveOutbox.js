@@ -129,6 +129,15 @@ export async function markDone(outboxId, driveUrl) {
   }
 }
 
+// TIGA TULIS DI BERKAS INI SENGAJA TIDAK MEMAKAI assertWrote(), DAN ITU BUKAN
+// KELALAIAN. Di tabel antrean ini "0 baris tersentuh" adalah hasil yang SAH,
+// bukan penolakan: setiap update-nya dikunci .eq('status','pending'), jadi nol
+// baris berarti ada jalur lain yang sudah menyelesaikan baris itu lebih dulu
+// (markDone, atau retry yang datang bersamaan). assertWrote akan melempar di
+// situ, dan yang dilemparnya adalah KEBERHASILAN orang lain. Perbedaannya
+// dengan tabel lain: di sana nol baris cuma bisa berarti hak akses atau baris
+// yang hilang; di sini balapan memang dirancang bisa terjadi.
+
 export async function markPending(outboxId, err, { ragu = false } = {}) {
   if (!outboxId || !isConfigured()) return;
   try {
