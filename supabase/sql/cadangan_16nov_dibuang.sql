@@ -1,0 +1,74 @@
+-- Tabel cadangan 16 Nov 2026 — DIPERIKSA, DICATAT, LALU DIBUANG 17 Nov 2026
+-- Catatan, bukan migrasi. Jangan dijalankan ulang.
+--
+-- "skrg tabel bersihin aja semua" (Kyaru). Dicari dulu apa saja yang ada:
+-- lima tabel cocok dengan pola nama cadangan. EMPAT memang cadangan.
+-- SATU TIDAK, dan itu sebabnya daftarnya diperiksa satu per satu sebelum
+-- ada yang dibuang.
+--
+-- ===================================================================
+-- TIDAK DIBUANG: public.backup_config
+-- ===================================================================
+-- Kolomnya: id, fungsi_url, secret, diubah_pada. Itu KONFIGURASI HIDUP
+-- (alamat fungsi + rahasianya) untuk job backup, bukan salinan data.
+-- Namanya kebetulan mengandung kata "backup" dan hampir saja ikut terbuang
+-- bersama yang lain. Isinya tidak dibaca dan tidak ditulis ke mana pun.
+--
+-- ===================================================================
+-- SYARAT SEBELUM DIBUANG: dibuktikan MUBAZIR, bukan diasumsikan
+-- ===================================================================
+--   designs                                651 baris
+--   designs tanpa thumb                      0
+--   thumb yang CUMA ada di cadangan          0
+--   baris cadangan yang desainnya hilang     0
+--   surat jalan kosong tapi cadangannya isi  0
+--   baris cadangan yang dokumennya hilang    0
+-- Nol di semua kolom = tidak ada satu pun data yang cuma hidup di cadangan.
+--
+-- ===================================================================
+-- YANG DIBUANG
+-- ===================================================================
+-- 1. designs_thumb_base64_backup   408 baris, disalin 16 Nov 02:05 UTC
+--    Salinan thumb base64 sebelum migrasi gambar. 651 desain sekarang
+--    semuanya punya thumb; nol di antaranya bergantung pada tabel ini.
+--
+-- 2. surat_jalan_items_backup       32 baris, disalin 16 Nov 02:34 UTC
+--    Salinan items seluruh surat jalan sebelum perbaikan arah PO.
+--    Ke-32 dokumennya masih ada dan items-nya tidak kosong.
+--
+-- 3. sj_arah_ulang_backup            2 baris, dibuat 16 Nov 06:35 UTC
+--    PC/SJ/X/003-4 (10 baris items) dan PC/SJ/X/003-5 (7 baris items),
+--    sebelum 5 barisnya diarahkan ke PO versi hidup. Items lamanya sudah
+--    tersimpan utuh di supabase/sql/surat_jalan_arah_ulang_po_dibuat_ulang.sql,
+--    jadi tabel ini salinan kedua dari sesuatu yang sudah ada di git.
+--
+-- 4. sheet_push_tgl_nol_backup      11 baris, dibuat 16 Nov 06:28 UTC
+--    Baris ber-qty NOL yang terlanjur distempel tanggal oleh
+--    coalesce(v_tgl, now()) sebelum sheet_label_push diberi syarat qty > 0.
+--    SELURUH isinya ditulis ulang di sini supaya tabelnya tidak perlu ada:
+--
+--      PO                                    idx   tgl_lama
+--      ARISUN CR926B-SNI-0710                 1    2026-11-16
+--      CY-ARSN-SDST-NPN-PTBX-0510             3    2026-11-16
+--      VITOUR-BSN-SNI-0510                    0    2026-11-16
+--      VITOUR-BSN-SNI-0510                    1    2026-11-16
+--      WESTLAKE CB972-BX-0925                 0    2026-11-16
+--      WESTLAKE SMALL LABEL-BSN-0610          0    2026-11-16
+--      WESTLAKE SMALL LABEL-BSN-0610          1    2026-11-16
+--      WL-CY-TRAVELSTAR-PTBXOEM-0923          1    2026-11-16
+--      WL-CY-TRAVELSTAR-PTBXOEM-0923          2    2026-11-16
+--      WL-NPN-TRVLSTR-GR-ARSN-BXPTSNI-0915    4    2026-11-16
+--      YARTU EZ336-BSN-SNI-0610               0    2026-11-16
+--
+--    Semuanya bertanggal 2026-11-16 — yaitu HARI stempelnya salah terjadi,
+--    bukan tanggal barang datang. Tidak ada tanggal asli yang hilang:
+--    barangnya memang belum datang, qty-nya nol. Membalikkannya berarti
+--    menulis kembali tanggal yang memang karangan mesin.
+--
+-- Yang dijalankan:
+--   drop table if exists public.designs_thumb_base64_backup;
+--   drop table if exists public.surat_jalan_items_backup;
+--   drop table if exists public.sj_arah_ulang_backup;
+--   drop table if exists public.sheet_push_tgl_nol_backup;
+--
+-- Sesudahnya: nol tabel cadangan tersisa; backup_config tetap berdiri.
