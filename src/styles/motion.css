@@ -1,0 +1,347 @@
+/* MTI Purchasing Portal — lapisan gerak (motion layer)
+   ---------------------------------------------------------------------------
+   Kenapa berkas ini ada:
+
+   Sampai v30.0, app.css tidak punya satu pun `transition`. Setiap keadaan —
+   hover, tekan, menu terpilih, baris tersorot — berganti seketika. Secara
+   fungsi tidak ada yang salah, tapi tangan tidak dapat jawaban: tombol yang
+   ditekan terlihat persis sama dengan tombol yang baru saja selesai ditekan,
+   jadi orang menekan dua kali.
+
+   Yang ditiru di sini BUKAN kaca iOS. Transparansi sengaja tidak dipakai:
+   portal ini dibaca di gudang dengan layar silau, dan teks di atas kaca buram
+   adalah teks yang hilang. Yang ditiru adalah fisikanya:
+
+     1. Ditekan  -> mengecil cepat (120ms, easing masuk) seperti bahan yang
+                    menyerah pada jari.
+     2. Dilepas  -> kembali dengan sedikit melewati batas lalu diam
+                    (cubic-bezier .34,1.56,.64,1). Ini satu-satunya alasan
+                    gerakan terasa "hidup" dan bukan sekadar "ada animasi".
+     3. Berubah  -> warna, bayangan, dan cincin fokus ikut beranjak, tidak
+                    berkedip.
+
+   Aturan main berkas ini:
+   - Hanya CSS. Tidak ada HTML/JS yang diubah, jadi kalau tidak disukai cukup
+     hapus satu baris <link> di index.html dan semuanya kembali seperti v30.0.
+   - `transform` TIDAK dipakai pada .card. Kartu memuat .card-head.lengket yang
+     position:sticky, dan ancestor ber-transform merusak perhitungan sticky-nya.
+     Kartu cukup dapat bayangan dan garis tepi yang beranjak.
+   - Semua warna diambil dari token yang sudah ada, supaya mode gelap ikut
+     benar tanpa satu pun nilai ditulis ulang di sini.
+   - prefers-reduced-motion dihormati di paling bawah: untuk yang pusing melihat
+     gerakan, semuanya kembali seketika.
+   ========================================================================== */
+
+:root {
+  /* Pegas: melewati batas sedikit lalu diam. Dipakai saat JARI DILEPAS. */
+  --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+  /* Pegas halus: cepat di awal, berhenti mulus, tanpa melewati batas.
+     Dipakai untuk hal yang muncul (modal, toast) supaya tidak terasa genit. */
+  --ease-soft: cubic-bezier(.22, 1, .36, 1);
+  /* Masuk: dipakai saat JARI MENEKAN. Harus lebih cepat dari pegasnya,
+     kalau sama cepat tekanannya tidak terasa. */
+  --ease-press: cubic-bezier(.4, 0, .2, 1);
+
+  --t-press: 110ms;   /* tekan   */
+  --t-base: 190ms;    /* lepas, hover */
+  --t-enter: 300ms;   /* muncul  */
+}
+
+/* ===========================================================================
+   1. TOMBOL — inti dari permintaan: "tombol buat di-click lebih fluid"
+   ======================================================================== */
+
+.btn,
+.icon-btn,
+.x-btn {
+  transition:
+    transform var(--t-base) var(--ease-spring),
+    background-color var(--t-base) var(--ease-soft),
+    border-color var(--t-base) var(--ease-soft),
+    color var(--t-base) var(--ease-soft),
+    box-shadow var(--t-base) var(--ease-soft);
+  /* Supaya skala tidak membuat teks bergetar di layar non-retina. */
+  transform: translateZ(0);
+}
+
+.btn:hover:not(:disabled),
+.icon-btn:hover,
+.x-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(23, 38, 63, .08);
+}
+
+[data-theme="dark"] .btn:hover:not(:disabled),
+[data-theme="dark"] .icon-btn:hover,
+[data-theme="dark"] .x-btn:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
+}
+
+/* Tekan: mengecil, turun kembali ke garis dasar, bayangan hilang —
+   tiga hal yang sama-sama bilang "kamu sedang menekan ini". */
+.btn:active:not(:disabled),
+.icon-btn:active,
+.x-btn:active {
+  transform: scale(.955) translateY(0);
+  box-shadow: none;
+  transition-duration: var(--t-press);
+  transition-timing-function: var(--ease-press);
+}
+
+/* Tombol penuh warna perlu tekanan yang lebih dalam: tanpa garis tepi,
+   satu-satunya petunjuk kedalaman adalah skalanya. */
+.btn-primary:active:not(:disabled),
+.btn-navy:active:not(:disabled) {
+  transform: scale(.94);
+  filter: brightness(.94);
+}
+
+.btn:disabled {
+  transform: none;
+}
+
+/* ===========================================================================
+   2. CINCIN FOKUS — tumbuh, tidak berkedip (keyboard & aksesibilitas)
+   ======================================================================== */
+
+.btn:focus-visible,
+.icon-btn:focus-visible,
+.x-btn:focus-visible,
+.nav-item:focus-visible,
+.link:focus-visible,
+.step:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-ring);
+  transition: box-shadow var(--t-base) var(--ease-spring);
+}
+
+/* ===========================================================================
+   3. SIDEBAR — pita penanda yang memanjang, bukan yang tiba-tiba ada
+   ======================================================================== */
+
+.nav-item {
+  transition:
+    background-color var(--t-base) var(--ease-soft),
+    color var(--t-base) var(--ease-soft),
+    transform var(--t-base) var(--ease-spring);
+}
+
+.nav-item:active {
+  transform: scale(.985);
+  transition-duration: var(--t-press);
+  transition-timing-function: var(--ease-press);
+}
+
+/* Pita 3px di kiri menu aktif. Sebelumnya muncul/hilang seketika; sekarang
+   memanjang dari tengah dengan pegas, jadi perpindahan menu terbaca sebagai
+   satu gerakan, bukan dua kedipan. */
+.nav-item .bar {
+  transform: scaleY(0);
+  transform-origin: center;
+  transition:
+    transform var(--t-enter) var(--ease-spring),
+    background-color var(--t-base) var(--ease-soft);
+}
+
+.nav-item.active .bar {
+  transform: scaleY(1);
+}
+
+/* ===========================================================================
+   4. KARTU — sengaja TANPA transform (lihat catatan sticky di kepala berkas)
+   ======================================================================== */
+
+.card,
+.stat-card,
+.lib-card {
+  transition:
+    box-shadow var(--t-base) var(--ease-soft),
+    border-color var(--t-base) var(--ease-soft),
+    background-color var(--t-base) var(--ease-soft);
+}
+
+.lib-card {
+  /* lib-card tidak memuat elemen sticky, jadi aman diangkat. */
+  transition:
+    box-shadow var(--t-base) var(--ease-soft),
+    border-color var(--t-base) var(--ease-soft),
+    transform var(--t-base) var(--ease-spring);
+}
+
+.lib-card:hover {
+  transform: translateY(-2px);
+}
+
+.lib-card:active {
+  transform: scale(.99) translateY(0);
+  transition-duration: var(--t-press);
+  transition-timing-function: var(--ease-press);
+}
+
+.stat-card:hover {
+  box-shadow: var(--paper-shadow);
+  border-color: var(--border-strong);
+}
+
+/* ===========================================================================
+   5. TABEL — baris yang disorot menyala dari tepi kiri
+   ======================================================================== */
+
+.tbl tbody tr {
+  transition:
+    background-color var(--t-base) var(--ease-soft),
+    box-shadow var(--t-base) var(--ease-soft);
+}
+
+/* Garis aksen tipis masuk dari kiri saat baris disorot. Pakai inset box-shadow,
+   bukan border, supaya lebar kolom tidak bergeser satu piksel pun. */
+.tbl tbody tr:hover {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.tbl tr.sel {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* ===========================================================================
+   6. ISIAN — cincin fokus yang mengembang
+   ======================================================================== */
+
+.input,
+select.input,
+textarea.input {
+  transition:
+    border-color var(--t-base) var(--ease-soft),
+    box-shadow var(--t-base) var(--ease-spring),
+    background-color var(--t-base) var(--ease-soft);
+}
+
+/* ===========================================================================
+   7. YANG MUNCUL — modal, laci, toast, dropzone
+   ======================================================================== */
+
+/* Menimpa animation bawaan app.css (mtiPop .18s ease) dengan pegas halus.
+   .18s ease terlalu pendek untuk terbaca sebagai gerakan; .3s dengan
+   ease-soft terbaca sebagai sesuatu yang datang dan berhenti. */
+@keyframes mtiPopSpring {
+  from { opacity: 0; transform: scale(.94) translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes mtiFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.modal {
+  animation: mtiPopSpring var(--t-enter) var(--ease-soft);
+}
+
+.overlay {
+  animation: mtiFadeIn 160ms linear;
+}
+
+.drawer {
+  animation: mtiSlide var(--t-enter) var(--ease-soft);
+}
+
+.toast {
+  animation: mtiToast var(--t-enter) var(--ease-spring);
+}
+
+.dropzone {
+  transition:
+    border-color var(--t-base) var(--ease-soft),
+    background-color var(--t-base) var(--ease-soft),
+    transform var(--t-base) var(--ease-spring);
+}
+
+.dropzone:hover {
+  transform: scale(1.004);
+}
+
+.dropzone.drag {
+  transform: scale(1.012);
+}
+
+/* ===========================================================================
+   8. LANGKAH & TAUTAN
+   ======================================================================== */
+
+.step .circle {
+  transition:
+    background-color var(--t-base) var(--ease-soft),
+    color var(--t-base) var(--ease-soft),
+    transform var(--t-enter) var(--ease-spring);
+}
+
+/* Lingkaran langkah yang baru aktif memantul sekali — tanda bahwa tahapnya
+   benar-benar berpindah, bukan sekadar warnanya ganti. */
+.step.active .circle {
+  transform: scale(1.1);
+}
+
+.step:active .circle {
+  transform: scale(.94);
+  transition-duration: var(--t-press);
+  transition-timing-function: var(--ease-press);
+}
+
+.step .lbl,
+.step-sep {
+  transition:
+    color var(--t-base) var(--ease-soft),
+    background-color var(--t-base) var(--ease-soft);
+}
+
+.link {
+  transition: color var(--t-base) var(--ease-soft);
+}
+
+.badge {
+  transition:
+    background-color var(--t-base) var(--ease-soft),
+    color var(--t-base) var(--ease-soft);
+}
+
+/* ===========================================================================
+   9. GANTI TEMA — permukaan beranjak warna, tidak berkedip
+   Dibatasi ke permukaan besar saja. Menyuruh seluruh dokumen ikut beranjak
+   warna membuat tabel panjang tersendat di perangkat lambat.
+   ======================================================================== */
+
+body,
+.sidebar,
+.topbar,
+.content,
+.card,
+.stat-card,
+.modal,
+.drawer {
+  transition: background-color 260ms var(--ease-soft),
+              color 260ms var(--ease-soft),
+              border-color 260ms var(--ease-soft);
+}
+
+/* ===========================================================================
+   10. HORMATI YANG TIDAK MAU GERAKAN
+   ======================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Pemintal tetap berputar: itu bukan hiasan, itu satu-satunya tanda
+     bahwa portal sedang menunggu jawaban server. */
+  .spinner,
+  .icon-btn.spin svg {
+    animation-duration: .9s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
