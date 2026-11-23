@@ -157,10 +157,32 @@ export const ACCESS = {
   sekar:   ['dashboard', 'ppkek', 'payment', 'prf', 'finance', 'reports'],
   financemti: ['dashboard', 'finance'],
   // sona owns the weekly label-stock routine (the workbook's own Instructions
-  // sheet says as much) and raises label requests. Nothing else — deliberately
-  // NOT in is_purchasing() server-side, so she has no write access to suppliers,
-  // designs or surat jalan even though those menus are simply absent here.
-  sona:    ['dashboard', 'label-request', 'label-stock'],
+  // sheet says as much) and raises label requests. She also LOOKS UP designs and
+  // tyre patterns — added 23 Nov 2026 on the owner's instruction — because a
+  // label request names an ERP code whose artwork she otherwise could not see.
+  //
+  // Both additions are READ-ONLY, and not because this list says so. Checked in
+  // pg_policies on 23 Nov 2026 rather than assumed:
+  //   designs            designs_read ALREADY whitelists 'sona' (it predates
+  //                      this change — so her Label Request "Design ✓ / no
+  //                      design" badge was telling the truth all along).
+  //                      designs_insert / _update / _delete name only wilbert,
+  //                      cania, visca, so no write reaches Postgres.
+  //   pola_foto          pola_foto_baca is `auth.uid() is not null`,
+  //   pola_foto_varian   pola_foto_varian_baca is `true`. Every logged-in
+  //                      account could already read both; only the menu was
+  //                      missing. screens/polaBan.js has no write path at all —
+  //                      polaFotoApi.js exports two fetch functions and nothing
+  //                      else — so there is nothing there to gate.
+  //
+  // designWrite is deliberately NOT granted below, which is what actually keeps
+  // labelLibrary.js's upload / edit / delete controls hidden: that screen gates
+  // on the capability, not on screen presence (see its mayWrite), and guard.js
+  // refuses the action if a button is ever reachable anyway.
+  //
+  // Still NOT in is_purchasing() server-side: no write access to suppliers or
+  // surat jalan, whose menus remain absent here.
+  sona:    ['dashboard', 'label-request', 'label-stock', 'label-library', 'pola-ban'],
   // cenjc WATCHES the whole pipeline and changes nothing. wilbert's screen list
   // MINUS `po-saya` — he raises no POs, so that screen would always be empty for
   // him, and an always-empty menu item is one more thing to explain to whoever
