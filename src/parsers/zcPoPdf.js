@@ -195,6 +195,11 @@ export async function parseZcPo(file) {
     const unitTokens = tokens.slice(qtyIdx + 1, priceIdx).join(' ').trim();
     return {
       priceIdx, qtyIdx,
+      // Potongan MENTAH-nya ikut dibawa: kalau nanti qty x harga tidak sama
+      // dengan amount, perbaikannya menyambung pecahan angka yang terpotong
+      // baris, dan itu butuh teksnya — bukan hasil toNum()-nya.
+      qtyRaw: qtyMatch ? qtyMatch[1] : '',
+      priceRaw: tokens[priceIdx],
       qty: qtyMatch ? toNum(qtyMatch[1]) : 0,
       // Keep BOTH halves: INCLUSION splits the unit as "80 桶" + "DRUMP", and
       // dropping either loses information the operator needs in the picker.
@@ -263,9 +268,21 @@ export async function parseZcPo(file) {
       // The row above the anchor is only ours if it isn't the PREVIOUS anchor.
       // Two anchors on consecutive rows (an item with no wrapped description at
       // all) otherwise let the lower one read the upper one's price and amount.
+      // DULU di sini ada `anchorIdx[k] - 1`, yang membuat band mulai TEPAT satu
+      // baris di atas jangkar. Asumsinya: baris pertama deskripsi selalu
+      // persis di atas jangkar, jadi harga pasti ikut terbawa. Asumsi itu
+      // runtuh pada PO INCLUSION 23 Nov 2026 (CGDD2611230045): harga
+      // 8,643,712.873874 punya enam desimal, tidak muat selebar kolomnya, dan
+      // pdf.js memberinya baris-y SENDIRI di atas baris deskripsi —
+      //     y=594  ... 8,643,712.87387      <- harga
+      //     y=593  集智12月底新到5台         <- baris pertama deskripsi
+      //     y=590  0107010007ID 180 桶 ...  <- jangkar
+      // sehingga harganya jatuh satu baris DI LUAR band dan barisnya dibuang
+      // dengan "harga tidak terbaca". Pagar atasnya sekarang cuma header tabel
+      // dan jangkar item sebelumnya — dua-duanya tetap mencegah band menjangkau
+      // blok Payment terms di atas tabel maupun blok item tetangga.
       const from = Math.max(
         headerIdx + 1,
-        anchorIdx[k] - 1,
         k > 0 ? anchorIdx[k - 1] + 1 : 0,
       );
       const downTo = k < anchorIdx.length - 1
@@ -357,8 +374,73 @@ export async function parseZcPo(file) {
       }
       const desc = descParts.join(' ').trim();
 
-      const price = hit.price;
+      let price = hit.price;
+      let qtyFinal = qty;
       const amount = toNum(amountTok);
+
+      // ----------------------------------------------------------------------
+      // CEK SILANG: qty x harga HARUS sama dengan amount.
+      //
+      // Sampai sebelum ini tidak ada satu pun pemeriksaan yang membandingkan
+      // ketiga angka itu. Selama token-nya BERBENTUK angka, berapa pun isinya
+      // diterima — dan itu kelas galat yang paling mahal di berkas ini, karena
+      // amount diambil langsung dari PDF sehingga subtotal PO tetap cocok
+      // dengan dokumen aslinya. PO-nya terlihat benar di layar dan di cetakan,
+      // yang salah cuma qty atau harga satuannya; yang membaca ulang sebulan
+      // kemudian tidak punya apa pun yang menandai barisnya.
+      //
+      // Penyebab nyatanya sama dengan harga INCLUSION di atas: pdf.js memecah
+      // angka panjang yang dibungkus kolom. Pada PO SAMATOR, qty 1,200,000 kg
+      // keluar sebagai "1,200," di baris jangkar dan "000" di baris bawahnya;
+      // dibaca apa adanya hasilnya 1.200 — seperseribu dari yang dipesan.
+      //
+      // Jadi: hitung, bandingkan, dan kalau meleset JAUH coba sambung dulu
+      // pecahan angka yang ada di band sebelum menyerah. Perbaikannya menguji
+      // dirinya sendiri — sebuah sambungan hanya diterima kalau hasil kalinya
+      // menjadi cocok dengan amount, bukan karena tebakan bentuk.
+      //
+      // Ambang 0,1% (minimal 1 rupiah), bukan nol: harga yang DICETAK di PDF
+      // kerap sudah dibulatkan ke 2 desimal sementara amount-nya dihitung dari
+      // angka penuh, jadi selisih receh adalah hal normal dan bukan galat.
+      const batasBeda = (a) => Math.max(1, Math.abs(a) * 0.001);
+      const meleset = (q, h) => Math.abs(q * h - amount) > batasBeda(amount);
+
+      if (amount && meleset(qtyFinal, price)) {
+        // Calon pecahan: token yang isinya DIGIT saja — ekor angka yang terpotong
+        // baris. Bukan token berkoma/bertitik, karena itu angka utuh milik
+        // kolom lain.
+        //
+        // Dicari di SELURUH band, bukan cuma di baris jangkar: kalau pass 1
+        // berhasil, `src` hanya berisi baris jangkar, sementara ekornya justru
+        // ada di baris sebelahnya — persis kasus qty "1,200," + "000" pada PO
+        // SAMATOR. Mencarinya di src saja berarti perbaikan ini tidak pernah
+        // menyala tepat pada kasus yang melahirkannya.
+        const sumberPecahan = banded ? src : bandTokens(bandRange(a));
+        const pecahan = [];
+        for (let z = 0; z < sumberPecahan.length; z++) {
+          const tk = sumberPecahan[z];
+          if (tk === hit.priceRaw || tk === hit.qtyRaw || tk === amountTok) continue;
+          if (/^\d{1,6}$/.test(tk)) pecahan.push(tk);
+        }
+        let sembuh = false;
+        for (const ekor of pecahan) {
+          const qCoba = toNum(String(hit.qtyRaw) + ekor);
+          if (qCoba && !meleset(qCoba, price)) { qtyFinal = qCoba; sembuh = true; break; }
+          const hCoba = toNum(String(hit.priceRaw) + ekor);
+          if (hCoba && !meleset(qtyFinal, hCoba)) { price = hCoba; sembuh = true; break; }
+        }
+        if (!sembuh) {
+          // Tidak diterima diam-diam. Baris yang angkanya tidak konsisten
+          // diperlakukan sama dengan baris yang tidak terbaca sama sekali:
+          // keluar dari PO, dan disebut di banner supaya diperiksa ke PDF asli.
+          out.skippedRows.push({
+            erp: tokens[0],
+            reason: `qty x harga tidak sama dengan amount (${qtyFinal} x ${price} = ${(qtyFinal * price).toFixed(2)}, amount ${amount.toFixed(2)})`,
+            raw: tokens.join(' '),
+          });
+          continue;
+        }
+      }
 
       out.items.push({
         // No forced fallback here — PO Converter is used for goods generally,
@@ -367,7 +449,7 @@ export async function parseZcPo(file) {
         // kg/roll/set/etc. Leave it empty; poConverter.js surfaces a picker
         // (backed by the units master) for the user to fill in instead.
         erp: tokens[0], desc, descEn: englishFirst(desc, desc), unit,
-        qty, price, amount,
+        qty: qtyFinal, price, amount,
       });
     }
   }
