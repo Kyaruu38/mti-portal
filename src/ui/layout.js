@@ -6,7 +6,7 @@ import { LANGS } from '../i18n/index.js';
 import { allowedScreens } from '../auth/roles.js';
 import { logout, refreshData } from '../auth/session.js';
 import { setPref } from '../core/prefs.js';
-import { icon, iconBtn, badge, btn } from './components.js';
+import { icon, iconBtn, badge, btn, modal } from './components.js';
 import { COMPANY } from '../config.js';
 import { VERSION, VERSION_DATE, LATEST } from '../version.js';
 import { updateTersedia, tutupUpdate, muatUlang } from '../core/updateCheck.js';
@@ -232,9 +232,23 @@ function sidebar(st) {
       // looking at the new build or a cached old one" — if the number has not
       // moved after a push, the deploy or the cache is the problem, not the
       // code. Hover shows what that release changed.
+      // DULU TOOLTIP, SEKARANG PINTU. `title` memuat tr(LATEST) utuh — 2.363
+      // karakter catatan rilis dijejalkan ke tooltip hover. Tidak ada orang
+      // yang membaca tooltip sepanjang itu, dan di layar sentuh tooltip tidak
+      // muncul sama sekali, jadi isinya praktis tidak pernah sampai ke siapa
+      // pun. Sekarang tooltipnya cuma mengundang, dan isinya pindah ke modal
+      // yang bisa digulir.
       h('div.mono', {
-        style: { fontSize: '9.5px', color: 'var(--sb-group)', marginTop: '8px' },
-        title: `${VERSION} · ${VERSION_DATE}\n${tr(LATEST)}`,
+        style: {
+          fontSize: '9.5px', color: 'var(--sb-group)', marginTop: '8px',
+          cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '3px',
+        },
+        title: tr({
+          id: 'Klik untuk membaca catatan rilis',
+          en: 'Click to read the release notes',
+          zh: '点击查看版本说明',
+        }),
+        onClick: bukaCatatanRilis,
       }, `${VERSION} · ${VERSION_DATE}`),
     ]),
   ]);
@@ -565,7 +579,99 @@ export function appShell(st, screenEl) {
       bilahTab(st),
       h('main.content', screenEl),
     ]),
+    modalRilis(st),
   ]);
+}
+
+// ---------------------------------------------------------------------------
+// CATATAN RILIS — 824 KB yang selama ini tidak dibaca siapa pun.
+//
+// src/changelog.js tidak diimpor SATU berkas pun di repo ini. Ia ditulis tiap
+// rilis, di-push tiap rilis, dan tidak pernah sampai ke layar. Satu-satunya
+// yang tampil adalah LATEST, dan itu pun cuma `title=` pada angka versi di
+// sidebar — tooltip hover 2.363 karakter yang tidak terbaca di tetikus dan
+// tidak muncul sama sekali di layar sentuh.
+//
+// DIMUAT HANYA SAAT DIBUKA, dan itu bukan rapi-rapi: berkasnya 824 KB, dan
+// portal ini dibuka di gudang dengan jaringan seadanya. Mengimpornya statis
+// berarti setiap orang mengunduh 824 KB setiap kali membuka portal untuk
+// sesuatu yang mungkin dibuka sekali setahun. `import()` dinamis membuat
+// biayanya nol sampai ada yang benar-benar mengklik.
+//
+// KALAU MUATNYA GAGAL, LATEST jadi jaring pengamannya — satu entri, versi
+// yang sedang terpasang, sudah ada di memori sejak awal. Jaringan gudang yang
+// putus di tengah unduhan 824 KB tidak boleh berakhir dengan layar kosong
+// tanpa penjelasan.
+// ---------------------------------------------------------------------------
+async function bukaCatatanRilis() {
+  const r = getState().ui.rilis;
+  if (r && r.daftar) { setUI({ rilis: { ...r, buka: true } }); return; }
+  setUI({ rilis: { buka: true } });
+  try {
+    const m = await import('../changelog.js');
+    const daftar = Array.isArray(m.CHANGELOG) ? m.CHANGELOG : [];
+    if (!daftar.length) throw new Error('CHANGELOG kosong');
+    setUI({ rilis: { buka: true, daftar, pilih: daftar[0].v } });
+  } catch (e) {
+    console.error('catatan rilis gagal dimuat', e);
+    const cadangan = [{ v: VERSION, date: VERSION_DATE, what: LATEST }];
+    setUI({ rilis: { buka: true, daftar: cadangan, pilih: VERSION, sebagian: true } });
+  }
+}
+
+function modalRilis(st) {
+  const r = st.ui.rilis;
+  if (!r || !r.buka) return null;
+  const tutup = () => setUI({ rilis: r.daftar ? { ...r, buka: false } : null });
+
+  if (!r.daftar) {
+    return modal({
+      title: tr({ id: 'Catatan rilis', en: 'Release notes', zh: '版本说明' }),
+      width: 420,
+      onClose: tutup,
+      body: h('div', { style: { padding: '8px 2px', color: 'var(--text-3)', fontSize: '12.5px' } },
+        tr({ id: 'Memuat…', en: 'Loading…', zh: '加载中…' })),
+    });
+  }
+
+  const pilih = r.daftar.find(x => x.v === r.pilih) || r.daftar[0];
+  return modal({
+    title: tr({ id: 'Catatan rilis', en: 'Release notes', zh: '版本说明' }),
+    subtitle: r.sebagian
+      ? tr({
+        id: `Daftar lengkap gagal dimuat — hanya ${VERSION} yang ditampilkan`,
+        en: `The full list failed to load — showing ${VERSION} only`,
+        zh: `完整列表加载失败 — 仅显示 ${VERSION}`,
+      })
+      : tr({
+        id: `${r.daftar.length} rilis · ${VERSION} yang terpasang`,
+        en: `${r.daftar.length} releases · ${VERSION} is what you are running`,
+        zh: `共 ${r.daftar.length} 个版本 · 当前运行 ${VERSION}`,
+      }),
+    width: 900,
+    onClose: tutup,
+    body: h('div.row', { style: { gap: '14px', alignItems: 'flex-start' } }, [
+      h('div.stack', {
+        style: { gap: '2px', maxHeight: '62vh', overflowY: 'auto', flex: '0 0 116px' },
+      }, r.daftar.map(e => h('button', {
+        class: e.v === pilih.v ? 'btn btn-navy' : 'btn',
+        style: { justifyContent: 'flex-start', fontSize: '11.5px', padding: '5px 8px' },
+        onClick: () => setUI({ rilis: { ...r, pilih: e.v } }),
+      }, e.v))),
+      h('div.stack', { style: { gap: '8px', maxHeight: '62vh', overflowY: 'auto', flex: '1', minWidth: 0 } }, [
+        h('div.card-title', `${pilih.v} · ${pilih.date}`),
+        // pre-wrap: catatannya ditulis sebagai satu paragraf panjang, dan
+        // memaksanya jadi satu blok rapat membuat yang terpenting — kalimat
+        // pertama tiap entri — hilang di tengah dinding teks.
+        h('div', {
+          style: { whiteSpace: 'pre-wrap', lineHeight: '1.7', fontSize: '12.5px', color: 'var(--text-2)' },
+        }, tr(pilih.what)),
+      ]),
+    ]),
+    footer: h('div.row.gap8', { style: { justifyContent: 'flex-end', width: '100%' } }, [
+      btn(t('close'), { onClick: tutup }),
+    ]),
+  });
 }
 
 // ---------------------------------------------------------------------------

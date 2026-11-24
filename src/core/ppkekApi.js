@@ -7,7 +7,7 @@
 // configured, uploadToDrive() starts returning real links and this column
 // starts holding those instead — nothing here or in ppkek.js's data flow
 // needs to change.
-import { getClient, isConfigured, fetchAllPaged } from './supabase.js';
+import { getClient, isConfigured, fetchAllPaged, assertWrote } from './supabase.js';
 
 function fromRow(row) {
   const files = row.files || [];
@@ -203,7 +203,32 @@ export async function updatePpkek(id, patch) {
     row[col] = DATE_FIELDS.has(k) ? toIsoDate(patch[k]) : patch[k];
   }
   if (!Object.keys(row).length) return;
-  await writeTolerant(p => c.from('ppkek').update(p).eq('id', id), row);
+  // JARING YANG SAMA DENGAN ENAM BELAS TULISAN LAINNYA, akhirnya dipasang di
+  // sini juga. Catatan panjangnya ada di core/supabase.js: PostgREST menjawab
+  // 204 TANPA error ketika RLS menyaring habis baris kandidat sebuah UPDATE,
+  // jadi penolakan total terbaca persis seperti keberhasilan.
+  //
+  // Berkas ini yang ke-17 — satu-satunya yang belum dipasangi, dan ironinya
+  // kedua pemanggilnya sudah siap: screens/ppkek.js baris 421 (edit sel
+  // inline) dan 935 (import-apply) dua-duanya punya blok catch lengkap dengan
+  // toast. Blok itu TIDAK AKAN PERNAH menyala selama fungsi ini tidak
+  // melempar. Di jalur import-apply akibatnya paling telanjang: nilainya
+  // ditulis ke state lokal SEBELUM await-nya, jadi layar menampilkan angka
+  // baru, basis data tidak menerimanya, dan login berikutnya mengembalikannya
+  // tanpa suara.
+  //
+  // Hari ini belum menggigit — policy `ppkek` berbunyi
+  // ALL => current_role() = ANY (ARRAY['wilbert','sekar']), dan tepat dua
+  // peran itu pula yang punya ppkekWrite. Tapi itu kebetulan yang dijaga dua
+  // daftar terpisah, dan jaring ini ada justru supaya tidak bergantung pada
+  // kebetulan: satu peran ditambahkan ke layar PPKEK, atau satu baris
+  // `profiles` salah, dan kegagalannya kembali diam.
+  //
+  // writeTolerant SENGAJA tetap di luar assertWrote. Toleransi kolom-hilang
+  // di dalamnya memeriksa res.error; nol-baris BUKAN error. Dua keadaan
+  // berbeda yang tidak boleh saling menelan.
+  const tersentuh = await writeTolerant(p => c.from('ppkek').update(p).eq('id', id).select('id'), row);
+  assertWrote({ data: tersentuh, error: null }, 'ubah register PPKEK');
 }
 
 // ---------------------------------------------------------------------------

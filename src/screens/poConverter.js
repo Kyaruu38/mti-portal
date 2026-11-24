@@ -248,9 +248,12 @@ async function genConverterPO() {
   // dengan yang baru, tidak pernah menuntut nilainya 'wilbert', jadi tidak
   // ada penjaga server yang dilanggar oleh perubahan ini.
   if (isWilbert) { po.approvedAt = new Date().toISOString(); po.approvedBy = st.user.username; }
-  // Peringatan yang harus ikut terbaca bareng pesan suksesnya, bukan
-  // menggantikannya. toast() cuma punya SATU slot — alasannya di dalam catch().
-  const peringatan = [];
+  // Corong `peringatan` DIHAPUS bersama cabang "tersimpan lokal" yang dulu
+  // satu-satunya pengisinya. Sesudah cabang itu membatalkan, tidak ada lagi
+  // keadaan di fungsi ini yang "berhasil TAPI ada catatannya": entah PO-nya
+  // terbit, entah kita berhenti dan bilang kenapa. Array yang selalu kosong
+  // dan ekor yang selalu string kosong cuma bikin pembaca berikutnya mencari
+  // pengisi yang tidak ada.
   try {
     const supabaseId = await insertPO(po);
     if (supabaseId) po.id = supabaseId;
@@ -282,30 +285,35 @@ async function genConverterPO() {
       });
       return;
     }
-    // Anything else (network, timeout) may well succeed on a retry, so the
-    // original behaviour stands: keep it locally and say so.
+    // JARINGAN GAGAL BUKAN "TERSIMPAN LOKAL". Tidak ada penyimpanan lokal.
     //
-    // DIKUMPULKAN, TIDAK LANGSUNG DI-TOAST. toast() cuma punya SATU slot, dan
-    // beberapa baris di bawah ada toast sukses "dikirim ke approval queue" yang
-    // pasti jalan — jadi peringatan ini dulu tertimpa sebelum sempat terlihat,
-    // dan cania membaca "terkirim" untuk PO yang cuma ada di tab-nya sendiri
-    // dan lenyap saat login berikutnya. Pola `ekor` ini disalin dari
-    // labelRequest.js, yang sudah kena persis di tempat yang sama.
-    peringatan.push(tr({
-      id: 'TAPI GAGAL SYNC KE SERVER, tersimpan lokal saja: ' + (e.message || e),
-      en: 'BUT SYNCING TO THE SERVER FAILED, saved locally only: ' + (e.message || e),
-      zh: '但同步到服务器失败，仅本地保存：' + (e.message || e),
-    }));
+    // Sama persis dengan labelRequest.js — lihat komentar panjang di sana.
+    // Ringkasnya: core/store.js menyimpan state DI MEMORI saja, tidak ada
+    // jalur sinkronisasi ulang, jadi "tersimpan lokal" menjanjikan sesuatu
+    // yang tidak pernah ada. Di berkas INI akibatnya satu tingkat lebih buruk,
+    // karena peringatannya dulu ikut sebagai ekor pada toast yang kalimat
+    // utamanya berbunyi "dikirim ke approval queue supervisor": orangnya
+    // membaca kabar baik lebih dulu, dan ekornya terbaca seperti catatan kaki.
+    //
+    // Dibatalkan, tidak masuk state, tidak masuk audit. Mengulang aman: nomor
+    // PO di layar ini diketik orang (f.no), bukan dipesan dari server, jadi
+    // tidak ada nomor yang hangus — dan kalau yang pertama diam-diam mendarat,
+    // percobaan kedua berhenti di penjaga nomor kembar.
+    toast({
+      id: `PO ${no} TIDAK tersimpan — server tidak menjawab: ${e.message || e}. Tekan Generate lagi sekarang, selagi hasil parsing masih di layar. Kalau nomornya ternyata sudah dipakai, berarti yang pertama berhasil.`,
+      en: `PO ${no} was NOT saved — the server did not answer: ${e.message || e}. Press Generate again now, while the parsed result is still on screen. If it then says the number is taken, the first one did land.`,
+      zh: `采购单 ${no} 未保存 — 服务器没有响应：${e.message || e}。请趁解析结果还在屏幕上立即再次点击生成。若随后提示单号已被占用，说明第一次其实已经成功。`,
+    });
+    return;
   }
   // No post-insert lineId patch any more — the ids were minted above and are
   // identical in the local copy and the persisted row.
   st.pos.unshift(po);
   logAudit({ entity: 'po', target: no, action: 'convert', detail: `from ${contract || no}` });
   setUI({ cvPopup: false, cvResult: null });
-  const ekor = peringatan.length ? ` · ${peringatan.join(' · ')}` : '';
   toast(isWilbert
-    ? { id: `PO ${no} dibuat & di-approve${ekor}`, en: `PO ${no} created & approved${ekor}`, zh: `采购单 ${no} 已创建并批准${ekor}` }
-    : { id: `PO ${no} dikirim ke approval queue supervisor${ekor}`, en: `PO ${no} sent to the supervisor's approval queue${ekor}`, zh: `采购单 ${no} 已提交至主管审批队列${ekor}` });
+    ? { id: `PO ${no} dibuat & di-approve`, en: `PO ${no} created & approved`, zh: `采购单 ${no} 已创建并批准` }
+    : { id: `PO ${no} dikirim ke approval queue supervisor`, en: `PO ${no} sent to the supervisor's approval queue`, zh: `采购单 ${no} 已提交至主管审批队列` });
   // Tujuannya mengikuti PERAN, bukan satu layar untuk semua.
   //
   // Dulu baris ini selalu 'approval'. cania dan visca tidak memilikinya, jadi

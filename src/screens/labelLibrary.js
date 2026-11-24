@@ -927,11 +927,28 @@ async function uploadDesign() {
     await linkOutbox(up.outboxId, 'designs', saved.id, 'url');
   } catch (e) {
     console.error('Supabase design insert failed', e);
+    // BERKASNYA SUDAH DI DRIVE, BARIS PUSTAKANYA TIDAK ADA — dan itu dua hal
+    // berbeda yang harus disebut terpisah, karena yang satu tidak perlu
+    // diulang dan yang satu lagi harus.
+    //
+    // uploadToDrive() berjalan SEBELUM insert ini, jadi pada titik ini
+    // filenya sudah mendarat di Drive pusat. Yang gagal cuma baris `designs`.
+    // Kalimat lama, "Desain tersimpan lokal", salah dua kali: tidak ada
+    // penyimpanan lokal (core/store.js memegang state di memori saja), dan
+    // kartunya tetap dimasukkan ke daftar lewat baris unshift di bawah — jadi
+    // layarnya menampilkan desain yang di database tidak ada, sampai login
+    // berikutnya menghapusnya diam-diam. Orangnya sudah pergi, yakin desainnya
+    // masuk, dan Surat Jalan berikutnya mencetak tanpa gambar.
+    //
+    // Sekarang kartunya TIDAK dimasukkan. Mengulang upload aman: berkas kedua
+    // memang akan menumpuk di Drive, tapi satu file ganda jauh lebih murah
+    // daripada desain yang dikira ada.
     toast({
-      id: 'Desain tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e),
-      en: 'Design saved locally, but sync to the server failed: ' + (e.message || e),
-      zh: '设计已保存在本地，但同步到服务器失败：' + (e.message || e),
+      id: `Desain ${erp} TIDAK masuk pustaka — server menolak: ${e.message || e}. Berkasnya SUDAH di Drive, jadi jangan cari-cari filenya; ulangi uploadnya supaya kartunya terbentuk.`,
+      en: `Design ${erp} did NOT enter the library — the server refused: ${e.message || e}. The file IS already on Drive, so do not go hunting for it; upload again so the card gets created.`,
+      zh: `设计 ${erp} 未进入设计库 — 服务器拒绝：${e.message || e}。文件已经在云盘上，不必去找；请重新上传以生成卡片。`,
     });
+    return;
   }
   st.designs.unshift(design);
   logAudit({ entity: 'design', target: erp, action: 'upload', detail: file.name });

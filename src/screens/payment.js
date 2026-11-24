@@ -1217,15 +1217,24 @@ async function removeInvoice(inv) {
 // stops matching itself. Only the label changed.
 async function advanceToPrf(inv) {
   if (blockWrite('serahkan invoice ke Wilbert')) return;
+  // Status lama disimpan SEBELUM diubah. Tanpa ini tidak ada jalan pulang:
+  // baris di bawah mengubah objek invoice-nya langsung (bukan salinan), jadi
+  // begitu servernya menolak, layar menampilkan 'Diproses Wilbert' untuk
+  // invoice yang di database masih di tahap sebelumnya — dan pesan lamanya,
+  // "Status tersimpan lokal", menjanjikan penyimpanan yang tidak ada:
+  // core/store.js memegang state DI MEMORI saja. Login berikutnya statusnya
+  // kembali, tanpa ada yang tahu kapan ia berubah balik.
+  const statusSebelum = inv.status;
   inv.status = 'Diproses Wilbert';
   try {
     await updateInvoice(inv.id, { status: inv.status });
   } catch (e) {
     console.error('Supabase invoice status sync failed', e);
+    inv.status = statusSebelum;
     toast({
-      id: 'Status tersimpan lokal, tapi gagal sync ke server: ' + (e.message || e),
-      en: 'Status saved locally, but sync to server failed: ' + (e.message || e),
-      zh: '状态已本地保存，但同步到服务器失败：' + (e.message || e),
+      id: `Status invoice ${inv.no} TIDAK berubah — server menolak: ${e.message || e}. Coba lagi; kalau tetap gagal, laporkan.`,
+      en: `Invoice ${inv.no} status did NOT change — the server refused: ${e.message || e}. Try again; if it keeps failing, report it.`,
+      zh: `发票 ${inv.no} 的状态未变更 — 服务器拒绝：${e.message || e}。请重试；若持续失败，请上报。`,
     });
     setState({});
     return;

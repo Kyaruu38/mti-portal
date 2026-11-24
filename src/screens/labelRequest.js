@@ -1489,20 +1489,31 @@ async function genPO() {
       });
       return;
     }
-    // Anything else (network, timeout) may well succeed on a retry, so the
-    // original behaviour stands: keep it locally and say so.
+    // JARINGAN GAGAL BUKAN "TERSIMPAN LOKAL". Tidak ada penyimpanan lokal.
     //
-    // LEWAT `peringatan`, BUKAN toast() SENDIRI. Ini ironi yang pantas dicatat:
-    // corong `peringatan` di bawah LAHIR di berkas ini, dengan komentar yang
-    // menjelaskan persis kenapa toast() punya satu slot — dan peringatan yang
-    // paling penting di fungsi ini, "PO-nya cuma ada di tab Anda", tetap
-    // dipanggil langsung dan tetap ditimpa. cania membaca "PO dibuat & dikirim
-    // untuk approval supervisor" untuk PO yang lenyap saat login berikutnya.
-    peringatan.push(tr({
-      id: 'TAPI GAGAL SYNC KE SERVER, tersimpan lokal saja: ' + (e.message || e),
-      en: 'BUT SYNCING TO THE SERVER FAILED, saved locally only: ' + (e.message || e),
-      zh: '但同步到服务器失败，仅本地保存：' + (e.message || e),
-    }));
+    // core/store.js menulisnya di kepala berkas: state hidup DI MEMORI, tidak
+    // pernah di localStorage, dan tidak ada satu pun jalur sinkronisasi ulang
+    // di repo ini. Jadi kalimat lama — "tersimpan lokal saja" — menjanjikan
+    // sesuatu yang tidak pernah ada: begitu tab ditutup atau sesi login lagi,
+    // PO-nya habis. Itu yang memakan PO TRAVELSTAR-TRAZANO-BCL-2311 pada
+    // 21 Nov 2026: baris auditnya ada, baris `pos`-nya tidak, dan orangnya
+    // sudah lanjut mengerjakan hal lain karena layarnya bilang berhasil.
+    //
+    // Sekarang diperlakukan SAMA dengan galat permanen di atas: dibatalkan,
+    // tidak dimasukkan ke state, tidak dicatat ke audit sebagai PO terbit.
+    // MENGULANG ITU AMAN, dan itu sebabnya ini boleh dibatalkan: nomor PO di
+    // layar ini tidak dipesan dari server (tidak ada next_doc_seq untuk PO),
+    // jadi tidak ada nomor yang hangus. Kalau insert yang pertama ternyata
+    // DIAM-DIAM berhasil dan yang hilang cuma jawabannya, percobaan kedua
+    // berhenti di penjaga nomor kembar beberapa baris di atas — dan pesan
+    // "nomornya sudah dipakai" itu justru kabar baik: berarti yang pertama
+    // mendarat. Dua-duanya berakhir benar; yang tidak boleh adalah diam.
+    toast({
+      id: `PO ${po.no} TIDAK tersimpan — server tidak menjawab: ${e.message || e}. Tekan Generate lagi sekarang, selagi datanya masih di layar. Kalau nomornya ternyata sudah dipakai, berarti yang pertama berhasil.`,
+      en: `PO ${po.no} was NOT saved — the server did not answer: ${e.message || e}. Press Generate again now, while the data is still on screen. If it then says the number is taken, the first one did land.`,
+      zh: `采购单 ${po.no} 未保存 — 服务器没有响应：${e.message || e}。请趁数据还在屏幕上立即再次点击生成。若随后提示单号已被占用，说明第一次其实已经成功。`,
+    });
+    return;
   }
   st.pos.unshift(po);
   logAudit({ entity: 'po', target: po.no, action: 'generate', detail: `${supplier.name} · ${selItems.length} lines` });
