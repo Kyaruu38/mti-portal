@@ -135,11 +135,35 @@ export async function render(templat, baris, opsi = {}) {
         x: x * MM + 1.5, y: yPdf(y), size: Math.min(uk * 0.75, 7),
         font: await ambilHuruf('Arial'), color: rgb(0.8, 0.1, 0.1),
       });
-      laporan.push({ k: m.k, nilai: '', sebab: nilai.sebab || 'kosong', ragam: 'BOLONG' });
+      // `asal` DIPERTAHANKAN di samping BOLONG. Tanpa itu, medan yang
+      // kosong kehilangan satu-satunya petunjuk ke mana harus dicari:
+      // 'items.npb1 kosong' menunjuk ke kolom yang bisa diisi, sedangkan
+      // 'BOLONG' saja menyuruh orang menebak sendiri asalnya.
+      laporan.push({ k: m.k, nilai: '', sebab: nilai.sebab || 'kosong', ragam: 'BOLONG', asal: nilai.ragam });
       continue;
     }
 
-    const teks = String(nilai.nilai);
+    // LABEL TETAP DUA BARIS DITULIS DUA BARIS.
+    //
+    // Templat menyimpan label kotak sebagai SATU teks: 'Ply / Rating',
+    // 'Load / Range'. Di artwork aslinya itu DUA BARIS BERTUMPUK, tanpa
+    // garis miring -- terlihat jelas di dua artwork yang bisa diperiksa
+    // langsung (WESTLAKE PT/TBR dan BX/TBR): 'Ply' di atas 'Rating',
+    // 'Load' di atas 'Range'.
+    //
+    // Ditulis satu baris, teksnya memanjang 17 mm dari jangkarnya dan
+    // mendarat tepat di slot nilainya: pada proof SNI, 'Ply / Rating'
+    // menimpa angka '18' dan 'Load / Range' menimpa huruf 'J'. Dua-duanya
+    // jadi tidak terbaca, dan itu justru dua medan yang menentukan.
+    //
+    // Hanya untuk medan TETAP, bukan untuk nilai dari data: 'ALL STEEL
+    // TUBE TYPE / BIAS TIRE TUBE TYPE' di templat adalah CONTOH isi kolom
+    // konstruksi, bukan label dua baris, dan memecahnya akan membuang
+    // separuh isinya.
+    const duaBaris = m.tetap && String(nilai.nilai).includes(' / ')
+      ? String(nilai.nilai).split(' / ')
+      : null;
+    const teks = duaBaris ? duaBaris[0] : String(nilai.nilai);
     const lebarTeks = f.widthOfTextAtSize(teks, uk);
     const opsiTulis = { x: x * MM, y: yPdf(y), size: uk, font: f, color: rgb(0, 0, 0) };
     if (m.putar) {
@@ -161,7 +185,18 @@ export async function render(templat, baris, opsi = {}) {
       opsiTulis.x = x * MM - lebarTeks;
     }
     pg.drawText(teks, opsiTulis);
-    laporan.push({ k: m.k, nilai: teks, ragam: nilai.ragam });
+    if (duaBaris) {
+      // Baris kedua digeser TEGAK LURUS arah tulisannya. Untuk teks yang
+      // diputar itu berarti bergeser pada sumbu x, bukan y -- memakai y
+      // akan menaruh baris kedua di BELAKANG baris pertama, bukan di
+      // bawahnya.
+      const sela = uk * 1.12;
+      const opsi2 = { ...opsiTulis };
+      if (m.putar) opsi2.x = opsiTulis.x - sela;
+      else opsi2.y = opsiTulis.y - sela;
+      pg.drawText(duaBaris[1], opsi2);
+    }
+    laporan.push({ k: m.k, nilai: duaBaris ? duaBaris.join(' / ') : teks, ragam: nilai.ragam, asal: nilai.ragam });
   }
 
   if (tandaiOtomatis) {
@@ -216,6 +251,8 @@ export async function render(templat, baris, opsi = {}) {
     doc.setProducer('src/label/render.js');
   }
 
+  if (tandaiOtomatis) await halamanPedoman(doc, templat, laporan, { erp, dari, hal });
+
   return { pdf: await doc.save(), laporan, bolong: laporan.filter(x => x.ragam === 'BOLONG') };
 }
 
@@ -249,4 +286,78 @@ function gambarBarcode(pg, kode, x, y, m, f) {
       });
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// HALAMAN KEDUA: TABEL PEDOMAN.
+//
+// Halaman pertama memperlihatkan BENTUKNYA; halaman ini yang dipakai orang.
+//
+// Kenapa perlu. Keluaran jalur ini bukan berkas siap cetak dan memang tidak
+// berniat jadi begitu -- vendor yang membuat artwork finalnya dan vendor pula
+// yang mencari hurufnya. Yang selama ini mahal bukan gambarnya, melainkan
+// "biasanya dari satu contoh": tiap SKU baru ada orang yang harus mencari
+// artwork yang mirip, mendaftar apa yang berubah, mengirimkannya, lalu
+// memeriksa balasannya. Tabel ini yang menggantikan langkah itu.
+//
+// Isinya nilai DAN ASALNYA, bukan nilainya saja. 'kolom:size' berarti diambil
+// apa adanya dari master; 'turunan:nomorItem' berarti dihitung, dan hitungan
+// itu punya ujinya sendiri; 'tetap' berarti sama di tiap label keluarga ini.
+// Pembaca yang tahu asal sebuah angka bisa memeriksanya; yang cuma melihat
+// angkanya harus percaya.
+//
+// MEDAN KOSONG TETAP DITULIS, merah, beserta sebabnya. Baris yang hilang dari
+// tabel terbaca seperti medan yang memang tidak ada di label ini -- dan itu
+// persis salah paham yang membuat label terbit kurang satu nilai.
+// ---------------------------------------------------------------------------
+async function halamanPedoman(doc, templat, laporan, { erp, dari, hal }) {
+  const pg = doc.addPage([595.28, 841.89]);          // A4 tegak
+  const fb = await doc.embedFont(StandardFonts.HelveticaBold);
+  const fr = await doc.embedFont(StandardFonts.Helvetica);
+  const KIRI = 42;
+  let y = 790;
+
+  const tulis = (t, x, uk, font = fr, warna = rgb(0.1, 0.1, 0.12)) =>
+    pg.drawText(String(t), { x, y, size: uk, font, color: warna });
+
+  tulis('PEDOMAN LABEL' + (erp ? '  ·  ' + erp : ''), KIRI, 15, fb);
+  y -= 17;
+  tulis('BUKAN ARTWORK SIAP CETAK — acuan untuk vendor, bukan berkas produksi.',
+    KIRI, 9, fb, rgb(0.48, 0.25, 0.89));
+  y -= 13;
+  const sl = templat.stok_label;
+  const ukuran = `templat ${dari || '-'}   ·   lembar ${hal.lebar} x ${hal.tinggi} mm`
+    + (sl && sl.lebar ? `   ·   label ${sl.lebar} x ${sl.tinggi} mm` : '');
+  tulis(ukuran, KIRI, 8.5, fr, rgb(0.38, 0.38, 0.42));
+  y -= 20;
+
+  pg.drawLine({ start: { x: KIRI, y }, end: { x: 553, y }, thickness: 0.8, color: rgb(0.1, 0.1, 0.12) });
+  y -= 13;
+  tulis('MEDAN', KIRI, 8, fb, rgb(0.38, 0.38, 0.42));
+  tulis('NILAI', KIRI + 118, 8, fb, rgb(0.38, 0.38, 0.42));
+  tulis('ASAL', KIRI + 350, 8, fb, rgb(0.38, 0.38, 0.42));
+  y -= 6;
+  pg.drawLine({ start: { x: KIRI, y }, end: { x: 553, y }, thickness: 0.4, color: rgb(0.7, 0.7, 0.74) });
+  y -= 14;
+
+  for (const r of laporan) {
+    if (y < 70) break;                               // satu halaman cukup untuk 14 medan
+    const bolong = r.ragam === 'BOLONG';
+    const warna = bolong ? rgb(0.8, 0.1, 0.1) : rgb(0.1, 0.1, 0.12);
+    tulis(r.k, KIRI, 9, fb, warna);
+    tulis(bolong ? '— TIDAK TERISI' : r.nilai, KIRI + 118, 9, bolong ? fb : fr, warna);
+    tulis(r.asal || r.ragam || '', KIRI + 350, 8, fr, rgb(0.45, 0.45, 0.5));
+    y -= 12;
+    if (bolong && r.sebab) { tulis('sebab: ' + r.sebab, KIRI + 118, 7.5, fr, rgb(0.8, 0.1, 0.1)); y -= 11; }
+    else y -= 2;
+  }
+
+  const bolong = laporan.filter(x => x.ragam === 'BOLONG');
+  y -= 6;
+  pg.drawLine({ start: { x: KIRI, y }, end: { x: 553, y }, thickness: 0.4, color: rgb(0.7, 0.7, 0.74) });
+  y -= 15;
+  tulis(bolong.length
+    ? `${bolong.length} medan TIDAK TERISI — jangan dikirim ke vendor sebelum diisi.`
+    : `${laporan.length} medan terisi, nol kosong.`,
+  KIRI, 9.5, fb, bolong.length ? rgb(0.8, 0.1, 0.1) : rgb(0.05, 0.45, 0.2));
 }
