@@ -65,8 +65,27 @@ export async function render(templat, baris, opsi = {}) {
   const { tandaiOtomatis = true, dari = '', erp = '' } = opsi;
   const hal = templat.halaman || { lebar: 210, tinggi: 297 };
   const doc = await PDFDocument.create();
-  const pg = doc.addPage([hal.lebar * MM, hal.tinggi * MM]);
-  const H = hal.tinggi * MM;
+
+  // PITA KETERANGAN DI BAWAH LEMBAR, bukan cap yang ditimpakan di atasnya.
+  //
+  // Sebelumnya tandanya digambar pada y=8 pt -- DI DALAM lembar -- dan di
+  // templat SNI tepat di situlah barcode berada. Jadi tandanya menutupi
+  // batang barcode: dua hal yang sama-sama tidak terbaca, dan yang satu
+  // kebetulan satu-satunya bagian yang dibaca mesin.
+  //
+  // Lembarnya sekarang DITAMBAH pita di bawahnya, bukan dipakai bersama.
+  // Isi labelnya tetap menempel di TEPI ATAS pada koordinat terukurnya
+  // (yPdf tetap H dikurangi jarak-dari-atas, dan H sekarang lebih tinggi),
+  // jadi tidak ada satu medan pun yang bergeser. Yang bertambah ruang
+  // kosong di bawah, dan di situlah keterangannya duduk.
+  //
+  // PITANYA CUMA ADA KALAU TANDANYA ADA. Dengan tandaiOtomatis:false
+  // keluarannya kembali persis seukuran lembar sebenarnya -- karena berkas
+  // yang tidak bertanda berarti dipakai sebagai lembar sungguhan, dan
+  // lembar sungguhan tidak boleh kelebihan 13 mm di bawahnya.
+  const PITA = tandaiOtomatis ? 13 : 0;
+  const pg = doc.addPage([hal.lebar * MM, (hal.tinggi + PITA) * MM]);
+  const H = pg.getHeight();
   const yPdf = (mmDariAtas) => H - mmDariAtas * MM;
 
   const huruf = {};
@@ -153,15 +172,42 @@ export async function render(templat, baris, opsi = {}) {
     // gagal dibuat -- padahal ia memang bukan artwork dan tidak pernah
     // berniat jadi artwork. Berkas yang lepas dari portal harus bisa
     // menjelaskan dirinya sendiri.
-    let baris2 = 'LEMBAR PERIKSA DATA - BUKAN ARTWORK, TIDAK UNTUK DICETAK';
-    if (dari) baris2 += '  |  templat: ' + dari;
-    // Dipaskan ke lebar lembar: templat terkecil cuma 77 mm, dan tanda air
+    // Garis pemisah: tanpa ini pita keterangan terbaca seperti bagian bawah
+    // labelnya sendiri, dan orang akan bertanya kenapa ada tulisan ungu di
+    // produknya.
+    pg.drawLine({
+      start: { x: 0, y: PITA * MM }, end: { x: hal.lebar * MM, y: PITA * MM },
+      thickness: 0.6, color: rgb(0.48, 0.25, 0.89),
+    });
+
+    const baris2 = 'LEMBAR PERIKSA DATA - BUKAN ARTWORK, TIDAK UNTUK DICETAK'
+      + (dari ? '  |  templat: ' + dari : '');
+
+    // UKURANNYA IKUT DICETAK, dan dua-duanya, karena memang dua angka yang
+    // berbeda: pada SNI labelnya MEMENUHI lembarnya (101x226 = 101x226),
+    // sedangkan BX dan PT meletakkan bloknya di lembar A4 yang lebih besar.
+    // Satu angka saja membuat orang mengira label BX seukuran A4.
+    const sl = templat.stok_label;
+    const ukLembar = `lembar ${hal.lebar} x ${hal.tinggi} mm`;
+    const ukLabel = sl && sl.lebar && sl.tinggi
+      ? (sl.lebar === hal.lebar && sl.tinggi === hal.tinggi
+        ? '  (label memenuhi lembar)'
+        : `  |  label ${sl.lebar} x ${sl.tinggi} mm`)
+      : '';
+    const baris3 = ukLembar + ukLabel + (erp ? '  |  ERP ' + erp : '');
+
+    // Dipaskan ke lebar lembar: templat terkecil cuma 77 mm, dan keterangan
     // yang terpotong di tepi justru menghilangkan kata yang paling penting.
-    let uk2 = 8.5, w = f.widthOfTextAtSize(baris2, uk2);
     const maks = hal.lebar * MM - 8;
-    while (w > maks && uk2 > 2.5) { uk2 -= 0.25; w = f.widthOfTextAtSize(baris2, uk2); }
-    if (w > maks) { baris2 = 'ARTWORK OTOMATIS'; w = f.widthOfTextAtSize(baris2, uk2); }
-    pg.drawText(baris2, { x: (hal.lebar * MM - w) / 2, y: 8, size: uk2, font: f, color: rgb(0.48, 0.25, 0.89) });
+    const pas = (teks, mulai) => {
+      let uk = mulai, w = f.widthOfTextAtSize(teks, uk);
+      while (w > maks && uk > 2.5) { uk -= 0.25; w = f.widthOfTextAtSize(teks, uk); }
+      return { uk, w };
+    };
+    const p2 = pas(baris2, 8.5);
+    const p3 = pas(baris3, 7.5);
+    pg.drawText(baris2, { x: (hal.lebar * MM - p2.w) / 2, y: PITA * MM - 13, size: p2.uk, font: f, color: rgb(0.48, 0.25, 0.89) });
+    pg.drawText(baris3, { x: (hal.lebar * MM - p3.w) / 2, y: PITA * MM - 25, size: p3.uk, font: f, color: rgb(0.35, 0.35, 0.40) });
     doc.setTitle('LEMBAR PERIKSA DATA' + (erp ? ' - ' + erp : ''));
     doc.setSubject('Lembar periksa data, BUKAN artwork. Isinya hanya teks di koordinat terukur; logo, warna, tanda SNI dan QR tidak ada karena semuanya vektor di artwork aslinya. Tidak untuk dicetak sebagai label.');
     doc.setKeywords(['lembar-periksa-data', 'bukan-artwork', 'tidak-untuk-dicetak',
