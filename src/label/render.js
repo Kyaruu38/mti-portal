@@ -62,7 +62,7 @@ export function titikAsal(templat) {
 }
 
 export async function render(templat, baris, opsi = {}) {
-  const { tandaiOtomatis = true, dari = '', erp = '' } = opsi;
+  const { tandaiOtomatis = true, dari = '', erp = '', aset = null, truk = null } = opsi;
   const hal = templat.halaman || { lebar: 210, tinggi: 297 };
   const doc = await PDFDocument.create();
 
@@ -251,7 +251,7 @@ export async function render(templat, baris, opsi = {}) {
     doc.setProducer('src/label/render.js');
   }
 
-  if (tandaiOtomatis) await halamanPedoman(doc, templat, laporan, { erp, dari, hal });
+  if (tandaiOtomatis) await halamanPedoman(doc, templat, laporan, { erp, dari, hal, aset, truk });
 
   return { pdf: await doc.save(), laporan, bolong: laporan.filter(x => x.ragam === 'BOLONG') };
 }
@@ -310,7 +310,7 @@ function gambarBarcode(pg, kode, x, y, m, f) {
 // tabel terbaca seperti medan yang memang tidak ada di label ini -- dan itu
 // persis salah paham yang membuat label terbit kurang satu nilai.
 // ---------------------------------------------------------------------------
-async function halamanPedoman(doc, templat, laporan, { erp, dari, hal }) {
+async function halamanPedoman(doc, templat, laporan, { erp, dari, hal, aset, truk }) {
   const pg = doc.addPage([595.28, 841.89]);          // A4 tegak
   const fb = await doc.embedFont(StandardFonts.HelveticaBold);
   const fr = await doc.embedFont(StandardFonts.Helvetica);
@@ -330,6 +330,89 @@ async function halamanPedoman(doc, templat, laporan, { erp, dari, hal }) {
     + (sl && sl.lebar ? `   ·   label ${sl.lebar} x ${sl.tinggi} mm` : '');
   tulis(ukuran, KIRI, 8.5, fr, rgb(0.38, 0.38, 0.42));
   y -= 20;
+
+  // BLOK DESAIN: logo merek dan warnanya, dipanen dari artwork aslinya.
+  //
+  // Pedoman tanpa ini menyuruh vendor menebak logo mana yang dipakai, dan
+  // tebakan itu punya satu bentuk kegagalan yang tidak terlihat seperti
+  // kegagalan: artwork GOODRIDE dipakai untuk YARTU menghasilkan label
+  // YARTU dengan LOGO GOODRIDE -- datanya semua benar, ukurannya benar,
+  // hanya mereknya yang salah. Catatan yang sama sudah ditulis di
+  // core/dasar.js; di sini akibatnya sampai ke pihak luar.
+  //
+  // Logonya VEKTOR, dipotong dari artwork lewat alat/panen-aset.mjs, bukan
+  // digambar ulang. Warnanya diukur dari piksel artworknya, bukan dikira.
+  if (aset && aset.logo) {
+    const kotakTinggi = 46;
+    pg.drawRectangle({
+      x: KIRI - 6, y: y - kotakTinggi + 10, width: 553 - KIRI + 12, height: kotakTinggi,
+      color: rgb(0.97, 0.97, 0.98),
+    });
+    try {
+      const [halLogo] = await doc.embedPdf(aset.logo);
+      const skala = Math.min(190 / halLogo.width, (kotakTinggi - 14) / halLogo.height);
+      pg.drawPage(halLogo, {
+        x: KIRI, y: y - kotakTinggi + 17,
+        width: halLogo.width * skala, height: halLogo.height * skala,
+      });
+    } catch (e) {
+      tulis('(logo gagal dimuat: ' + (e.message || e) + ')', KIRI, 8, fr, rgb(0.8, 0.1, 0.1));
+    }
+    const kx = KIRI + 210;
+    tulis(aset.merek || '-', kx, 13, fb);
+    y -= 15;
+    tulis(`warna merek ${aset.warna_pita || '-'}`, kx, 8.5, fr, rgb(0.38, 0.38, 0.42));
+    if (aset.warna_pita && /^#[0-9A-F]{6}$/i.test(aset.warna_pita)) {
+      const hx = aset.warna_pita.slice(1);
+      pg.drawRectangle({
+        x: kx + 92, y: y - 1, width: 26, height: 9,
+        color: rgb(parseInt(hx.slice(0, 2), 16) / 255, parseInt(hx.slice(2, 4), 16) / 255, parseInt(hx.slice(4, 6), 16) / 255),
+        borderColor: rgb(0.7, 0.7, 0.74), borderWidth: 0.4,
+      });
+    }
+    y -= 12;
+    if (aset.label_mm) tulis(`label terukur ${aset.label_mm.lebar} x ${aset.label_mm.tinggi} mm (dari artwork)`, kx, 8.5, fr, rgb(0.38, 0.38, 0.42));
+    y -= 27;
+  }
+
+  // POSISI PEMASANGAN, dari katalog pabriknya.
+  //
+  // Tiap halaman pola di katalog TBR menandai poros mana yang MERAH
+  // (Recommendable) dan mana yang HIJAU (Available). Keterangan itu selama
+  // ini cuma ada di katalog cetak, dan itu pula yang tercetak di artwork
+  // labelnya — jadi orang yang menyiapkan label harus membuka katalog di
+  // sebelahnya, atau menyalin dari label lain dan berharap polanya sama.
+  //
+  // TITIKNYA DIGAMBAR ULANG DARI DATANYA, bukan ditempel sebagai gambar
+  // katalog. Dua alasan: gambar katalognya milik pabrik dan tidak perlu ikut
+  // berkeliling, dan yang benar-benar dipakai orang itu POSISINYA, bukan
+  // lukisan truknya.
+  //
+  // YANG TIDAK DIKLAIM: nama poros. Satu blok katalog memuat dua sampai
+  // empat kendaraan bersebelahan, jadi x=0,2 berarti 'seperlima dari kiri
+  // blok', bukan 'poros kemudi'. Memetakannya jadi steer/drive/trailer
+  // butuh pemisahan per kendaraan; menebaknya berarti mencetak keterangan
+  // posisi yang salah, dan itu tidak terlihat seperti kesalahan.
+  if (truk && Array.isArray(truk.titik) && truk.titik.length) {
+    const lebarStrip = 553 - KIRI - 150;
+    pg.drawRectangle({ x: KIRI - 6, y: y - 34, width: 553 - KIRI + 12, height: 42, color: rgb(0.97, 0.97, 0.98) });
+    tulis(`POSISI PEMASANGAN · ${truk.kode || '-'}`, KIRI, 9, fb);
+    y -= 12;
+    tulis(`${truk.merah || 0} merah = Recommendable   ·   ${truk.hijau || 0} hijau = Available`
+      + (truk.hal ? `   ·   katalog TBR hal ${truk.hal}` : ''), KIRI, 7.5, fr, rgb(0.45, 0.45, 0.5));
+    const garisY = y - 10;
+    pg.drawLine({ start: { x: KIRI + 150, y: garisY }, end: { x: KIRI + 150 + lebarStrip, y: garisY },
+      thickness: 0.8, color: rgb(0.85, 0.1, 0.15) });
+    for (const t of truk.titik) {
+      const fx = Number(t.x);
+      if (!(fx >= 0 && fx <= 1)) continue;
+      pg.drawCircle({
+        x: KIRI + 150 + fx * lebarStrip, y: garisY + 3, size: 2.6,
+        color: t.c === 'h' ? rgb(0.03, 0.66, 0.35) : rgb(0.90, 0.10, 0.16),
+      });
+    }
+    y -= 26;
+  }
 
   pg.drawLine({ start: { x: KIRI, y }, end: { x: 553, y }, thickness: 0.8, color: rgb(0.1, 0.1, 0.12) });
   y -= 13;
@@ -360,4 +443,42 @@ async function halamanPedoman(doc, templat, laporan, { erp, dari, hal }) {
     ? `${bolong.length} medan TIDAK TERISI — jangan dikirim ke vendor sebelum diisi.`
     : `${laporan.length} medan terisi, nol kosong.`,
   KIRI, 9.5, fb, bolong.length ? rgb(0.8, 0.1, 0.1) : rgb(0.05, 0.45, 0.2));
+}
+
+// ---------------------------------------------------------------------------
+// BANYAK SEKALIGUS. Satu berkas Excel masuk, satu berkas pedoman keluar.
+//
+// Kenapa satu berkas dan bukan satu berkas per baris: pedoman dikirim ke
+// vendor sebagai satu kiriman, dan 40 lampiran terpisah adalah 40 kesempatan
+// untuk salah satunya tertinggal. Urutannya mengikuti urutan barisnya,
+// supaya bisa diadu dengan Excel-nya baris per baris.
+//
+// SATU BARIS GAGAL TIDAK MENJATUHKAN SISANYA, dan yang gagal disebut
+// ERP-nya, bukan cuma dihitung: "12 gagal" tidak bisa dikerjakan, dua belas
+// kode ERP bisa. Ini pola yang sama dengan migrasi Drive di core/migrasiDrive.js.
+// ---------------------------------------------------------------------------
+export async function renderBanyak(pilihTemplat, baris, opsi = {}) {
+  const gabungan = await PDFDocument.create();
+  const berhasil = [];
+  const gagal = [];
+  for (const b of baris) {
+    const erp = b.erp || '(tanpa ERP)';
+    try {
+      const t = await pilihTemplat(b);
+      if (!t || !t.templat) throw new Error(t && t.sebab ? t.sebab : 'templat tidak ketemu');
+      const r = await render(t.templat, b, { ...opsi, erp, dari: t.dari || '', aset: t.aset || null, truk: t.truk || null });
+      const satu = await PDFDocument.load(r.pdf);
+      const hal = await gabungan.copyPages(satu, satu.getPageIndices());
+      for (const h of hal) gabungan.addPage(h);
+      berhasil.push({ erp, bolong: r.bolong.map(x => x.k) });
+    } catch (e) {
+      gagal.push({ erp, sebab: e.message || String(e) });
+    }
+  }
+  if (!berhasil.length && gagal.length) {
+    // Berkas nol halaman yang diserahkan sebagai hasil terlihat seperti
+    // berkas rusak. Melempar memaksa pemanggilnya menampilkan sebabnya.
+    throw new Error('tidak ada satu pun baris yang bisa dirender: ' + gagal.map(g => `${g.erp} (${g.sebab})`).join(' · '));
+  }
+  return { pdf: await gabungan.save(), berhasil, gagal, jumlahHalaman: gabungan.getPageCount() };
 }

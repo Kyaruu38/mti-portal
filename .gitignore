@@ -115,3 +115,16 @@ run.mjs
 Claude outputs/
 *.patch
 uji-*
+
+# Aset merek hasil panen (alat/panen-aset.mjs). Potongan artwork SUNGGUHAN
+# milik merek — logo WESTLAKE, GOODRIDE dan seterusnya — dipotong dari berkas
+# yang dibuat vendor. Repo ini PUBLIK.
+#
+# Polanya ditambahkan SEBELUM berkasnya sempat muncul sebagai untracked,
+# bukan sesudah git status mengingatkan — pelajaran yang sudah dibayar dua
+# kali di berkas ini (HANDOVER.md, lalu AUDIT-8-Agustus.md).
+#
+# ALATNYA tetap ikut repo; yang tidak ikut cuma hasil panennya. Siapa pun
+# yang punya artworknya bisa membuat ulang isinya dalam hitungan detik, dan
+# itu jauh lebih murah daripada menerbitkan aset merek orang lain.
+alat/aset/
