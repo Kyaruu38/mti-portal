@@ -188,6 +188,22 @@ export async function artworkSatu({ bytes, templat, berkasTemplat, baris, erp = 
   //
   // Gagal yang sebenarnya: tidak ada medan yang KETEMU sama sekali.
   if (!susun.gantian.length && !susun.sudahBenar.length) {
+    // SEBAB YANG DISEBUT HARUS SEBAB YANG BENAR.
+    //
+    // Pesan lama selalu menyalahkan jangkar atau pencocokan. Pada HI-RUN
+    // PT/ST yang sebenarnya terjadi lain: medannya KETEMU di artwork
+    // (ST205/75R14), yang kosong justru DATANYA -- items.size tidak diisi di
+    // master. Orang yang membaca "jangkar tidak ketemu" akan memeriksa
+    // artworknya, padahal artworknya baik-baik saja dan yang perlu diisi
+    // satu sel di master item.
+    //
+    // Pesan yang mengarahkan ke tempat yang salah memakan waktu lebih banyak
+    // daripada pesan yang tidak mengatakan apa-apa.
+    const kolomKosong = (susun.lewat || []).filter(x => /kosong/i.test(x));
+    if (kolomKosong.length) {
+      throw new Error('medannya ketemu di artwork, tapi datanya kosong di master — '
+        + kolomKosong.join('; '));
+    }
     throw new Error(j.ok
       ? 'jangkarnya ketemu tapi tidak ada medan yang bisa disulih dari data baris ini'
       : 'jangkar tidak ketemu dan pencocokan isi tidak memberi calon yang pasti: ' + j.sebab);
