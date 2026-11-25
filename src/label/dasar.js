@@ -109,42 +109,77 @@ export function kunciDasar(kunciTemplat, merek) {
  * @returns {Promise<{kunci,nama,erpAsal,tanggal,bytes:ArrayBuffer,asal:string}|null>}
  */
 export async function cari(kunciTemplat, merek, opsi = {}) {
+  const semua = await cariCalon(kunciTemplat, merek, opsi);
+  return semua.length ? semua[0] : null;
+}
+
+// UMUR SINGGAHAN DARI DRIVE. Yang dipilih tangan tidak pernah kedaluwarsa --
+// itu keputusan orangnya. Yang ditarik dari Drive BOLEH basi: artwork di Drive
+// bisa diganti vendor, dan singgahan tanpa umur berarti portal memakai versi
+// lama selamanya tanpa ada yang tahu. Enam jam cukup untuk menahan rentetan
+// permintaan satu lembar Excel, dan cukup pendek supaya penggantian artwork
+// tidak tertahan berhari-hari.
+const UMUR_DRIVE_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * SEMUA calon artwork dasar, berurutan dari yang paling tepat.
+ *
+ * KENAPA DAFTAR, BUKAN SATU. Versi sebelumnya mengembalikan calon PERTAMA yang
+ * berhasil DIUNDUH, dan pemanggilnya tidak punya jalan mundur kalau calon itu
+ * ternyata tidak bisa DISULIH. Terukur pada MASTERTRACK PT/TBR: artwork milik
+ * ERP-nya sendiri gagal, sementara wakil keluarganya berhasil -- dan barisnya
+ * tetap dilaporkan gagal karena wakil itu tidak pernah dicoba.
+ *
+ * Berhasil diunduh dan berhasil dipakai adalah dua hal yang berbeda, dan yang
+ * memutuskan ada di pemanggilnya, bukan di sini.
+ */
+export async function cariCalon(kunciTemplat, merek, opsi = {}) {
   const k = kunciDasar(kunciTemplat, merek);
-  if (!k) return null;
+  if (!k) return [];
+  const out = [];
 
   // 1. Singgahan peramban ini.
   try {
     const baris = await jalan('readonly', t => t.get(k));
-    if (baris) return { ...baris, asal: 'peramban ini' };
+    if (baris) {
+      const basi = baris.dariDrive && baris.tanggal
+        && (Date.now() - Date.parse(baris.tanggal)) > UMUR_DRIVE_MS;
+      if (!basi) out.push({ ...baris, asal: baris.nama || 'peramban ini' });
+    }
   } catch { /* lanjut ke sumber berikutnya, bukan menyerah */ }
 
   const { driveUrl = '', unduh = null } = opsi;
-  if (typeof unduh !== 'function') return null;
+  if (typeof unduh !== 'function') return out;
 
   // 2. Artwork milik ERP-nya sendiri. 3. Wakil keluarga dari peta.
   const peta = lihatPeta(kunciTemplat, merek);
-  const calon = [];
-  if (driveUrl) calon.push({ sumber: driveUrl, asal: 'artwork ERP ini di Drive' });
-  if (peta && peta.driveId) calon.push({ sumber: peta.driveId, asal: 'wakil ' + k + ' di Drive' });
+  const sumber = [];
+  if (driveUrl) sumber.push({ sumber: driveUrl, asal: 'artwork ERP ini di Drive' });
+  if (peta && peta.driveId) sumber.push({ sumber: peta.driveId, asal: 'wakil ' + k + ' di Drive' });
 
-  for (const c of calon) {
+  for (const c of sumber) {
     let r;
     try { r = await unduh(c.sumber); } catch (e) { r = { ok: false, sebab: String(e.message || e) }; }
     if (!r || !r.ok) continue;
     const salinan = r.bytes instanceof ArrayBuffer ? r.bytes.slice(0) : new Uint8Array(r.bytes).slice().buffer;
-    // DISINGGAHKAN, TIDAK DISIMPAN SEBAGAI "dipilih tangan". Bedanya nyata:
-    // yang dari Drive boleh basi kalau artworknya diganti, jadi ia ditandai
-    // asalnya dan bisa dibuang tanpa menghilangkan pilihan siapa pun.
-    try {
-      await jalan('readwrite', t => t.put({
-        kunci: k, nama: c.asal, erpAsal: '', tanggal: new Date().toISOString(),
-        bytes: salinan.slice(0), dariDrive: true,
-      }));
-    } catch { /* singgahan gagal bukan alasan menggagalkan pengambilannya */ }
-    return { kunci: k, nama: c.asal, erpAsal: '', tanggal: new Date().toISOString(),
-             bytes: salinan, asal: c.asal, dariDrive: true };
+    if (out.some(x => x.bytes && x.bytes.byteLength === salinan.byteLength)) continue;  // sama dengan singgahan
+    out.push({ kunci: k, nama: c.asal, erpAsal: '', tanggal: new Date().toISOString(),
+               bytes: salinan, asal: c.asal, dariDrive: true });
   }
-  return null;
+  return out;
+}
+
+/** Menyinggahkan calon yang TERBUKTI berhasil dipakai, bukan yang berhasil diunduh. */
+export async function singgahkan(kunciTemplat, merek, calon) {
+  const k = kunciDasar(kunciTemplat, merek);
+  if (!k || !calon || !calon.bytes) return;
+  try {
+    await jalan('readwrite', t => t.put({
+      kunci: k, nama: calon.asal || calon.nama || '', erpAsal: '',
+      tanggal: new Date().toISOString(),
+      bytes: calon.bytes.slice(0), dariDrive: !!calon.dariDrive,
+    }));
+  } catch { /* singgahan gagal bukan alasan menggagalkan apa pun */ }
 }
 
 export async function simpan(kunciTemplat, merek, { bytes, nama, erpAsal }) {

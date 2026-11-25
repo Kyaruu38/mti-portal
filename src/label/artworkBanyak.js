@@ -22,7 +22,7 @@
 import { PDFDocument } from 'pdf-lib';
 import { artworkSatu } from './artworkSatu.js';
 import { tempelPedoman } from './render.js';
-import { kunciDasar, cari as cariDasar } from './dasar.js';
+import { kunciDasar, cariCalon, singgahkan } from './dasar.js';
 import { lihatPeta } from './dasarPeta.js';
 
 /**
@@ -71,30 +71,46 @@ export async function artworkBanyak(baris, opsi = {}) {
       }
 
       const kd = kunciDasar(p.kunci, merek);
-      let dasarBytes = singgahanDasar.get(kd);
-      if (!dasarBytes) {
-        const d = await cariDasar(p.kunci, merek, {
+      let calon = singgahanDasar.get(kd);
+      if (!calon) {
+        calon = await cariCalon(p.kunci, merek, {
           driveUrl: cariDrive ? (cariDrive(b) || '') : (b.driveUrl || ''),
           unduh,
         });
-        if (!d) {
+        if (!calon.length) {
           const pt = lihatPeta(p.kunci, merek);
           throw new Error(pt && !pt.bisa
             ? `artwork ${merek} ${p.kunci} tidak bisa dipakai jalur ini: ${pt.sebab}`
             : `belum ada artwork dasar untuk ${merek} ${p.kunci}, dan tidak bisa ditarik dari Drive`);
         }
-        dasarBytes = d.bytes;
-        singgahanDasar.set(kd, dasarBytes);
+        singgahanDasar.set(kd, calon);
       }
 
       let t = singgahanTemplat.get(p.berkas);
       if (!t) { t = await muatTemplat(p.berkas); singgahanTemplat.set(p.berkas, t); }
 
-      const r = await artworkSatu({
-        bytes: dasarBytes instanceof ArrayBuffer ? dasarBytes.slice(0) : new Uint8Array(dasarBytes).slice().buffer,
-        templat: t, berkasTemplat: p.berkas, baris: b, erp,
-        dari: `${kd} · ${p.berkas}`, itemTeks, tandai,
-      });
+      // TIAP CALON DICOBA SAMPAI ADA YANG JADI. Berhasil diunduh dan berhasil
+      // dipakai itu dua hal berbeda: artwork milik ERP-nya sendiri bisa gagal
+      // sementara wakil keluarganya berhasil, dan menyerah pada calon pertama
+      // berarti melaporkan gagal untuk baris yang sebenarnya bisa.
+      let r = null, sebabTerakhir = '';
+      for (const c of calon) {
+        try {
+          r = await artworkSatu({
+            bytes: c.bytes instanceof ArrayBuffer ? c.bytes.slice(0) : new Uint8Array(c.bytes).slice().buffer,
+            templat: t, berkasTemplat: p.berkas, baris: b, erp,
+            dari: `${kd} · ${p.berkas}`, itemTeks, tandai,
+          });
+          // Disinggahkan HANYA yang terbukti dipakai, supaya percobaan
+          // berikutnya tidak mengulang calon yang sudah terbukti gagal.
+          await singgahkan(p.kunci, merek, c);
+          singgahanDasar.set(kd, [c]);
+          break;
+        } catch (e) { sebabTerakhir = e.message || String(e); r = null; }
+      }
+      if (!r) throw new Error(calon.length > 1
+        ? `${calon.length} artwork dicoba, tidak ada yang bisa — terakhir: ${sebabTerakhir}`
+        : sebabTerakhir);
 
       let bytesAkhir = r.pdf;
       let bolong = [];
