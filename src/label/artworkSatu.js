@@ -55,6 +55,11 @@ export function susunGantian(templat, sumber, jangkar, baris) {
   // nilai barunya SAMA dengan yang lama TIDAK masuk sini -- labelnya memang
   // sudah benar untuk medan itu.
   const takTersulih = new Set();
+  // Medan yang KETEMU, datanya ADA, dan nilainya SUDAH SAMA dengan yang
+  // tercetak. Dihitung terpisah karena "tidak ada yang perlu diganti" dan
+  // "tidak ada yang bisa diganti" adalah dua keadaan yang berlawanan, dan
+  // tanpa pembedaan ini yang pertama dilaporkan sebagai kegagalan.
+  const sudahBenar = [];
 
   // Medan yang TIDAK ketemu sama sekali tetap disebut, bukan didiamkan —
   // KECUALI medan yang nilainya memang datang dari artworknya sendiri
@@ -98,7 +103,7 @@ export function susunGantian(templat, sumber, jangkar, baris) {
       lewat.push(`${k} — ${nilai.sebab || 'data kosong'}`);
       continue;
     }
-    if (nilai.nilai === c.lama) continue;          // sudah benar, tidak perlu disentuh
+    if (nilai.nilai === c.lama) { sudahBenar.push(k); continue; }   // sudah benar, tidak perlu disentuh
     const tolak = sp.bolehGanti(k, c.lama, nilai.nilai);
     if (tolak) { lewat.push(`${k} — ${tolak}`); takTersulih.add(k); continue; }
 
@@ -115,8 +120,41 @@ export function susunGantian(templat, sumber, jangkar, baris) {
     }
   }
 
+  // ---------------------------------------------------------------------
+  // DAFTAR 'BELUM TERSULIH' DIHITUNG ULANG DARI SELURUH MEDAN TEMPLAT.
+  //
+  // Versi sebelumnya hanya mengumpulkan medan yang KETEMU lalu gagal. Medan
+  // yang TIDAK KETEMU SAMA SEKALI tidak pernah masuk daftar, dan kalau
+  // jangkarnya tidak ketemu `cocok` kosong sehingga loop itu tidak jalan
+  // satu putaran pun.
+  //
+  // Akibatnya terlihat pada data MTI yang sebenarnya, ERP 010504044ID:
+  // artworknya mencetak pola EZ336 dan Load Range L, pedomannya menuliskan
+  // pattern CR926 dan load_range G -- TANPA satu pun tanda. Nama polanya di
+  // artwork CHAOYANG itu KURVA, jadi tidak pernah ketemu, jadi tidak pernah
+  // tercatat. Dokumen yang dipakai MEMERIKSA label kembali membenarkan
+  // kesalahannya, lewat jalur yang berbeda dari yang sudah ditutup.
+  //
+  // Definisi yang kokoh, dan satu-satunya yang tidak punya celah: sebuah
+  // medan BELUM TERSULIH kalau nilainya datang dari BARIS DATA, nilainya
+  // ADA, dan medan itu tidak berakhir tertulis di artworknya -- apa pun
+  // sebabnya, ketemu atau tidak.
+  const tertulis = new Set(gantian.map(g => String(g.catatan).replace(/ \(salinan\)$/, '')));
+  const benar = new Set(sudahBenar);
+  const belum = [];
+  for (const med of (templat.medan || [])) {
+    if (!med || med.tetap) continue;
+    if (tertulis.has(med.k) || benar.has(med.k)) continue;
+    const nilai = isiMedan(med, baris);
+    if (!nilai.nilai) continue;                    // kosong itu urusan 'bolong', bukan ini
+    const ragam = String(nilai.ragam || '');
+    // Yang nilainya memang datang dari artworknya tidak pernah 'belum tersulih'.
+    if (ragam === 'tetap' || ragam.startsWith('aset') || ragam.startsWith('lapisan')) continue;
+    belum.push(med.k);
+  }
+
   return {
-    gantian, lewat, asal, takTersulih: [...takTersulih],
+    gantian, lewat, asal, takTersulih: belum, sudahBenar,
     nKoordinat: Object.values(asal).filter(a => a === 'koordinat').length,
     nIsi: Object.values(asal).filter(a => a === 'isi').length,
   };
@@ -139,11 +177,30 @@ export async function artworkSatu({ bytes, templat, berkasTemplat, baris, erp = 
   }
   const j = sp.cariJangkar(sumber, berkasTemplat);
   const susun = susunGantian(templat, sumber, j, baris);
-  if (!susun.gantian.length) {
+  // NOL GANTIAN TIDAK OTOMATIS BERARTI GAGAL.
+  //
+  // Terlihat pada data MTI yang sebenarnya: ERP 010504061ID dilaporkan gagal
+  // dengan "tidak ada medan yang bisa disulih", padahal artwork dasar untuk
+  // GOODRIDE SNI/TBR memang DIPANEN DARI ERP ITU SENDIRI -- jadi setiap
+  // nilainya sudah benar dan tidak ada yang perlu disentuh. Artwork yang
+  // sudah tepat dilaporkan sebagai kegagalan, dan orangnya akan mencari
+  // sebab yang tidak ada.
+  //
+  // Gagal yang sebenarnya: tidak ada medan yang KETEMU sama sekali.
+  if (!susun.gantian.length && !susun.sudahBenar.length) {
     throw new Error(j.ok
       ? 'jangkarnya ketemu tapi tidak ada medan yang bisa disulih dari data baris ini'
       : 'jangkar tidak ketemu dan pencocokan isi tidak memberi calon yang pasti: ' + j.sebab);
   }
   const r = await sulih(bytes.slice(0), susun.gantian, { erp, dari, tandai });
-  return { pdf: r.pdf, laporan: r.laporan, ...susun };
+  // LAPORAN SULIH IKUT DIBACA, dan ini bukan kehati-hatian berlebihan.
+  // sulih() menolak gantian yang kotaknya di luar halaman atau yang tidak
+  // muat di kotaknya, dan penolakan itu terjadi SESUDAH susunGantian selesai.
+  // Tanpa menyambungkannya balik, medan yang ditolak di sini tetap tercatat
+  // 'tersulih' dan pedomannya akan mencetak nilainya tanpa tanda.
+  const ditolak = (r.laporan || []).filter(x => x && x.muat === false)
+    .map(x => String(x.catatan || '').replace(/ \(salinan\)$/, ''))
+    .filter(Boolean);
+  const takTersulih = [...new Set([...(susun.takTersulih || []), ...ditolak])];
+  return { pdf: r.pdf, laporan: r.laporan, ...susun, takTersulih };
 }

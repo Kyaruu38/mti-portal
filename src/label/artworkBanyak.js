@@ -117,6 +117,7 @@ export async function artworkBanyak(baris, opsi = {}) {
         diganti: r.gantian.filter(g => !String(g.catatan).includes('salinan')).length,
         koordinat: r.nKoordinat, isi: r.nIsi,
         lewat: r.lewat, bolong: bolong.map(x => x.k || x), belumTersulih: r.takTersulih,
+        sudahBenar: r.sudahBenar || [],
       });
     } catch (e) {
       gagal.push({ erp, sebab: e.message || String(e) });
