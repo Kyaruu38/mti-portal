@@ -128,3 +128,8 @@ uji-*
 # yang punya artworknya bisa membuat ulang isinya dalam hitungan detik, dan
 # itu jauh lebih murah daripada menerbitkan aset merek orang lain.
 alat/aset/
+
+# Cache bytecode Python dari alat/. Bukan kode, dibuat ulang sendiri tiap
+# alatnya jalan, dan memuat jalur absolut mesin yang membuatnya.
+__pycache__/
+*.pyc

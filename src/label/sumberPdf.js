@@ -196,3 +196,126 @@ export function bolehGanti(k, lama, baru) {
   const p = PENJAGA[k];
   return p ? p(lama, baru) : '';
 }
+
+// ---------------------------------------------------------------------------
+// MENCOCOKKAN LEWAT ISI, BUKAN LEWAT KOORDINAT.
+//
+// KENAPA INI ADA. cocokkanMedan() mencari tiap medan di KOORDINAT yang
+// diukur dari satu artwork acuan, dan itu bekerja selama berkasnya setata
+// letak dengan acuannya. Back test lintas merek menunjukkan batasnya: pada
+// GOODRIDE PT/ST jangkarnya ketemu tapi NOL dari enam medan cocok, karena
+// pt-st.json diukur dari artwork ST yang lain.
+//
+// Dan "tinggal dilonggarkan toleransinya" adalah jebakan, bukan jalan
+// keluar. Pada 60 mm hasilnya 6 dari 6 -- angkanya cantik -- tapi
+// pasangannya: pattern -> "Load Range C/6PR", ean -> "MADE IN INDONESIA".
+// EAN akan ditulis MENIMPA tulisan MADE IN INDONESIA, dan labelnya akan
+// terlihat baik-baik saja.
+//
+// CARANYA: BENTUK ISINYA. Sebuah ukuran ban berbentuk seperti ukuran ban di
+// berkas mana pun; "148/145L" tidak mungkin tertukar dengan "MADE IN
+// INDONESIA" betapa pun dekat letaknya. Jadi tiap potong teks di artworknya
+// DIGOLONGKAN, dan tiap medan templat digolongkan lewat `contoh`-nya
+// sendiri -- contoh yang memang sudah ada di tiap templat sejak diukur.
+// Yang berpasangan cuma yang segolongan.
+//
+// Koordinatnya tidak dibuang: ia dipakai sebagai PEMUTUS kalau satu
+// golongan punya lebih dari satu calon. Jadi posisi menolong, tapi tidak
+// lagi menjadi syarat -- dan golongan yang berbeda tidak akan pernah
+// berpasangan betapa pun dekatnya.
+// ---------------------------------------------------------------------------
+
+const GOLONGAN = [
+  // Urutannya berarti: yang lebih khusus didahulukan, karena "11R22.5-16PR"
+  // juga memuat bentuk ukuran di dalamnya.
+  ['spek',       /^[A-Z]{0,2}\d{1,3}(?:[./]\d{1,3})?[RD-]\d{2}(?:\.\d)?\s*-\s*\d{1,2}\s*PR$/i],
+  ['ukuran',     /^[A-Z]{0,2}\d{1,3}(?:[./]\d{1,3})?\s*[RD]\s*\d{2}(?:\.\d)?$/i],
+  ['beban',      /^\d{2,3}\/\d{2,3}\s*[A-Z]$/],
+  ['itemLabel',  /^ITEM\s*NO/i],
+  ['ean',        /^\d\s?\d{6}\s?\d{6}$/],
+  ['item',       /^\d{4,6}$/],
+  ['rentangPanjang', /^Load\s*Range/i],
+  ['plyPanjang', /^\d{1,2}\s*PR(\s*\(\s*[A-Z]\s*\))?$/i],
+  ['konstruksi', /(ALL\s*STEEL|TUBELESS|TUBE\s*TYPE|BIAS)/i],
+  ['ukuranMm',   /^\d{1,4}(?:[.,]\d{1,2})?\s*mm$/i],
+  ['url',        /^(www\.|https?:)/i],
+  ['madeIn',     /^made\s*in\s*indonesia$/i],
+  ['hurufSatu',  /^[A-Z]$/],
+  ['angkaKecil', /^\d{1,3}$/],
+];
+
+/** Golongan sebuah teks, atau '' kalau tidak termasuk golongan mana pun. */
+export function golongan(teks) {
+  const t = String(teks == null ? '' : teks).trim();
+  if (!t) return '';
+  for (const [nama, pola] of GOLONGAN) if (pola.test(t)) return nama;
+  return '';
+}
+
+/**
+ * Mencocokkan medan templat ke teks artworknya lewat GOLONGAN isinya.
+ *
+ * Mengembalikan daftar yang bentuknya sama dengan cocokkanMedan(), supaya
+ * pemanggilnya tidak perlu tahu dari jalur mana pasangannya datang.
+ */
+export function cocokkanIsi(templat, medanSumber, jangkar) {
+  const medan = (templat && templat.medan) || [];
+  const dipakai = new Set();
+  const out = [];
+
+  for (const m of medan) {
+    if (m.peran === 'titik asal') continue;
+    const contoh = m.contoh || m.tetap || '';
+    const gol = golongan(contoh);
+    if (!gol) { out.push({ k: m.k, ketemu: false, sebab: 'contoh templat tidak bergolongan' }); continue; }
+
+    const calon = (medanSumber || [])
+      .map((s, i) => ({ s, i }))
+      .filter(({ s, i }) => !dipakai.has(i) && golongan(s.teks) === gol);
+
+    if (!calon.length) { out.push({ k: m.k, ketemu: false, sebab: `tidak ada teks bergolongan '${gol}'` }); continue; }
+
+    // PEMUTUS: yang paling dekat dengan tempat yang diperkirakan templat.
+    // Dipakai HANYA untuk memilih di antara calon yang sudah segolongan,
+    // jadi kesalahan terburuknya memilih ukuran yang salah dari dua ukuran
+    // -- bukan menulis EAN di atas 'MADE IN INDONESIA'.
+    //
+    // DAN PEMUTUSNYA BUTUH JANGKAR. Tanpa jangkar, koordinat templat tidak
+    // punya titik acuan di berkas ini, jadi "yang paling dekat" artinya
+    // "yang paling dekat dengan tempat yang bahkan tidak diketahui".
+    //
+    // Ini bukan kekhawatiran di atas kertas: pada ARROYO PT/TBR jangkarnya
+    // memang tidak ada, dan dua teks bergolongan ukuranMm -- "280 mm" dan
+    // "105,00 mm" -- dipasangkan ke tinggi_label dan lebar_label. Untuk
+    // label PT/TBR yang lebar-pendek pasangan itu kemungkinan TERBALIK.
+    // Angkanya benar dua-duanya; yang salah cuma mana yang lebar dan mana
+    // yang tinggi, dan itu tidak terlihat seperti kesalahan.
+    //
+    // Jadi pasangan yang dipilih dari lebih dari satu calon TANPA jangkar
+    // ditandai `pasti: false`. Ia tetap dilaporkan -- membuangnya berarti
+    // membuang keterangan yang benar -- tapi pemanggilnya tahu bahwa yang
+    // ini harus dilihat orang sebelum dipakai.
+    let pilih = calon[0];
+    const adaJangkar = !!(jangkar && jangkar.ok);
+    if (calon.length > 1 && adaJangkar) {
+      const hx = (jangkar.x || 0) + (m.dX || 0);
+      const hy = (jangkar.y || 0) + (m.dY != null ? m.dY : 0);
+      let terbaik = Infinity;
+      for (const c of calon) {
+        const d = Math.hypot((c.s.kotak.x0 || 0) - hx, (c.s.kotak.y0 || 0) - hy);
+        if (d < terbaik) { terbaik = d; pilih = c; }
+      }
+    }
+    dipakai.add(pilih.i);
+    out.push({
+      k: m.k, ketemu: true, golongan: gol, lama: pilih.s.teks,
+      kotak: { ...pilih.s.kotak }, putar: pilih.s.diputar, arah: pilih.s.arah, tm: pilih.s.tm,
+      calon: calon.length,
+      pasti: calon.length === 1 || adaJangkar,
+      sebabRagu: calon.length > 1 && !adaJangkar
+        ? `${calon.length} teks bergolongan '${gol}' dan tidak ada jangkar untuk memutus — periksa sebelum dipakai`
+        : '',
+    });
+  }
+  return out;
+}

@@ -482,3 +482,73 @@ export async function renderBanyak(pilihTemplat, baris, opsi = {}) {
   }
   return { pdf: await gabungan.save(), berhasil, gagal, jumlahHalaman: gabungan.getPageCount() };
 }
+
+// ---------------------------------------------------------------------------
+// MENEMPELKAN HALAMAN PEDOMAN KE BERKAS YANG SUDAH ADA.
+//
+// Jalur templat dan jalur sulih menghasilkan dua hal yang berbeda, dan
+// keduanya memang dibutuhkan:
+//
+//   jalur sulih   -> artwork SUNGGUHAN dengan datanya diganti. Warna, logo,
+//                    huruf aslinya, blok peringatan, piktogram -- semuanya
+//                    vektor dari berkas vendor. Ini yang dilihat orang.
+//   halaman pedoman -> tiap medan, nilainya, dan ASALNYA; yang kosong merah
+//                    beserta sebabnya; warna merek; posisi pemasangan. Ini
+//                    yang DIPERIKSA orang.
+//
+// Sampai v30.8 keduanya berdiri sendiri, dan akibatnya satu berkas yang
+// terlihat benar tidak membawa apa pun yang bisa dipakai memeriksanya,
+// sementara berkas yang bisa diperiksa tidak terlihat seperti label.
+//
+// Fungsi ini menyambungnya: halaman 1 untuk DILIHAT, halaman 2 untuk
+// DIPERIKSA, satu berkas. Templatnya tetap dibutuhkan -- bukan untuk
+// menggambar, tapi karena di situlah daftar medan dan aturan asalnya hidup.
+//
+// Keluaran jalur templat TIDAK hilang: kalau sebuah pola belum punya artwork
+// dasar sama sekali, render() biasa tetap jalan dan hasilnya tetap dua
+// halaman. Yang berubah cuma halaman pertamanya -- berwarna kalau artworknya
+// ada, hitam-putih kalau belum.
+// ---------------------------------------------------------------------------
+export async function tempelPedoman(pdfBytes, templat, baris, opsi = {}) {
+  const { erp = '', dari = '', aset = null, truk = null } = opsi;
+  const doc = await PDFDocument.load(pdfBytes);
+  const hal = templat.halaman || { lebar: 210, tinggi: 297 };
+  const { medan } = isiTemplat(templat, baris);
+
+  // UKURAN LABEL DIISI DARI HASIL UKUR ARTWORKNYA, bukan dibiarkan kosong.
+  //
+  // lebar_label dan tinggi_label ditandai `tetap` di peta, tapi templat
+  // PT/BX tidak membawa nilainya -- angkanya memang berbeda per berkas.
+  // alat/panen-aset.mjs sudah mengukurnya dari keyline artworknya sendiri
+  // (260,7 x 110,8 mm pada WESTLAKE PT/TBR, cocok dengan '261 mm x 111 mm'
+  // yang tercetak di artwork itu). Jadi angkanya ada; yang kurang cuma
+  // jalannya ke sini.
+  const ukur = aset && aset.label_mm;
+  const dariUkuran = { lebar_label: ukur && `${ukur.lebar} mm`, tinggi_label: ukur && `${ukur.tinggi} mm` };
+
+  // MEDAN `aset` DAN `lapisan` BUKAN MEDAN KOSONG.
+  //
+  // url_merek, tanda tangan persetujuan dan sejenisnya tidak datang dari
+  // baris data -- mereka sudah ADA di artworknya, atau diisi lapisan lain.
+  // isiTemplat() sudah mengeluarkannya dari daftar bolong; versi pertama
+  // fungsi ini membangun laporannya sendiri dan lupa menirunya, sehingga
+  // pedoman untuk label yang sudah lengkap tetap berbunyi "4 medan TIDAK
+  // TERISI" -- peringatan yang salah, dan peringatan yang salah lebih
+  // berbahaya daripada tidak ada peringatan: ia mengajari orang
+  // mengabaikannya.
+  const disuplaiLain = (ragam) => String(ragam || '').startsWith('aset') || String(ragam || '').startsWith('lapisan');
+
+  const laporan = medan.map((m) => {
+    const nilai = m.nilai || dariUkuran[m.k] || '';
+    if (nilai) return { k: m.k, nilai, ragam: m.ragam, asal: dariUkuran[m.k] && !m.nilai ? 'diukur dari artwork' : m.ragam };
+    if (disuplaiLain(m.ragam)) return { k: m.k, nilai: '(dari artworknya)', ragam: m.ragam, asal: m.ragam };
+    return { k: m.k, nilai: '', sebab: m.sebab || 'kosong', ragam: 'BOLONG', asal: m.ragam };
+  });
+  await halamanPedoman(doc, templat, laporan, { erp, dari, hal, aset, truk });
+  return {
+    pdf: await doc.save(),
+    laporan,
+    bolong: laporan.filter(x => x.ragam === 'BOLONG'),
+    jumlahHalaman: doc.getPageCount(),
+  };
+}
