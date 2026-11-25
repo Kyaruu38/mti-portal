@@ -426,16 +426,25 @@ async function halamanPedoman(doc, templat, laporan, { erp, dari, hal, aset, tru
   for (const r of laporan) {
     if (y < 70) break;                               // satu halaman cukup untuk 14 medan
     const bolong = r.ragam === 'BOLONG';
-    const warna = bolong ? rgb(0.8, 0.1, 0.1) : rgb(0.1, 0.1, 0.12);
+    // 'BELUM TERSULIH' DICETAK BERBEDA DARI 'TIDAK TERISI', dan bedanya bukan
+    // kosmetik. Yang kosong: datanya belum ada, isi dulu. Yang belum tersulih:
+    // datanya ADA dan BENAR, tapi labelnya masih membawa nilai LAMA -- dan
+    // pembacanya harus tahu bahwa yang tercetak di sebelah BUKAN angka ini.
+    const belum = r.ragam === 'BELUM TERSULIH';
+    const warna = bolong ? rgb(0.8, 0.1, 0.1)
+                : belum ? rgb(0.85, 0.45, 0)
+                : rgb(0.1, 0.1, 0.12);
     tulis(r.k, KIRI, 9, fb, warna);
-    tulis(bolong ? '— TIDAK TERISI' : r.nilai, KIRI + 118, 9, bolong ? fb : fr, warna);
+    tulis(bolong ? '— TIDAK TERISI' : belum ? `${r.nilai}  (LABELNYA MASIH NILAI LAMA)` : r.nilai,
+          KIRI + 118, 9, (bolong || belum) ? fb : fr, warna);
     tulis(r.asal || r.ragam || '', KIRI + 350, 8, fr, rgb(0.45, 0.45, 0.5));
     y -= 12;
-    if (bolong && r.sebab) { tulis('sebab: ' + r.sebab, KIRI + 118, 7.5, fr, rgb(0.8, 0.1, 0.1)); y -= 11; }
+    if ((bolong || belum) && r.sebab) { tulis('sebab: ' + r.sebab, KIRI + 118, 7.5, fr, warna); y -= 11; }
     else y -= 2;
   }
 
   const bolong = laporan.filter(x => x.ragam === 'BOLONG');
+  const belumT = laporan.filter(x => x.ragam === 'BELUM TERSULIH');
   y -= 6;
   pg.drawLine({ start: { x: KIRI, y }, end: { x: 553, y }, thickness: 0.4, color: rgb(0.7, 0.7, 0.74) });
   y -= 15;
@@ -443,6 +452,11 @@ async function halamanPedoman(doc, templat, laporan, { erp, dari, hal, aset, tru
     ? `${bolong.length} medan TIDAK TERISI — jangan dikirim ke vendor sebelum diisi.`
     : `${laporan.length} medan terisi, nol kosong.`,
   KIRI, 9.5, fb, bolong.length ? rgb(0.8, 0.1, 0.1) : rgb(0.05, 0.45, 0.2));
+  if (belumT.length) {
+    y -= 12;
+    tulis(`${belumT.length} medan BELUM TERSULIH — labelnya masih membawa nilai lama untuk medan itu.`,
+      KIRI, 9.5, fb, rgb(0.85, 0.45, 0));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -510,7 +524,7 @@ export async function renderBanyak(pilihTemplat, baris, opsi = {}) {
 // ada, hitam-putih kalau belum.
 // ---------------------------------------------------------------------------
 export async function tempelPedoman(pdfBytes, templat, baris, opsi = {}) {
-  const { erp = '', dari = '', aset = null, truk = null } = opsi;
+  const { erp = '', dari = '', aset = null, truk = null, takTersulih = null } = opsi;
   const doc = await PDFDocument.load(pdfBytes);
   const hal = templat.halaman || { lebar: 210, tinggi: 297 };
   const { medan } = isiTemplat(templat, baris);
@@ -538,8 +552,27 @@ export async function tempelPedoman(pdfBytes, templat, baris, opsi = {}) {
   // mengabaikannya.
   const disuplaiLain = (ragam) => String(ragam || '').startsWith('aset') || String(ragam || '').startsWith('lapisan');
 
+  // MEDAN YANG DATANYA ADA TAPI TIDAK BERHASIL DISULIH KE ARTWORKNYA HARUS
+  // DIKATAKAN, BUKAN DICETAK SEOLAH SUDAH ADA DI LABELNYA.
+  //
+  // Ketangkap waktu melihat hasilnya, bukan dari uji: pedoman untuk E1
+  // (WESTLAKE SNI/TBR) berbunyi `pattern_besar: CR926` sementara artwork di
+  // halaman sebelahnya masih mencetak AZ601 -- pola LAMA. Datanya memang
+  // CR926; yang tidak terjadi adalah penulisannya ke artwork, karena medan
+  // itu tidak ketemu di berkasnya.
+  //
+  // Pedoman yang menyebut nilai yang DIMAKSUD, bukan nilai yang ADA di
+  // labelnya, adalah dokumen yang terlihat benar dan isinya salah -- dan ia
+  // dipakai justru untuk memeriksa. Orang yang membandingkan label dengan
+  // pedomannya akan membaca CR926 di kertas, melihat CR926 di pedoman, dan
+  // menyetujui label yang bertuliskan AZ601.
+  const belum = new Set(takTersulih || []);
   const laporan = medan.map((m) => {
     const nilai = m.nilai || dariUkuran[m.k] || '';
+    if (nilai && belum.has(m.k)) {
+      return { k: m.k, nilai, ragam: 'BELUM TERSULIH', asal: m.ragam,
+               sebab: 'datanya ada, tapi medan ini tidak berhasil ditulis ke artworknya — yang tercetak masih nilai lama' };
+    }
     if (nilai) return { k: m.k, nilai, ragam: m.ragam, asal: dariUkuran[m.k] && !m.nilai ? 'diukur dari artwork' : m.ragam };
     if (disuplaiLain(m.ragam)) return { k: m.k, nilai: '(dari artworknya)', ragam: m.ragam, asal: m.ragam };
     return { k: m.k, nilai: '', sebab: m.sebab || 'kosong', ragam: 'BOLONG', asal: m.ragam };
@@ -549,6 +582,7 @@ export async function tempelPedoman(pdfBytes, templat, baris, opsi = {}) {
     pdf: await doc.save(),
     laporan,
     bolong: laporan.filter(x => x.ragam === 'BOLONG'),
+    belumTersulih: laporan.filter(x => x.ragam === 'BELUM TERSULIH'),
     jumlahHalaman: doc.getPageCount(),
   };
 }

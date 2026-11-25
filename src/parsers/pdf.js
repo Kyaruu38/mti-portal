@@ -31,9 +31,26 @@ export async function itemTeks(fileOrBuffer) {
     cMapPacked: true,
   }).promise;
   const page = await doc.getPage(1);
-  const vp = page.getViewport({ scale: 1 });
+  // UKURAN YANG DIPULANGKAN HARUS UKURAN TANPA PUTARAN, dan ini bukan
+  // kehati-hatian berlebihan.
+  //
+  // getViewport({scale:1}) sudah MENERAPKAN /Rotate halamannya, jadi pada
+  // halaman ber-/Rotate 90 atau 270 lebar dan tingginya TERTUKAR. Sementara
+  // itu matriks tiap potong teks dari getTextContent() tetap di ruang PDF
+  // yang BELUM diputar. keMedanSumber() membalik sumbu Y dengan tinggi yang
+  // dikirim ke sini -- jadi mengirim tinggi yang sudah diputar membuat
+  // seluruh y-nya NEGATIF, dan di sulih() kotaknya mendarat di LUAR halaman.
+  //
+  // Akibatnya tidak terlihat seperti kesalahan: teks lamanya terhapus dengan
+  // benar (penghapusan memakai matriks mentah, jadi tidak terpengaruh), lalu
+  // nilai barunya digambar di luar halaman. Yang keluar adalah label yang
+  // medannya KOSONG -- bukan galat, bukan peringatan. Ketangkap waktu 6
+  // artwork ber-/Rotate 270 memberi 'tersulih 5 medan' tapi nol nilai baru
+  // terbaca di keluarannya.
+  const vp = page.getViewport({ scale: 1, rotation: 0 });
   const content = await page.getTextContent();
-  return { items: content.items || [], lebarPt: vp.width, tinggiPt: vp.height, halaman: doc.numPages };
+  return { items: content.items || [], lebarPt: vp.width, tinggiPt: vp.height,
+           putaran: page.rotate || 0, halaman: doc.numPages };
 }
 
 // Returns { pages: [{ lines: [{ str, x, y }] }], text, isScanned }.

@@ -25,6 +25,8 @@ import { badge, btn, field, searchInput, driveLink } from '../ui/components.js';
 import { pilihTemplat } from '../label/templat.js';
 import { isiTemplat, isiMedan } from '../label/peta.js';
 import * as dasar from '../label/dasar.js';
+import { lihatPeta } from '../label/dasarPeta.js';
+import { kartuArtworkExcel } from './labelArtworkExcel.js';
 
 const muatTemplat = (berkas) =>
   fetch(new URL('../label/templat/' + berkas, import.meta.url)).then(r => r.json());
@@ -72,6 +74,15 @@ export function labelArtworkScreen() {
         id: 'artwork-erp', value: erp, mono: true, placeholder: '0105045809703ID',
         onChange: v => setUI({ artworkErp: String(v || '').trim() }),
       }))));
+
+  // JALUR EXCEL DITARUH DI SINI, SEBELUM cabang-cabang yang butuh ERP.
+  //
+  // Dulu seluruh layar ini tidak menampilkan apa pun sampai sebuah ERP
+  // diketik. Padahal pertanyaan yang dibawa orang ke layar ini sering bukan
+  // "artwork untuk ERP ini", melainkan "artwork untuk SELEMBAR ini" -- dan
+  // kalau jalurnya cuma muncul sesudah mengetik ERP, jalur itu tidak ada
+  // untuk orang yang datang membawa lembar.
+  wrap.appendChild(kartuArtworkExcel());
 
   if (!erp) return wrap;
 
@@ -137,26 +148,32 @@ export function labelArtworkScreen() {
         }));
       }
       const j = sp.cariJangkar(sumber, pilihan.berkas);
-      if (!j.ok) throw new Error(j.sebab);
-      const cocok = sp.cocokkanMedan(t, sumber, j);
 
-      const gantian = [];
-      const lewat = [];
-      for (const c of cocok) {
-        if (!c.ketemu) { lewat.push(`${c.k} — tidak ketemu di artworknya`); continue; }
-        const med = t.medan.find(m => m.k === c.k);
-        const nilai = isiMedan(med, baris);
-        if (!nilai.nilai) { lewat.push(`${c.k} — ${nilai.sebab || 'data kosong'}`); continue; }
-        if (nilai.nilai === c.lama) continue;
-        // Posisinya benar belum berarti isinya sebanding -- lihat PENJAGA.
-        const tolak = sp.bolehGanti(c.k, c.lama, nilai.nilai);
-        if (tolak) { lewat.push(`${c.k} — ${tolak}`); continue; }
-        gantian.push({ ...c.kotak, nilai: nilai.nilai, putar: c.putar, arah: c.arah, tm: c.tm, catatan: c.k, lama: c.lama });
-        // Salinan ganda dicari lewat TEKS LAMAnya: satu yang terlewat berarti
-        // label membawa dua nilai yang bertentangan sambil terlihat benar.
-        for (const sal of sp.cariSalinan(sumber, c.lama, c.kotak)) {
-          gantian.push({ ...sal.kotak, nilai: nilai.nilai, putar: sal.putar, arah: sal.arah, tm: sal.tm, catatan: c.k + ' (salinan)' });
-        }
+      // PENYUSUNANNYA DIPINDAH KE artworkSatu.js, DAN BUKAN CUMA DEMI RAPI.
+      //
+      // Versi sebelumnya menyusun gantiannya di sini dan HANYA memakai
+      // cocokkanMedan (koordinat). cocokkanIsi -- pencocokan lewat isi, yang
+      // dibangun justru supaya merek yang templat koordinatnya tidak cocok
+      // tetap bisa disulih -- tidak pernah dipanggil dari src/ sama sekali.
+      // Nol pemanggil. Yang menjalankannya cuma harness uji, jadi angkanya
+      // bagus di laporan dan tidak ada apa pun di layar ini yang berubah.
+      //
+      // Terukur waktu menyaring 59 artwork asli: 21 dari 45 kombinasi yang
+      // bisa disulih punya koordinat cocok NOL dan hidup SEPENUHNYA dari
+      // pencocokan isi. Di layar ini, 21 kombinasi itu gagal.
+      //
+      // Jangkar yang tidak ketemu juga tidak lagi langsung melempar: tanpa
+      // jangkar, pencocokan isi masih bisa bekerja, dan beberapa merek memang
+      // cuma bisa lewat situ. Yang melempar sekarang: nol medan yang bisa
+      // disulih -- dan sebabnya menyebut jangkarnya kalau itu soalnya.
+      const { susunGantian } = await import('../label/artworkSatu.js');
+      const { gantian, lewat, nKoordinat, nIsi } = susunGantian(t, sumber, j, baris);
+      if (!gantian.length) {
+        throw new Error(j.ok
+          ? tr({ id: 'Jangkarnya ketemu tapi tidak ada medan yang bisa disulih dari data ERP ini.',
+                 en: 'The anchor was found but no field can be substituted from this ERP’s data.',
+                 zh: '找到了锚点，但该 ERP 的数据中没有可替换的字段。' })
+          : j.sebab);
       }
 
       const r = await sulih(buf.slice(0), gantian, { erp, dari: `${namaBerkas} · ${pilihan.berkas}` });
@@ -213,6 +230,15 @@ export function labelArtworkScreen() {
           tr({ id: `${perubahan.length} medan diganti — periksa dulu`,
                en: `${perubahan.length} fields replaced — check it first`,
                zh: `已替换 ${perubahan.length} 个字段 — 请先核对` })),
+        // DARI MANA MEDANNYA KETEMU IKUT DISEBUT. Dua jalur pencocokan punya
+        // sifat gagal yang berbeda: koordinat meleset kalau templatnya diukur
+        // dari tata letak lain, isi meleset kalau bentuk nilainya bertabrakan.
+        // Waktu ada yang terlihat aneh di hasilnya, ini baris pertama yang
+        // menyempitkan pertanyaannya.
+        nIsi ? h('span', { style: { fontSize: '11px', color: 'var(--text-3)' } },
+          tr({ id: `(${nKoordinat} lewat koordinat, ${nIsi} lewat isi)`,
+               en: `(${nKoordinat} by coordinate, ${nIsi} by content)`,
+               zh: `(${nKoordinat} 项按坐标，${nIsi} 项按内容)` })) : null,
         h('a', { href: hrefHasil, target: '_blank', style: { fontSize: '11.5px', fontWeight: 700 } },
           tr({ id: 'buka hasilnya ↗', en: 'open the result ↗', zh: '打开结果 ↗' })),
         h('a', { href: hrefAsli, target: '_blank', style: { fontSize: '11.5px', color: 'var(--text-3)' } },
@@ -361,7 +387,16 @@ export function labelArtworkScreen() {
   // tanpa satu klik pun. Belum ada -> minta sekali, dan katakan dengan jelas
   // bahwa ini sekali saja.
   (async () => {
-    const d = kunciDasar ? await dasar.cari(pilihan.kunci, it.brand) : null;
+    // ARTWORKNYA DITARIK SENDIRI DARI DRIVE kalau singgahan peramban ini
+    // kosong. Yang dipakai: artwork ERP ini sendiri (designs.drive_url) dulu,
+    // baru wakil keluarganya dari dasarPeta.js. Lihat catatan di dasar.js --
+    // sampai jalur unduh ini ada, layar inilah yang meminta berkas yang
+    // sebenarnya sudah diketahui basis datanya dan bahkan sudah ditampilkan
+    // tautannya di kaki layar ini.
+    const { unduhArtwork } = await import('../core/driveUnduh.js');
+    const d = kunciDasar
+      ? await dasar.cari(pilihan.kunci, it.brand, { driveUrl: (design && design.driveUrl) || '', unduh: unduhArtwork })
+      : null;
     clear(barisDasar);
     if (!kunciDasar) {
       barisDasar.appendChild(h('span', { style: { color: 'var(--warn, #e8a700)' } },
@@ -372,10 +407,23 @@ export function labelArtworkScreen() {
       return;
     }
     if (!d) {
-      barisDasar.appendChild(h('span', {},
-        tr({ id: `Artwork dasar ${it.brand} ${pilihan.kunci} belum ada. Pilih sekali — ERP ${it.brand} ${pilihan.kunci} berikutnya langsung jadi tanpa ditanya.`,
-             en: `No base artwork for ${it.brand} ${pilihan.kunci} yet. Pick one once — the next ${it.brand} ${pilihan.kunci} ERP builds straight away.`,
-             zh: `尚无 ${it.brand} ${pilihan.kunci} 的基础图稿。选择一次即可 — 下一个 ${it.brand} ${pilihan.kunci} 的 ERP 将直接生成。` })));
+      // YANG SUDAH DIKETAHUI TIDAK BISA, DIKATAKAN DI MUKA. Sebelas dari 59
+      // artwork yang disaring hurufnya sudah jadi KURVA -- lapisan teksnya nol
+      // potong, dan tidak ada metode sulih apa pun yang bisa menyentuhnya.
+      // Tanpa ini, satu-satunya cara mengetahuinya adalah menunggu prosesnya
+      // gagal di tengah jalan, tiap kali, untuk tiap orang.
+      const p = lihatPeta(pilihan.kunci, it.brand);
+      if (p && !p.bisa) {
+        barisDasar.appendChild(h('span', { style: { color: 'var(--warn, #e8a700)' } },
+          tr({ id: `Artwork ${it.brand} ${pilihan.kunci} yang ada di Drive tidak bisa dipakai jalur ini: ${p.sebab}. Butuh berkas dari vendornya yang teksnya masih teks — kalau punya, pilih di bawah.`,
+               en: `The ${it.brand} ${pilihan.kunci} artwork on Drive cannot be used by this path: ${p.sebab}. A vendor file whose text is still text is needed — pick one below if you have it.`,
+               zh: `Drive 上的 ${it.brand} ${pilihan.kunci} 图稿无法用于此路径：${p.sebab}。需要文字仍为文字的供应商文件 — 如有，请在下方选择。` })));
+      } else {
+        barisDasar.appendChild(h('span', {},
+          tr({ id: `Artwork dasar ${it.brand} ${pilihan.kunci} belum ada. Pilih sekali — ERP ${it.brand} ${pilihan.kunci} berikutnya langsung jadi tanpa ditanya.`,
+               en: `No base artwork for ${it.brand} ${pilihan.kunci} yet. Pick one once — the next ${it.brand} ${pilihan.kunci} ERP builds straight away.`,
+               zh: `尚无 ${it.brand} ${pilihan.kunci} 的基础图稿。选择一次即可 — 下一个 ${it.brand} ${pilihan.kunci} 的 ERP 将直接生成。` })));
+      }
       masukan.style.display = '';
       return;
     }

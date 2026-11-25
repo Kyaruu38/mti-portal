@@ -115,6 +115,12 @@ run.mjs
 Claude outputs/
 *.patch
 uji-*
+# ...KECUALI penyaring artwork dasar. `uji-*` dibuat untuk berkas banding
+# urgensi yang memang sekali pakai, dan ia menyerap alat/dasar/uji-dasar.mjs
+# tanpa suara — padahal itulah yang MEMBUAT src/label/dasarPeta.js, dan
+# satu-satunya cara membuatnya ulang kalau artworknya berubah. Peta tanpa
+# alat pembuatnya adalah angka yang tidak bisa diperiksa siapa pun lagi.
+!alat/dasar/uji-dasar.mjs
 
 # Aset merek hasil panen (alat/panen-aset.mjs). Potongan artwork SUNGGUHAN
 # milik merek — logo WESTLAKE, GOODRIDE dan seterusnya — dipotong dari berkas
@@ -133,3 +139,15 @@ alat/aset/
 # alatnya jalan, dan memuat jalur absolut mesin yang membuatnya.
 __pycache__/
 *.pyc
+
+# Artwork asli hasil panen dari Drive untuk penyaringan artwork dasar.
+# ALASANNYA SAMA DENGAN alat/aset/ DI ATAS, DAN LEBIH KERAS: ini 62 MB artwork
+# MEREK ORANG LAIN — Capitol, Arroyo, Hercules, Travelstar dan 50-an lainnya —
+# dan repo ini PUBLIK. Yang boleh ikut repo cuma hasil UKURANnya, dan itu sudah
+# ada di src/label/dasarPeta.js: id Drive plus angka, tanpa satu byte artwork.
+# Berkasnya sendiri tetap di Drive, di belakang izin Drive dan di belakang
+# drive-download yang menolak id yang tidak terdaftar sebagai artwork.
+alat/dasar/unduh/
+alat/dasar/putusan.json
+alat/dasar/peta-mentah.json
+alat/dasar/peta-resmi.json

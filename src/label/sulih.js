@@ -53,6 +53,32 @@ export async function sulih(sumber, gantian, opsi = {}) {
   //
   // Sekarang glifnya dihapus dari content streamnya. Begitu hilang, tidak
   // ada yang perlu ditutup, dan persoalan warna latar lenyap sendiri.
+  // KOTAK DI LUAR HALAMAN DISARING LEBIH DULU, SEBELUM TEKS LAMANYA DIBUANG.
+  //
+  // Urutannya yang penting, bukan pemeriksaannya. Penghapusan teks lama
+  // memakai matriks mentah, jadi ia BERHASIL walaupun kotak gambarnya
+  // ngawur -- hasilnya medan yang lamanya hilang dan barunya tidak pernah
+  // muncul, tanpa galat sama sekali. Menyaring sesudah menghapus berarti
+  // merusak berkas demi nilai yang tidak akan digambar.
+  //
+  // Ketangkap pada 6 artwork ber-/Rotate 270: 'tersulih 5 medan', nol nilai
+  // baru terbaca di keluarannya. Sebab aslinya sudah diperbaiki di
+  // parsers/pdf.js; pemeriksaan ini yang membuatnya tidak bisa sunyi lagi.
+  const pgUkur = doc.getPage(0);
+  const Wpg = pgUkur.getWidth(), Hpg = pgUkur.getHeight();
+  const diluar = [];
+  const dipakai = [];
+  for (const g of (gantian || [])) {
+    const x = g.x0 * MM, y = Hpg - g.y1 * MM;
+    const lb = (g.x1 - g.x0) * MM, tg = (g.y1 - g.y0) * MM;
+    const muat = Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(lb) && Number.isFinite(tg)
+      && x >= -1 && y >= -1 && x + lb <= Wpg + 1 && y + tg <= Hpg + 1;
+    if (muat) dipakai.push(g);
+    else diluar.push({ catatan: g.catatan || '?', nilai: String(g.nilai == null ? '' : g.nilai),
+      muat: false, sebab: `kotaknya di luar halaman (x ${Math.round(x)}, y ${Math.round(y)}, lembar ${Math.round(Wpg)}x${Math.round(Hpg)})` });
+  }
+  gantian = dipakai;
+
   let dibuang = 0, gagalBuang = [];
   const tmBuang = (gantian || []).map(g => g.tm).filter(Boolean);
   if (tmBuang.length) {
@@ -70,7 +96,7 @@ export async function sulih(sumber, gantian, opsi = {}) {
   const pg = doc.getPage(0);
   const H = pg.getHeight();
   const hebo = await doc.embedFont(StandardFonts.HelveticaBold);
-  const laporan = [];
+  const laporan = diluar.slice();   // yang kotaknya di luar halaman ikut dilaporkan, bukan didiamkan
 
   for (const g of (gantian || [])) {
     const lb = (g.x1 - g.x0) * MM, tg = (g.y1 - g.y0) * MM;
