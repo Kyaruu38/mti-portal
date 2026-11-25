@@ -297,6 +297,22 @@ export function cocokkanIsi(templat, medanSumber, jangkar) {
     // ini harus dilihat orang sebelum dipakai.
     let pilih = calon[0];
     const adaJangkar = !!(jangkar && jangkar.ok);
+
+    // CALON YANG TEKS LAMANYA IDENTIK SEMUA BUKAN KERAGUAN.
+    //
+    // Keraguan yang dijaga di bawah adalah "dua teks BERBEDA segolongan, dan
+    // tanpa jangkar tidak diketahui mana yang mana" -- 280 mm lawan 105,00 mm
+    // pada ARROYO. Tapi kalau SELURUH calonnya membawa teks yang sama persis,
+    // tidak ada yang perlu diputuskan: itu satu nilai yang tercetak dua kali,
+    // dan mengganti semuanya justru satu-satunya jawaban yang benar.
+    // Menggantinya sebagian menghasilkan label yang membawa dua nilai
+    // bertentangan sambil terlihat benar.
+    //
+    // Terukur pada HI-RUN PT/ST: lapisan teksnya 48 potong dan memuat
+    // 'ST205/75R14' dua kali serta '8 PR' dua kali. Aturan lama melihat
+    // "2 calon, tidak ada jangkar" lalu menandai ragu, sehingga seluruh
+    // merek itu dilaporkan TIDAK BISA -- padahal datanya ada dan jelas.
+    const semuaSama = calon.length > 1 && calon.every(c => c.s.teks === calon[0].s.teks);
     if (calon.length > 1 && adaJangkar) {
       const hx = (jangkar.x || 0) + (m.dX || 0);
       const hy = (jangkar.y || 0) + (m.dY != null ? m.dY : 0);
@@ -311,8 +327,9 @@ export function cocokkanIsi(templat, medanSumber, jangkar) {
       k: m.k, ketemu: true, golongan: gol, lama: pilih.s.teks,
       kotak: { ...pilih.s.kotak }, putar: pilih.s.diputar, arah: pilih.s.arah, tm: pilih.s.tm,
       calon: calon.length,
-      pasti: calon.length === 1 || adaJangkar,
-      sebabRagu: calon.length > 1 && !adaJangkar
+      pasti: calon.length === 1 || adaJangkar || semuaSama,
+      salinanIdentik: semuaSama ? calon.length : 0,
+      sebabRagu: calon.length > 1 && !adaJangkar && !semuaSama
         ? `${calon.length} teks bergolongan '${gol}' dan tidak ada jangkar untuk memutus — periksa sebelum dipakai`
         : '',
     });
